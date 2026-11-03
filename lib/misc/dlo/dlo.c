@@ -812,6 +812,9 @@ lws_display_list_destroy(struct lws_context *cx, lws_displaylist_t *dl)
 		lws_display_dlo_destroy(&d);
 	}
 
+	/* what it held is free: pages that didn't fit may fit now */
+	lws_fonts_remote_heap_freed(cx);
+
 #if defined(LWS_WITH_FOOTPRINT)
 	lws_footprint_unregister(&dl->fp);
 #endif

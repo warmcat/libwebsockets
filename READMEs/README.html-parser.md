@@ -311,12 +311,21 @@ and others may be placed after it on its line.  If the render has waited a
 few seconds for a page it can't have, and the caller set `.relayout_ok` in
 the render state, the render gives up returning `LWS_SRET_FATAL` with
 `.relayout` set.  The caller then destroys the display list and browses the
-page again with `.fonts_local` set, so it is laid out in the built-in faces
-only, as if they had been chosen from the start, and renders that from the
-top.  A caller that can't do that gets the text set in the closest built-in
-face, as much of it as fits in the box it was laid out in.
-`api-test-lhp-dlo` lays the page out again like that, and
-`--fonts-local` lays it out that way from the start, to compare against.
+page again with `.fonts_hold` set: its text then keeps the faces from the
+server it is set in resident until the display list is destroyed, so the
+render can't lose them.  Destroying a display list also ends the holdoff on
+pages that didn't fit in the heap, so they are asked for again at once.  A
+face that still can't be had is replaced in the layout by the closest that
+can, as if it had been chosen from the start, and the caller renders that
+from the top.  A caller that can't do that gets the text set in the closest
+built-in face, as much of it as fits in the box it was laid out in.
+`api-test-lhp-dlo` lays the page out again like that.  `.fonts_local` lays a
+page out in the built-in faces only, which `--fonts-local` does, to compare
+against.
+
+When the size of a face from the server closest to what the css asks for
+can't be had, eg, there's no memory for it, the closest size of that face
+which is resident is used before a built-in face is.
 
 This trades flash for heap and network: each page costs its size in heap
 while in use, and a fetch whenever it was evicted.

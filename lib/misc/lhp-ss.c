@@ -500,6 +500,7 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 	m->lhp.viewport_h = rs->viewport_h;
 	m->lhp.reclaim_elems = rs->reclaim_elems;
 	m->lhp.fonts_local = !!rs->fonts_local;
+	rs->displaylist.hold_fonts = !!rs->fonts_hold;
 	rs->relayout = 0;
 	m->lhp.base_url = strdup(url);
 #if defined(LWS_WITH_FOOTPRINT)

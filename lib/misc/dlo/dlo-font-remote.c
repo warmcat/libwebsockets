@@ -282,6 +282,7 @@ lws_fonts_remote_kick(lws_fonts_remote_t *fr)
 		 * and the rest are asked for when they are next wanted
 		 */
 		p->holdoff_until = lws_now_usecs() + LWS_FONTS_NOMEM_HOLDOFF_US;
+		p->nomem = 1;
 		break;
 	}
 
@@ -408,6 +409,7 @@ lws_mcufont_page_arrived(lws_mcufont_page_t *p, uint8_t *blob, size_t len)
 
 	p->blob = blob;
 	p->len = len;
+	p->nomem = 0;
 	r->gen++;
 	r->fr->fetches++;
 
@@ -664,6 +666,48 @@ lws_fonts_page_nomem(lws_mcufont_page_t *p)
 	lwsl_cx_notice(p->r->fr->cx, "no memory for %s/%04x", p->r->path,
 		       (unsigned int)p->page);
 	p->holdoff_until = lws_now_usecs() + LWS_FONTS_NOMEM_HOLDOFF_US;
+	p->nomem = 1;
+}
+
+/*
+ * A display list was destroyed: the heap it held is free, so the pages held
+ * off for want of it may be asked for again at once.  A page the server
+ * refused stays held off
+ */
+
+void
+lws_fonts_remote_heap_freed(struct lws_context *cx)
+{
+	if (!cx)
+		return;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&cx->fonts)) {
+		lws_display_font_t *f = lws_container_of(d,
+						lws_display_font_t, list);
+		lws_mcufont_family_t *fam = mcuf_family(f);
+
+		if (!fam)
+			continue;
+
+		lws_start_foreach_dll(struct lws_dll2 *, ds,
+				      lws_dll2_get_head(&fam->sizes_made)) {
+			lws_mcufont_remote_t *r = mcuf_remote(
+					lws_container_of(ds,
+						lws_display_font_t, list));
+
+			lws_start_foreach_dll(struct lws_dll2 *, dp,
+					      lws_dll2_get_head(&r->pages)) {
+				lws_mcufont_page_t *p = lws_container_of(dp,
+						lws_mcufont_page_t, list);
+
+				if (p->nomem) {
+					p->nomem = 0;
+					p->holdoff_until = 0;
+				}
+			} lws_end_foreach_dll(dp);
+		} lws_end_foreach_dll(ds);
+	} lws_end_foreach_dll(d);
 }
 
 /*
@@ -812,6 +856,7 @@ fontss_finished(fontss_t *m)
 			       (unsigned int)p->page);
 		p->holdoff_until = lws_now_usecs() +
 				   (LWS_FONTS_PAGE_HOLDOFF_S * LWS_US_PER_SEC);
+		p->nomem = 0;
 		return;
 	}
 
@@ -1010,9 +1055,10 @@ lws_mcufont_family_made(lws_mcufont_family_t *fam, uint16_t size)
 
 /*
  * The size of the family whose line height is closest to want, or if as
- * many sizes as we keep are made already, the closest of those.  Returns
- * nonzero if that size can't be chosen now: its core page isn't here and
- * can't be fetched now (the server failed us, or its copy is bad)
+ * many sizes as we keep are made already, the closest of those.  If that size
+ * can't be had now, its core page isn't here and can't be fetched now (no
+ * memory for it, the server failed us, or its copy is bad), the closest size
+ * whose core page is here.  Returns nonzero if there's none of those either
  */
 
 int
@@ -1068,11 +1114,38 @@ lws_mcufont_family_pick(lws_mcufont_family_t *fam, unsigned int want,
 	*line_height = lws_mcufont_family_lh(fam, best);
 
 	r = lws_mcufont_family_made(fam, *size);
-	if (r)
-		return !lws_mcufont_page_available(r,
-			lws_mcufont_remote_page(r, r->ranges[0], 0));
+	if (r ? lws_mcufont_page_available(r,
+			lws_mcufont_remote_page(r, r->ranges[0], 0)) :
+		!lws_fonts_remote_down(fam->fr))
+		return 0;
 
-	return lws_fonts_remote_down(fam->fr);
+	/* the face in another size that is here is closer than a local one */
+
+	bd = 0xffffffff;
+	lws_start_foreach_dll(struct lws_dll2 *, dd,
+			      lws_dll2_get_head(&fam->sizes_made)) {
+		lws_display_font_t *f = lws_container_of(dd,
+					lws_display_font_t, list);
+		lws_mcufont_page_t *p;
+
+		r = mcuf_remote(f);
+		p = lws_mcufont_remote_page(r, r->ranges[0], 0);
+		if (p && p->blob) {
+			d = lws_mcufont_lh_diff(f->choice.fixed_height, want);
+			if (d < bd) {
+				bd = d;
+				best = r->size;
+			}
+		}
+	} lws_end_foreach_dll(dd);
+
+	if (bd == 0xffffffff)
+		return 1;
+
+	*size = (uint16_t)best;
+	*line_height = lws_mcufont_family_lh(fam, best);
+
+	return 0;
 }
 
 /*

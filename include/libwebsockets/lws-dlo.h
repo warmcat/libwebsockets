@@ -330,6 +330,8 @@ typedef struct lws_dlo_text {
 
 	uint16_t			font_gen; /* the font copy the glyphs
 						   * were attached from */
+	const lws_display_font_t	*font_held; /* pinned while we live,
+						     * see .hold_fonts */
 } lws_dlo_text_t;
 
 typedef struct lws_dlo_rasterize {
@@ -469,6 +471,11 @@ typedef struct {
 typedef struct lws_displaylist {
 	lws_dll2_owner_t		dl;
 	struct lws_display_state 	*ds;
+	char				hold_fonts; /* the text keeps the
+						* pages of the faces from a
+						* server it is set in resident
+						* until it is destroyed, so its
+						* render can't lose them */
 #if defined(LWS_WITH_FOOTPRINT)
 	lws_footprint_t			fp; /* "display list" participant */
 #endif
@@ -555,8 +562,15 @@ typedef struct lws_display_render_state {
 	char				fonts_local; /* set by the caller
 						* before browsing: lay the page
 						* out in the faces built in only,
-						* not any from a server.  For
-						* browsing it again after the
+						* not any from a server */
+	char				fonts_hold; /* set by the caller
+						* before browsing: the display
+						* list keeps the faces from a
+						* server its text is set in
+						* resident until it's destroyed,
+						* so the layout only uses those
+						* it can have for the render too.
+						* For browsing again after the
 						* render set .relayout */
 	char				relayout_ok; /* set by the caller:
 						* it can act on .relayout.  If
@@ -572,8 +586,8 @@ typedef struct lws_display_render_state {
 						* LWS_SRET_FATAL, and the caller
 						* should destroy the display list
 						* and browse the page again with
-						* .fonts_local set, so it is laid
-						* out in the face it is drawn in */
+						* .fonts_hold set, so it is laid
+						* out in faces it can draw in */
 	uint16_t			reclaim_elems; /* 0, or evict every
 						* reclaimable heap occupant as
 						* every n-th element of the

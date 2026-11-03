@@ -50,7 +50,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_RECLAIM_LINES] = { "--reclaim-lines", "Evict every reclaimable heap occupant after each N rendered lines, so they all get renewed mid-render on any allocator" },
 	[LWS_SW_RECLAIM_ELEMS] = { "--reclaim-elems", "Evict every reclaimable heap occupant as every N-th element of the layout opens, so they all get renewed mid-layout on any allocator" },
 	[LWS_SW_STARVE_MS] = { "--starve-ms", "With --reclaim-lines, at the first such line also refuse every heap allocation for this many ms, so the faces evicted there can't be fetched again at first" },
-	[LWS_SW_FONTS_LOCAL] = { "--fonts-local", "Lay the page out in the built-in faces only, as a layout redone because its render couldn't have a face from the server is" },
+	[LWS_SW_FONTS_LOCAL] = { "--fonts-local", "Lay the page out in the built-in faces only" },
 	[LWS_SW_KERN_CHECK] = { "--kern-check", "Check how the registered 14px regular face kerns pairs of glyphs, instead of laying out a page" },
 	[LWS_SW_RETAINED] = { "--retained",    "Render the display list retained, as for a touch panel, keeping its DLOs as the raster passes them" },
 	[LWS_SW_SVG_LIVE_MAX] = { "--svg-live-max", "Fail if more than this many svg images were held at once" },
@@ -575,14 +575,15 @@ relayout_browse(lws_sorted_usec_list_t *sul)
 /*
  * The render couldn't have a face from the server some text was laid out
  * in: throw the display list and what was rendered of it away, and lay the
- * page out again in the built-in faces, as if they had been chosen from the
- * start.  The bmp is written again from its start
+ * page out again keeping the faces from the server it uses until the display
+ * list is destroyed, so the render can't lose them.  The bmp is written again
+ * from its start
  */
 
 static void
 relayout(lws_display_render_state_t *rs)
 {
-	lwsl_user("%s: laying the page out again in the built-in faces\n",
+	lwsl_user("%s: laying the page out again in faces it can keep\n",
 		  __func__);
 
 	lws_lhp_ss_cancel(rs);
@@ -600,7 +601,7 @@ relayout(lws_display_render_state_t *rs)
 	rs->lowest_id_y = 0;
 
 	/* the redone layout can't need doing again */
-	rs->fonts_local = 1;
+	rs->fonts_hold = 1;
 	rs->relayout_ok = 0;
 
 	if (lseek(fdout, 0, SEEK_SET)) {
@@ -1074,8 +1075,8 @@ main(int argc, const char **argv)
 
 	/*
 	 * If the render can't have a face from the server some text was laid
-	 * out in, we can lay the page out again in the built-in faces, as
-	 * long as the bmp can be written again from its start
+	 * out in, we can lay the page out again keeping the faces, as long as
+	 * the bmp can be written again from its start
 	 */
 	drs.relayout_ok = fdout != 1;
 

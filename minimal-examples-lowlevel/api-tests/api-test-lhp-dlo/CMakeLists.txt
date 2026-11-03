@@ -306,10 +306,12 @@ if (requirements)
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 
 		# ... and for longer than the render waits for them: the page
-		# is laid out again in the built-in face, and comes out as if
-		# that had been chosen from the start.  Only where the heap
-		# can be refused: elsewhere the faces are fetched again, and
-		# it doesn't come out in the built-in face
+		# is laid out again keeping the faces it uses resident, once
+		# the heap is back, so however often the render evicts, it
+		# comes out as it does with them resident from the start.
+		# Only where the heap can be refused: elsewhere the faces are
+		# fetched again and it's laid out only once, which proves
+		# nothing
 		if (LWS_HAVE_MALLOC_USABLE_SIZE)
 			add_test(NAME api-test-lhp-dlo-render-remote-fonts-starved-long
 				 COMMAND ${CMAKE_COMMAND}
@@ -317,7 +319,6 @@ if (requirements)
 					-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/36-font-pages.html
 					-DOUT=${CMAKE_CURRENT_BINARY_DIR}/36-font-pages-starved-long
 					"-DCOMMON=--font-manifest;file://${RF}/faces/fonts.json"
-					"-DFLAGS_A=--fonts-local"
 					"-DFLAGS_B=--reclaim-lines;7;--starve-ms;5000"
 					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 			set_tests_properties(api-test-lhp-dlo-render-remote-fonts-starved-long

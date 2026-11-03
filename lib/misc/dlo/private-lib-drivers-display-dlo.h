@@ -122,6 +122,7 @@ typedef struct lws_mcufont_page {
 	lws_usec_t		holdoff_until;	/* refused or no memory: until */
 	uint16_t		page;
 	uint8_t			bad;		/* the server's copy is unusable */
+	uint8_t			nomem;		/* held off for want of heap */
 } lws_mcufont_page_t;
 
 /*
@@ -264,6 +265,9 @@ void
 lws_fonts_remote_too_slow(struct lws_context *cx, int manifest);
 
 void
+lws_fonts_remote_heap_freed(struct lws_context *cx);
+
+void
 lws_fonts_remote_stop(struct lws_context *cx);
 
 void
@@ -283,6 +287,12 @@ lws_fonts_remote_too_slow(struct lws_context *cx, int manifest)
 {
 	(void)cx;
 	(void)manifest;
+}
+
+static LWS_INLINE void
+lws_fonts_remote_heap_freed(struct lws_context *cx)
+{
+	(void)cx;
 }
 #endif
 

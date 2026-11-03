@@ -82,6 +82,9 @@ lws_display_dlo_text_destroy(struct lws_dlo *dlo)
 
 	lws_display_font_mcufont_release_glyphs(text);
 	lwsac_free(&text->ac_glyphs);
+
+	if (text->font_held)
+		lws_font_unpin(text->font_held);
 }
 
 /*
@@ -381,6 +384,12 @@ lws_display_dlo_text_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 #endif
 	text->dlo.box = *box;
 	text->font = font;
+
+	if (dl->hold_fonts) {
+		/* a render that draws it in another face still unpins this */
+		lws_font_pin(font);
+		text->font_held = font;
+	}
 
 	lws_display_dlo_add(dl, dlo_parent, &text->dlo);
 
