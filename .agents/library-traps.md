@@ -1025,3 +1025,19 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    h3-without-h2 build (the esp32 lhp examples) that silently dropped
    `manual_initial_tx_credit`, so h3 streams had no rx flow control.
    Host CI builds have h2 too and won't show it; build-claude-noh2 does.
+ - mbedtls `MBEDTLS_SSL_KEEP_PEER_CERTIFICATE` (~6.7KB per connection on
+   esp32) looks droppable but isn't: the mTLS server gate, the public
+   `lws_tls_peer_cert_info()` and the TCP JIT-trust decision
+   (`tls-client.c`, only when a peer cert is present) all read it after
+   the handshake.  Turning it off silently disables JIT trust.
+ - A client's response status lives in the ah (`ah->http_response`).
+   Anything that lets a client wsi's ah go before the transaction ends
+   must snapshot it (h2 / h3 do, into `wsi->http.cli_response`).  On an
+   h1 client, `lws_http_headers_detach()` at ESTABLISHED looks, from the
+   code, to still free the ah under
+   `lws_client_interpret_server_handshake()`, which puts it back on the wsi
+   after the callback; on h2 that was an ASan heap UAF until 0c202edae.
+ - Our h3 qpack encoder / decoder streams are opened on first use by
+   `lws_h3_qpack_stream()` and are NULL until then; lws' encoder never
+   inserts, so normally only the decoder one ever opens, after a peer
+   insert.  Don't assume `cwsi_qpack_enc` / `_dec` exist.
