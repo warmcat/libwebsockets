@@ -59,6 +59,12 @@ of pages using h2 and renders them on the device + display combination,
 which is what Sai's `sai-expect` looks for when the demo runs as a CI test,
 and leaves it there.
 
+An EPD keeps showing its image with no power, so whatever is left on it is
+what it shows in storage: it should be left white.  On boards whose display
+says it's `bistable` in its `lws_display_t`, as the EPD drivers do, the last
+page is shown for 5s, then a white page, and `Completed: PASS` is logged
+once that is on the display.
+
 ESP32 WROVER KIT, and ESP32S2 Kaluga boards and displays are
 supported, along with Waveshare ESP32 dev board and a variety of
 E-ink displays, and the Waveshare ESP32-S3-Touch-LCD-1.28 round LCD with

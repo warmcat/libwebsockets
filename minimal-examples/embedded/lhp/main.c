@@ -22,7 +22,9 @@
  * The application is a placeholder for now: it visits each URL in the
  * board's carousel once, 10s apart, rendering it on the display via LHP; when
  * the last one is on the display it logs "Completed: PASS" for CI and leaves
- * it there.
+ * it there.  An EPD keeps its image with no power, so it should be left white
+ * for storage: there the last page is shown for 5s, then a white page, and
+ * PASS is logged once that is on the display.
  *
  * If an update is found, a modal update display with its progress is shown
  * whatever else was on the display.
@@ -45,8 +47,20 @@ static enum {
 	UI_APP,		/* the application html */
 } ui;
 
-/* the carousel runs once: browsing its last url, then that url displayed */
-static enum { CAROUSEL_RUNNING, CAROUSEL_LAST, CAROUSEL_DONE } carousel_phase;
+/* how long the last page of the carousel is shown on an EPD before blanking */
+#define CAROUSEL_BLANK_DELAY_US	(5 * LWS_US_PER_SEC)
+
+/*
+ * The carousel runs once: browsing its last url, then that url displayed.  On
+ * an EPD, it is displayed for a while, then a white page is shown for storage
+ */
+static enum {
+	CAROUSEL_RUNNING,
+	CAROUSEL_LAST,		/* browsing the last url */
+	CAROUSEL_SHOWING_LAST,	/* on an EPD: the last url is on the display */
+	CAROUSEL_BLANKING,	/* on an EPD: the white page is being drawn */
+	CAROUSEL_DONE
+} carousel_phase;
 static int carousel, update_pc, update_pc_shown = -1;
 static lws_sorted_usec_list_t sul_app, sul_boot_timeout, sul_ui;
 static char display_ready, boot_dirty, boot_done, seen_operational,
@@ -373,6 +387,41 @@ app_next(lws_sorted_usec_list_t *sul)
 		carousel_phase = CAROUSEL_LAST;
 }
 
+/* on an EPD, the last page has been shown long enough: leave it white */
+
+static void
+app_blank(lws_sorted_usec_list_t *sul)
+{
+	static const char blank[] = "<!doctype html><html><head>"
+		"<meta charset=\"utf-8\" />"
+		"<link rel=\"stylesheet\" href=\"ui.css\"></head>"
+		"<body></body></html>";
+	char *html;
+
+	if (carousel_phase != CAROUSEL_SHOWING_LAST)
+		/* the user took over meanwhile */
+		return;
+
+	if (lds.display_busy) {
+		lws_sul_schedule(cx, 0, &sul_app, app_blank, LWS_US_PER_SEC);
+		return;
+	}
+
+	html = malloc(sizeof(blank));
+	if (!html) {
+		lws_sul_schedule(cx, 0, &sul_app, app_blank, LWS_US_PER_SEC);
+		return;
+	}
+	memcpy(html, blank, sizeof(blank));
+
+	lwsl_notice("%s: leaving the display white\n", __func__);
+	carousel_phase = CAROUSEL_BLANKING;
+	if (page_show("blank.html", html, (int)sizeof(blank) - 1)) {
+		carousel_phase = CAROUSEL_SHOWING_LAST;
+		lws_sul_schedule(cx, 0, &sul_app, app_blank, LWS_US_PER_SEC);
+	}
+}
+
 /*
  * Decide what the display should show next.  It's done whenever something
  * changed, and when the display finishes an update: while it's busy, nothing
@@ -501,11 +550,27 @@ display_completion_cb(lws_display_state_t *lds, int a)
 		    update_pc_shown >= 0)
 			break;
 
-		if (carousel_phase == CAROUSEL_LAST) {
+		if (carousel_phase == CAROUSEL_LAST && lds->disp->bistable) {
 			/*
-			 * The last page of the carousel is on the display: we
-			 * are done.  In CI, sai-expect looks for this string
-			 * for success.
+			 * The last page of the carousel is on an EPD: show
+			 * it for a while, then leave the display white
+			 */
+			carousel_phase = CAROUSEL_SHOWING_LAST;
+			lws_sul_schedule(lds->ctx, 0, &sul_app, app_blank,
+					 CAROUSEL_BLANK_DELAY_US);
+			break;
+		}
+
+		if (carousel_phase == CAROUSEL_SHOWING_LAST)
+			/* app_blank() is still to come: no next browse */
+			break;
+
+		if (carousel_phase == CAROUSEL_LAST ||
+		    carousel_phase == CAROUSEL_BLANKING) {
+			/*
+			 * The last page of the carousel is on the display, or
+			 * on an EPD, the white page after it: we are done.  In
+			 * CI, sai-expect looks for this string for success.
 			 */
 			carousel_phase = CAROUSEL_DONE;
 			lwsl_notice("Completed: PASS\n");
