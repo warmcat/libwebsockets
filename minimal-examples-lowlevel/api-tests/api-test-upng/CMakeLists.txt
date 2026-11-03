@@ -24,4 +24,5 @@ if (requirements)
 	endif()
 
 	add_test(NAME api-test-upng COMMAND lws-api-test-upng --selftest)
+	add_test(NAME api-test-upng-fragmented COMMAND lws-api-test-upng --fragmented)
 endif()

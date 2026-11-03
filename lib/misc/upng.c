@@ -70,7 +70,6 @@ struct upng_unfline {
 	unsigned int		bypp;
 	unsigned int		bypl;
 
-	const uint8_t		*in;
 	uint8_t			*lines;
 	unsigned int		bpp;
 
@@ -178,59 +177,48 @@ unfilter_scanline(lws_upng_t *u)
 	switch (uf->filterType) {
 	case 0: /* None */
 		for (i = 0; i < uf->bypl; i++)
-			uf->recon[i] = u->inf->out[(uf->sp + i) %
-			                            u->inf->info_size];
+			uf->recon[i] = lws_upng_win(u->inf, (uf->sp + i) % u->inf->info_size);
 		break;
 	case 1: /* Sub */
 		for (i = 0; i <  uf->bypp; i++)
-			uf->recon[i] = u->inf->out[(uf->sp + i) %
-			                            u->inf->info_size];
+			uf->recon[i] = lws_upng_win(u->inf, (uf->sp + i) % u->inf->info_size);
 
 		for (i = uf->bypp; i < uf->bypl; i++)
-			uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
-			                            u->inf->info_size] +
+			uf->recon[i] = (uint8_t)(lws_upng_win(u->inf, (uf->sp + i) % u->inf->info_size) +
 				uf->recon[i - uf->bypp]);
 		break;
 	case 2: /* Up */
 		if (uf->y)
 			for (i = 0; i < uf->bypl; i++)
-				uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
-				            u->inf->info_size] + uf->precon[i]);
+				uf->recon[i] = (uint8_t)(lws_upng_win(u->inf, (uf->sp + i) % u->inf->info_size) + uf->precon[i]);
 		else
 			for (i = 0; i < uf->bypl; i++)
-				uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
-				                          u->inf->info_size]);
+				uf->recon[i] = (uint8_t)(lws_upng_win(u->inf, (uf->sp + i) % u->inf->info_size));
 		break;
 	case 3: /* Average */
 		if (uf->y) {
 			for (i = 0; i < uf->bypp; i++)
-				uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
-				        u->inf->info_size] + uf->precon[i] / 2);
+				uf->recon[i] = (uint8_t)(lws_upng_win(u->inf, (uf->sp + i) % u->inf->info_size) + uf->precon[i] / 2);
 			for (i = uf->bypp; i < uf->bypl; i++)
 				uf->recon[i] = (uint8_t)
-					(u->inf->out[(uf->sp + i) %
-					            u->inf->info_size] +
+					(lws_upng_win(u->inf, (uf->sp + i) % u->inf->info_size) +
 					((uf->recon[i - uf->bypp] +
 							uf->precon[i]) / 2));
 		} else {
 			for (i = 0; i < uf->bypp; i++)
-				uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
-				                         u->inf->info_size]);
+				uf->recon[i] = (uint8_t)(lws_upng_win(u->inf, (uf->sp + i) % u->inf->info_size));
 			for (i = uf->bypp; i < uf->bypl; i++)
-				uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
-				                         u->inf->info_size] +
+				uf->recon[i] = (uint8_t)(lws_upng_win(u->inf, (uf->sp + i) % u->inf->info_size) +
 					uf->recon[i - uf->bypp] / 2);
 		}
 		break;
 	case 4: /* Paeth */
 		if (uf->y) {
 			for (i = 0; i < uf->bypp; i++)
-				uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
-				                          u->inf->info_size] +
+				uf->recon[i] = (uint8_t)(lws_upng_win(u->inf, (uf->sp + i) % u->inf->info_size) +
 					paeth(0, uf->precon[i], 0));
 			for (i = uf->bypp; i < uf->bypl; i++)
-				uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
-				                          u->inf->info_size] +
+				uf->recon[i] = (uint8_t)(lws_upng_win(u->inf, (uf->sp + i) % u->inf->info_size) +
 					paeth(uf->recon[i - uf->bypp],
 							uf->precon[i],
 							uf->precon[i - uf->bypp]));
@@ -238,11 +226,9 @@ unfilter_scanline(lws_upng_t *u)
 		}
 
 		for (i = 0; i < uf->bypp; i++)
-			uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
-			                            u->inf->info_size]);
+			uf->recon[i] = (uint8_t)(lws_upng_win(u->inf, (uf->sp + i) % u->inf->info_size));
 		for (i = uf->bypp; i < uf->bypl; i++)
-			uf->recon[i] = (uint8_t)(u->inf->out[(uf->sp + i) %
-			                                u->inf->info_size] +
+			uf->recon[i] = (uint8_t)(lws_upng_win(u->inf, (uf->sp + i) % u->inf->info_size) +
 				paeth(uf->recon[i - uf->bypp], 0, 0));
 		break;
 	default:
@@ -295,7 +281,9 @@ upng_emit_line(lws_upng_t *u, const uint8_t **ppix, const uint8_t **pos,
 	uf->precon	= uf->alt ? uf->lines : uf->lines + uf->bypl;
 	uf->recon	= &uf->lines[obp];
 	*ppix		= uf->recon;
-	uf->filterType	= uf->in[(u->inf->consumed_linear++) % u->inf->info_size];
+	uf->filterType	= lws_upng_win(u->inf, u->inf->consumed_linear %
+					      u->inf->info_size);
+	u->inf->consumed_linear++;
 	uf->sp		= u->inf->consumed_linear % u->inf->info_size;
 
 	if (unfilter_scanline(u) != LWS_SRET_OK) {
@@ -308,7 +296,8 @@ upng_emit_line(lws_upng_t *u, const uint8_t **ppix, const uint8_t **pos,
 		unsigned long x;
 
 		for (x = 0; x < (unsigned long)u->width * (unsigned long)uf->bpp; x++) {
-			uint8_t bit = (uint8_t)((uf->in[((uf->ibp) >> 3) % u->inf->info_size] >>
+			uint8_t bit = (uint8_t)((lws_upng_win(u->inf,
+					((uf->ibp) >> 3) % u->inf->info_size) >>
 						(7 - ((uf->ibp) & 7))) & 1);
 			uf->ibp++;
 
@@ -530,7 +519,7 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 
 		case UOF_CHUNK_LEN:
 			if (!u->inf) {
-				size_t ims, win = UPNG_INF_WINDOW;
+				size_t ims, win = UPNG_INF_WINDOW, units, n;
 				uint64_t all;
 
 				/*
@@ -559,7 +548,12 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 				if (all < win)
 					win = (size_t)all;
 
-				ims = sizeof(inflator_ctx_t) + win +
+				/*
+				 * The decoder state and the two lines are one
+				 * allocation, a few KB; the window, which is
+				 * most of it, is in 1KB pieces if it must be
+				 */
+				ims = sizeof(inflator_ctx_t) +
 						(size_t)(u->u.bypl * 2);
 
 				/*
@@ -590,15 +584,29 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 					goto bail;
 				}
 				memset(u->inf, 0, sizeof(*u->inf));
-				u->inf->out	= (uint8_t *)&u->inf[1];
+
+				units = (win + LWS_UPNG_WIN_UNIT - 1) >>
+						LWS_UPNG_WIN_UNIT_SHIFT;
+				u->inf->out_fb = lws_fragbuf_create(units,
+							LWS_UPNG_WIN_UNIT);
+				if (!u->inf->out_fb) {
+					lwsl_notice("%s: window %u OOM\n",
+						__func__, (unsigned int)win);
+					lws_free_set_NULL(u->inf);
+					r = LWS_SRET_YIELD;
+					goto bail;
+				}
+				for (n = 0; n < units; n++)
+					u->inf->out_u[n] = lws_fragbuf_unit(
+							u->inf->out_fb, n);
+
 				u->inf->info_size = (unsigned int)win;
 				u->inf->outlen	= (unsigned int)win;
 				u->inf->bypl	= u->u.bypl;
 				u->inf->state	= UPNS_ID_BL_GB_DONE;
 				u->inf->upng	= u;
 
-				u->u.lines	= u->inf->out + win;
-				u->u.in		= u->inf->out;
+				u->u.lines	= (uint8_t *)&u->inf[1];
 			}
 			u->chunklen = (u->chunklen << 8) | *pos++;
 			if (++u->sctr == 4) {
@@ -766,10 +774,12 @@ lws_upng_heap(lws_upng_t *u)
 	if (!u)
 		return 0;
 
+	/* the window's pieces are 1KB each, so round up to them */
 	return lws_fp_heap(u, sizeof(*u)) +
 	       (u->inf ? lws_fp_heap(u->inf, sizeof(inflator_ctx_t) +
-					     u->inf->info_size +
-					     (size_t)(u->u.bypl * 2)) : 0);
+					     (size_t)(u->u.bypl * 2)) +
+			 (((size_t)u->inf->info_size + LWS_UPNG_WIN_UNIT - 1) &
+					~(size_t)(LWS_UPNG_WIN_UNIT - 1)) : 0);
 }
 #endif
 
@@ -779,8 +789,10 @@ lws_upng_free(lws_upng_t** upng)
 	if (!*upng)
 		return;
 
-	if ((*upng)->inf)
+	if ((*upng)->inf) {
+		lws_fragbuf_destroy(&(*upng)->inf->out_fb);
 		lws_free_set_NULL((*upng)->inf);
+	}
 
 	lws_free_set_NULL(*upng);
 }

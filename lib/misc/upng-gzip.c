@@ -339,7 +339,8 @@ huffman_decode_symbol(inflator_ctx_t *inf, const htree_t *ct, unsigned int *uct)
 static void
 inflate_emit(inflator_ctx_t *inf, uint8_t b)
 {
-	inf->out[inf->outpos++] = b;
+	lws_upng_win(inf, inf->outpos) = b;
+	inf->outpos++;
 	if (inf->outpos >= inf->outlen)
 		inf->outpos = 0;
 	inf->outpos_linear++;
@@ -817,10 +818,12 @@ fill_l:
 				virt = inf->info_size -
 					(inf->backward - inf->start);
 
-			if (virt >= inf->info_size)
+			if (virt >= inf->info_size) {
 				lwsl_err("virt %d\n", (int)virt);
+				return LWS_SRET_FATAL + 10;
+			}
 
-			inflate_emit(inf, inf->out[virt]);
+			inflate_emit(inf, lws_upng_win(inf, virt));
 			inf->backward--;
 
 			if (!inf->backward)
@@ -1073,6 +1076,7 @@ lws_upng_inflator_create(const uint8_t **outring, size_t *outringlen,
 			 size_t **opl, size_t **cl)
 {
 	inflator_ctx_t *inf = lws_zalloc(sizeof(*inf), __func__);
+	unsigned int n;
 
 	if (!inf) {
 		lwsl_notice("%s: OOM\n", __func__);
@@ -1088,8 +1092,12 @@ lws_upng_inflator_create(const uint8_t **outring, size_t *outringlen,
 	inf->state	= UPNS_ID_BL_GB_GZIP_ID1;
 	inf->gzip	= 1;
 
-	inf->out = (uint8_t *)lws_malloc(inf->info_size, __func__);
-	if (!inf->out) {
+	/*
+	 * Our caller reads the ring directly, so it's one piece, reached
+	 * through the window's unit table like the png's
+	 */
+	inf->out_linear = (uint8_t *)lws_malloc(inf->info_size, __func__);
+	if (!inf->out_linear) {
 		lwsl_notice("%s: inf malloc %u OOM\n",
 			__func__, (unsigned int)inf->info_size);
 
@@ -1098,7 +1106,10 @@ lws_upng_inflator_create(const uint8_t **outring, size_t *outringlen,
 		return NULL;
 	}
 
-	*outring = inf->out;
+	for (n = 0; n < inf->info_size >> LWS_UPNG_WIN_UNIT_SHIFT; n++)
+		inf->out_u[n] = inf->out_linear + (n * LWS_UPNG_WIN_UNIT);
+
+	*outring = inf->out_linear;
 	*outringlen = inf->info_size;
 	*opl = &inf->outpos_linear;
 	*cl = &inf->consumed_linear;
@@ -1135,7 +1146,7 @@ lws_upng_inflate_data(struct inflator_ctx *inf, const void *buf, size_t len)
 void
 lws_upng_inflator_destroy(struct inflator_ctx **inf)
 {
-	lws_free_set_NULL((*inf)->out);
+	lws_free_set_NULL((*inf)->out_linear);
 	lws_free_set_NULL(*inf);
 }
 

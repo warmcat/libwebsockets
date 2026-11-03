@@ -1269,6 +1269,19 @@ typedef struct htree {
 	uint16_t		numcodes;
 } htree_t;
 
+/*
+ * The inflate window is reached through a table of 1KB pieces, so it doesn't
+ * have to be one allocation: a png's is up to 32.5KB, which a fragmented heap
+ * with much more than that free often can't give in one piece
+ */
+#define LWS_UPNG_WIN_UNIT_SHIFT	10
+#define LWS_UPNG_WIN_UNIT	(1u << LWS_UPNG_WIN_UNIT_SHIFT)
+#define LWS_UPNG_WIN_UNITS_MAX	33 /* the png's 32KB + 512, or gzip's 32KB */
+
+/* _i is evaluated twice */
+#define lws_upng_win(_inf, _i) ((_inf)->out_u[(_i) >> LWS_UPNG_WIN_UNIT_SHIFT] \
+				[(_i) & (LWS_UPNG_WIN_UNIT - 1)])
+
 typedef struct inflator_ctx {
 	unsigned int		clenc[NUM_CODE_LENGTH_CODES];
 	unsigned int		bitlen[NUM_DEFLATE_CODE_SYMBOLS];
@@ -1280,7 +1293,9 @@ typedef struct inflator_ctx {
 	lws_upng_t		*upng;
 
 	const uint8_t		*in;
-	uint8_t			*out;
+	uint8_t			*out_u[LWS_UPNG_WIN_UNITS_MAX]; /* lws_upng_win() */
+	lws_fragbuf_t		*out_fb; /* the png's window, in pieces */
+	uint8_t			*out_linear; /* gzip's, one piece for its ring */
 
 	htree_t			clct;
 	htree_t			ct;
