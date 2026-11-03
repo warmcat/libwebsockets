@@ -280,7 +280,8 @@ __lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi->c_port = (uint16_t)(unsigned int)i->port;
 	wsi->io->sys_tls_client_cert = i->sys_tls_client_cert;
 
-#if defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_QUIC)
+	/* the h2 and h3 streams' manual rx flow control start from it */
 	wsi->txc.manual_initial_tx_credit =
 			(int32_t)i->manual_initial_tx_credit;
 #endif
