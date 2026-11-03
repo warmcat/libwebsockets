@@ -117,7 +117,7 @@ set(LWS_PORT_LEASE_LAST 30000)
 # user's other trees also get.  So find the user some other way then.
 #
 function(_lws_port_counter_file VAR_NAME)
-	if (WIN32)
+	if (CMAKE_HOST_WIN32)
 		set(_dir "$ENV{TEMP}")
 		set(_who "$ENV{USERNAME}")
 	else()
