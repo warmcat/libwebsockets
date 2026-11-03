@@ -596,6 +596,11 @@ struct lws_context_per_thread {
 	int count_event_loop_static_asset_handles;
 #endif
 
+#if defined(LWS_PLAT_FREERTOS)
+	/* when the service thread last let lower priority tasks run */
+	lws_usec_t last_os_yield;
+#endif
+
 	volatile unsigned char inside_poll;
 	volatile unsigned char foreign_spinlock;
 #if defined(LWS_WITH_SERVER)

@@ -33,12 +33,16 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 }
 
 
+/* one tick of the os scheduler, and how long we may go without waiting one */
+#define LWS_FREERTOS_TICK_US	((lws_usec_t)portTICK_PERIOD_MS * LWS_US_PER_MS)
+#define LWS_FREERTOS_YIELD_US	(500 * LWS_US_PER_MS)
+
 int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	volatile struct lws_context_per_thread *vpt;
 	struct lws_context_per_thread *pt;
-	lws_usec_t timeout_us;
+	lws_usec_t timeout_us, t0, t1;
 	int n = -1, m, c, a = 0;
 
 	/* stay dead once we are dead */
@@ -155,10 +159,30 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 				vpt->inside_poll = 1;
 				lws_memory_barrier();
+				t0 = lws_now_usecs();
 				n = select(max_fd + 1, &readfds, &writefds, &errfds, ptv);
 				vpt->inside_poll = 0;
 				lws_memory_barrier();
 				n = 0;
+
+				/*
+				 * With work always due, eg, a long render that
+				 * reschedules itself at once, select() never
+				 * waits, and tasks of lower priority than ours,
+				 * the idle task with them, never run.  The task
+				 * watchdog sees the idle task starved after a
+				 * few seconds, so if we didn't wait a tick for a
+				 * while, wait one now.
+				 */
+				t1 = lws_now_usecs();
+				if (t1 - t0 >= LWS_FREERTOS_TICK_US)
+					pt->last_os_yield = t1;
+				else
+					if (t1 - pt->last_os_yield >
+							LWS_FREERTOS_YIELD_US) {
+						vTaskDelay(1);
+						pt->last_os_yield = lws_now_usecs();
+					}
 
 				for (m = 0; m < (int)pt->fds_count; m++) {
 					c = 0;
