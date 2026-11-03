@@ -2565,6 +2565,23 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					 */
 					if (wsi->h3.rx_frame_type == 0x05) {
 						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+						/*
+						 * lws never allows push, so
+						 * on a client this is most
+						 * likely us having lost our
+						 * place in the stream's frames
+						 */
+						lwsl_wsi_notice(wsi, "PUSH_PROMISE "
+							"(len %llu) on stream %llu "
+							"at rx %llu, state 0x%x",
+							(unsigned long long)
+								wsi->h3.rx_frame_len,
+							(unsigned long long)(wsi->quic.qs ?
+								wsi->quic.qs->stream_id : 0),
+							(unsigned long long)(wsi->quic.qs ?
+								wsi->quic.qs->rx_offset : 0),
+							(unsigned int)lwsi_state(wsi));
 						lws_quic_enter_closing_state(nwsi,
 							nwsi && nwsi->quic.qn &&
 							nwsi->quic.qn->is_server ?
