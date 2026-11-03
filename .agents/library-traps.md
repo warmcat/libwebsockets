@@ -224,6 +224,18 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    finds none.  Take a host's own addresses from `getifaddrs()`; on Linux
    the IPv6 temporary / deprecated / tentative flags it lacks are in
    `/proc/net/if_inet6` (protocol_lws_extip_router does both).
+ - **What the kernel's route messages really say** (seen in an
+   `unshare -rn` netns, 2026-11-03): `RTA_TABLE` is always there, and a
+   table id over 255 comes as `rtm_table` `RT_TABLE_COMPAT` (252) with the
+   real id in `RTA_TABLE`.  `ip route replace` / `change` send a lone
+   `RTM_NEWROUTE` with `NLM_F_REPLACE` and no DELROUTE for the route it
+   replaced, even with another gateway.  A different metric is a different
+   route (both coexist).  IPv4 metric 0 has no `RTA_PRIORITY`.  Deleting an
+   address sends DELROUTEs for its /24, broadcast and local routes, but none
+   for default routes via a gateway on it.  `ip -6 route append` sends an
+   `RTA_MULTIPATH` NEWROUTE with no `RTA_OIF` / `RTA_GATEWAY`.  Synthetic
+   messages can be fed to a context with `lws_netlink_inject()`
+   (api-test-route-tables).
  - **`lws_b64_encode_string_url()` still pads with `=`**: a token built
    from random bytes for a url or JSON needs a byte count that is a
    multiple of 3, or the padding stripped.
