@@ -261,7 +261,12 @@ lws_quic_rx_held_after(const struct lws_quic_rx_held *h, uint64_t offset)
  * the data into.  A peer holding more than that, or more chunks than it has
  * paid for in data (RFC 9000 21.7), has the connection closed.
  *
- * Returns 0 if held or already held, or -1 if the connection is closing.
+ * If it's within the budgets but there's no heap to hold it, the packet
+ * carrying it isn't acknowledged, as if it never came: the peer finds it lost
+ * and sends the data again, and its congestion control slows it meanwhile.
+ *
+ * Returns 0 if held, already held or left for the peer to send again, or -1 if
+ * the connection is closing.
  */
 static int
 lws_quic_rx_hold(struct lws *nwsi, struct lws_quic_stream *qs,
@@ -391,6 +396,12 @@ lws_quic_rx_hold(struct lws *nwsi, struct lws_quic_stream *qs,
 		}
 	}
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	/* as if there was no heap for the chunk */
+	if (!is_crypto && lws_fi(&nwsi->fic, "quic_rx_hold_oom"))
+		goto oom;
+#endif
+
 	c = lws_malloc(sizeof(*c) + total, "quic rx chunk");
 	if (!c)
 		goto oom;
@@ -423,13 +434,18 @@ lws_quic_rx_hold(struct lws *nwsi, struct lws_quic_stream *qs,
 
 oom:
 	/*
-	 * The packet carrying it is acknowledged, so the peer will not send
-	 * it again: going on without it would only stall the stream
+	 * The packet carrying it isn't acknowledged yet: when its frames are
+	 * all parsed, it's taken out of what we will acknowledge, so the peer
+	 * sends what it carried again.  What else it carried, that we did
+	 * take, comes again too, which the peer may do at any time anyway.
 	 */
-	lwsl_wsi_err(nwsi, "QUIC RX: OOM holding out-of-order data");
-	lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_INTERNAL_ERROR, 0, 0);
+	lwsl_wsi_notice(nwsi, "QUIC RX: no heap to hold %u B out of order, "
+			"leaving it for the peer to send again",
+			(unsigned int)len);
+	if (qn)
+		qn->rx_pkt_unacked = 1;
 
-	return -1;
+	return 0;
 }
 
 /*

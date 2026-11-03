@@ -907,6 +907,11 @@ struct lws_quic_netconn {
 	uint8_t			pto_probe_needed:2;
 	uint8_t			address_validated:1;
 	uint8_t			is_closing:1;
+	/*
+	 * the packet being parsed had stream data we had no heap to hold: it
+	 * is taken out of what we acknowledge, so the peer sends it again
+	 */
+	uint8_t			rx_pkt_unacked:1;
 	/* server: the peer opened a request stream, see idle_check */
 	uint8_t			had_request:1;
 	/*

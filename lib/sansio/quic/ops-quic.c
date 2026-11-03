@@ -3661,8 +3661,16 @@ tp_ok:
 
 		/* Check for duplicate/replayed packet numbers (Security Fix) */
 		int is_out_of_order = 0;
+		/* to take the packet out of what we ack, if we can't keep it */
+		struct lws_quic_netconn *pn_qn = nwsi->quic.qn;
+		uint64_t pn_hi_was = 0, pn_bm_was = 0;
+
 		if (nwsi->quic.qn) {
 			uint64_t highest = nwsi->quic.qn->highest_rx_pn[pn_space];
+
+			pn_hi_was = highest;
+			pn_bm_was = nwsi->quic.qn->rx_pn_bitmask[pn_space];
+			nwsi->quic.qn->rx_pkt_unacked = 0;
 			if ((nwsi->quic.qn->rx_pn_bitmask[pn_space] != 0 || highest != 0) && full_pn <= highest) {
 				uint64_t diff = highest - full_pn;
 				if (diff >= 64 || (nwsi->quic.qn->rx_pn_bitmask[pn_space] & (1ULL << diff))) {
@@ -3908,6 +3916,19 @@ tp_ok:
 			/* ALPN negotiation might have migrated the network WSI! */
 			if (nwsi && !nwsi->quic.qn) {
 				nwsi = lws_get_quic_network_wsi(nwsi);
+			}
+
+			/*
+			 * Stream data it carried couldn't be held for lack of
+			 * heap: forget we had the packet, so it isn't acked and
+			 * the peer sends the data again.  Nothing else moves
+			 * the pn state while one packet's frames are parsed.
+			 */
+			if (nwsi && nwsi->quic.qn && nwsi->quic.qn == pn_qn &&
+			    pn_qn->rx_pkt_unacked) {
+				pn_qn->rx_pkt_unacked = 0;
+				pn_qn->highest_rx_pn[pn_space] = pn_hi_was;
+				pn_qn->rx_pn_bitmask[pn_space] = pn_bm_was;
 			}
 
 			/*

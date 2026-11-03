@@ -122,6 +122,24 @@ if (requirements)
 					     TIMEOUT 60)
 
 		#
+		# The same with every third chunk of stream data arriving ahead of
+		# a gap finding no heap to hold it: the packet carrying it must
+		# not be acknowledged, so the peer sends it again, and the data
+		# still all arrives, instead of the connection failing
+		#
+		if (has_fault_injection)
+			lws_get_free_port(PORT_QCS_HOLD_OOM)
+			lws_get_free_port(PORT_QCS_HOLD_OOM_RELAY)
+			add_test(NAME ${SAMP}-hold-oom COMMAND ${SAMP}
+					--server ${QCS_RELAY_ADS} -p ${PORT_QCS_HOLD_OOM}
+					--relay ${PORT_QCS_HOLD_OOM_RELAY} --write-size 100
+					--fault-injection "wsi/quic_rx_hold_oom(X..)")
+			set_tests_properties(${SAMP}-hold-oom PROPERTIES
+						     WORKING_DIRECTORY .
+						     TIMEOUT 60)
+		endif()
+
+		#
 		# The same with the CUBIC congestion controller on both sides,
 		# otherwise never selected: the controller's in-flight accounting
 		# over the relay's reordering and drops
