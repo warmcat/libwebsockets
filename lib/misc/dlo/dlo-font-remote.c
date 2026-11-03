@@ -278,7 +278,13 @@ lws_fonts_remote_kick(lws_fonts_remote_t *fr)
 		if (fr->ss_page)
 			return;
 
-		lws_fonts_remote_set_down(fr);
+		/*
+		 * Not the server's fault: we couldn't even start asking it,
+		 * most likely there wasn't the memory for the stream.  This
+		 * page is held off as when there isn't the memory for it,
+		 * and the rest are asked for when they are next wanted
+		 */
+		p->holdoff_until = lws_now_usecs() + LWS_FONTS_NOMEM_HOLDOFF_US;
 		break;
 	}
 
