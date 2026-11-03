@@ -207,7 +207,7 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 
 	/* Export to el */
 	status = BCryptExportKey(ctx->u.hKey, NULL, BCRYPT_ECCPRIVATE_BLOB, NULL, 0, &bloblen, 0);
-	if (!BCRYPT_SUCCESS(status) && status != 0xC0000023) goto fail;
+	if (!BCRYPT_SUCCESS(status) && status != (NTSTATUS)0xC0000023 /* STATUS_BUFFER_TOO_SMALL */) goto fail;
 
 	eccblob = (BCRYPT_ECCKEY_BLOB *)lws_malloc(bloblen, "genec export");
 	if (!eccblob) goto fail;

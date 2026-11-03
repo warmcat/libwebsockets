@@ -210,7 +210,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	 */
 
 	status = BCryptExportKey(ctx->u.hKey, NULL, BCRYPT_RSAFULLPRIVATE_BLOB, NULL, 0, &bloblen, 0);
-	if (!BCRYPT_SUCCESS(status) && status != 0xC0000023) { /* STATUS_BUFFER_TOO_SMALL */
+	if (!BCRYPT_SUCCESS(status) && status != (NTSTATUS)0xC0000023) { /* STATUS_BUFFER_TOO_SMALL */
 		goto fail;
 	}
 

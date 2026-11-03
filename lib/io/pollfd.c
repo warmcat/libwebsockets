@@ -529,7 +529,8 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 #endif
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws *end_wsi;
-	int v, m, ret = 0;
+	lws_sockfd_type v;
+	int m, ret = 0;
 
 	lws_pt_assert_lock_held(pt);
 
@@ -588,7 +589,7 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 		lws_plat_delete_socket_from_fds(context, wsi, m);
 		pt->count_conns--;
 		if (fixup) {
-			v = (int) pt->fds[m].fd;
+			v = pt->fds[m].fd;
 			/* old end guy's "position in fds table" is now the
 			 * deletion guy's old one */
 			end_wsi = wsi_from_fd(context, v);

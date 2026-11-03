@@ -745,8 +745,8 @@ static int
 lws_stub_run_as(const struct lws_stub_config *config)
 {
 	const char *ra = lws_cmdline_option_cx(config->cx, "--lws-run-as");
-	struct lws_context *cx = config->cx;
 #if !defined(WIN32)
+	struct lws_context *cx = config->cx;
 	const char *un = cx->username, *gn = cx->groupname;
 	char u[64], *colon;
 	uid_t uid;

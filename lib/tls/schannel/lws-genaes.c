@@ -340,8 +340,8 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 						       authInfo, authInfo->pbMacContext, authInfo->cbMacContext, (PUCHAR)out_aligned,
 						       (ULONG)len, &result_len, 0);
                        } else {
-                               if (stream_block_16 && taglen && taglen <= ctx->u.cbTag)
-                                       memcpy(ctx->u.pbTag, stream_block_16, taglen);
+                               if (stream_block_16 && taglen > 0 && (size_t)taglen <= ctx->u.cbTag)
+                                       memcpy(ctx->u.pbTag, stream_block_16, (size_t)taglen);
 				status = BCryptDecrypt(ctx->u.hKey, (PUCHAR)in_aligned, (ULONG)len,
 						       authInfo, authInfo->pbMacContext, authInfo->cbMacContext, (PUCHAR)out_aligned,
 						       (ULONG)len, &result_len, 0);
