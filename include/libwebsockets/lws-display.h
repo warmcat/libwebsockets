@@ -122,6 +122,10 @@ typedef struct lws_display {
 	 * This is managed via a sul on the event loop, not blocking. */
 	uint16_t			latency_update_ms;
 	/**< nominal update latency in ms */
+	uint8_t				bistable:1;
+	/**< the display keeps showing what it was last updated with, with no
+	 * power, eg, an EPD.  What was left on it at the end is visible for
+	 * as long as it is stored, so it should be left white then */
 } lws_display_t;
 
 /*
