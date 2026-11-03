@@ -152,8 +152,12 @@ mbedtls_quic_read_handshake_msg(mbedtls_ssl_context *ssl,
 	if (b->rx_len[li] < total_len)
 		return MBEDTLS_ERR_SSL_WANT_READ;
 
+	/*
+	 * mbedtls may have shrunk its buffer after the handshake: this has it
+	 * grow it again for this message, which stays here until then
+	 */
 	if (len < total_len)
-		return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+		return MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL;
 
 	memcpy(buf, rx, total_len);
 
