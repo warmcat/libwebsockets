@@ -1211,6 +1211,10 @@ lhp_line_strut(lhp_pstack_t *c, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 	lws_dlo_text_t *txt;
 	lws_box_t box;
 
+	if (!ps->font)
+		/* there's no face to take the line's height from */
+		return;
+
 	lws_fx_add(&box.x, &c->ox, &c->curx);
 	lws_fx_add(&box.y, &c->oy, &c->cury);
 	box.w = c->cw;
@@ -1827,6 +1831,10 @@ lhp_list_marker(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 	char m[16] = "-"; /* the embedded fonts rarely carry U+2022 */
 	lws_box_t box;
 	size_t ml;
+
+	if (!ps->font)
+		/* there's no face to draw the marker in */
+		return;
 
 	while (list && !lhp_tag_is(list, "ol", 2) && !lhp_tag_is(list, "ul", 2))
 		list = lhp_parent(list);
