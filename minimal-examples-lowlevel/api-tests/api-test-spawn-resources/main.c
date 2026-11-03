@@ -25,6 +25,9 @@
  *
  *   --tree		starts TREE_HOGS hogs at once and waits for them
  *
+ *   --stuck		starts something that holds on to its stdio for
+ *			STUCK_HOLD_MS, and then never goes by itself
+ *
  * The legs are
  *
  *  - an exit, without and then with info.res: the helper is spawned, goes,
@@ -37,6 +40,10 @@
  *  - a tree of hogs: the peak is about TREE_HOGS x HOG_MIB, all of them at
  *    once rather than the biggest one, and the cpu is theirs too, not the
  *    --tree process's that only waited for them
+ *
+ *  - one that's stuck, given STUCK_TIMEOUT_S: his timeout kills him, and he
+ *    is reaped then, although what he started still holds his stdio open
+ *    (not on windows, where there's no fork() for him to do it with)
  *
  * So that a leg that goes wrong says where, the helpers say on their stdout
  * how far they got, which we log as it comes, and every HEARTBEAT_S while a
@@ -76,17 +83,25 @@
 #define MIB		(1024ull * 1024ull)
 #define HEARTBEAT_S	5
 #define LEG_MAX_S	55
+#define STUCK_TIMEOUT_S	2
+#define STUCK_HOLD_MS	10000
 
 typedef enum {
 	LEG_EXIT,
 	LEG_EXIT_RES,
 	LEG_HOG,
 	LEG_TREE,
+#if !defined(WIN32)
+	LEG_STUCK,
+#endif
 	LEG_DONE
 } test_leg_t;
 
 static const char * const leg_names[] = {
-	"exit", "exit, tracking its resources", "one hog", "tree of hogs"
+	"exit", "exit, tracking its resources", "one hog", "tree of hogs",
+#if !defined(WIN32)
+	"stuck"
+#endif
 };
 
 static struct lws_context *context;
@@ -267,6 +282,31 @@ tree(void)
 	return ret;
 }
 
+#if !defined(WIN32)
+static int
+stuck(void)
+{
+	pid_t pid;
+
+	say("stuck started");
+
+	/* what he started has his stdio too, and keeps it a while */
+	pid = fork();
+	if (pid < 0)
+		return 7;
+	if (!pid) {
+		sleep_ms(STUCK_HOLD_MS);
+		_exit(0);
+	}
+
+	/* and he never goes by himself, it takes his timeout */
+	while (1)
+		sleep_ms(1000);
+
+	return 0;
+}
+#endif
+
 /*
  * Test side
  */
@@ -292,7 +332,7 @@ reap_cb(void *opaque, const lws_spawn_resource_us_t *r, siginfo_t *si,
 		 want_mib = leg == LEG_TREE ? TREE_HOGS * HOG_MIB : HOG_MIB,
 		 want_cpu = leg == LEG_TREE ? TREE_HOGS * HOG_CPU_US :
 					      HOG_CPU_US;
-	int code;
+	int code, ms = (int)((lws_now_usecs() - leg_start) / LWS_US_PER_MS);
 
 	lws_sul_cancel(&sul_heartbeat);
 
@@ -304,12 +344,23 @@ reap_cb(void *opaque, const lws_spawn_resource_us_t *r, siginfo_t *si,
 
 	lwsl_user("%s: %s: after %dms, exit %d, cpu %llums (user %llums, "
 		  "sys %llums), peak %lluMiB\n", __func__, leg_names[leg],
-		  (int)((lws_now_usecs() - leg_start) / LWS_US_PER_MS), code,
+		  ms, code,
 		  (unsigned long long)(cpu / 1000),
 		  (unsigned long long)(r->us_cpu_user / 1000),
 		  (unsigned long long)(r->us_cpu_sys / 1000),
 		  (unsigned long long)(r->peak_mem_rss / MIB));
 
+#if !defined(WIN32)
+	if (leg == LEG_STUCK) {
+		check(we_killed_him && code, "his timeout killed him");
+		/*
+		 * His stdio is still held open by what he started: nothing
+		 * may wait for it after his timeout, only for him
+		 */
+		check(ms < STUCK_HOLD_MS, "he was reaped without his stdio "
+					  "closing");
+	} else
+#endif
 	check(!we_killed_him && !code, "the helper finished by itself, OK");
 
 	if (leg == LEG_HOG || leg == LEG_TREE) {
@@ -460,7 +511,10 @@ static int
 spawn_leg(void)
 {
 	static const char * const helpers[] = {
-		"--exit", "--exit", "--hog", "--tree"
+		"--exit", "--exit", "--hog", "--tree",
+#if !defined(WIN32)
+		"--stuck"
+#endif
 	};
 	const char *ea[] = { argv0, helpers[leg], NULL };
 	struct lws_spawn_piped_info info;
@@ -477,6 +531,10 @@ spawn_leg(void)
 	if (leg != LEG_EXIT)
 		info.res	= &res;
 	info.timeout_us		= 40 * LWS_US_PER_SEC;
+#if !defined(WIN32)
+	if (leg == LEG_STUCK)
+		info.timeout_us	= STUCK_TIMEOUT_S * LWS_US_PER_SEC;
+#endif
 
 	leg_start = lws_now_usecs();
 	lsp = lws_spawn_piped(&info);
@@ -506,6 +564,10 @@ main(int argc, const char **argv)
 		return hog();
 	if (lws_cmdline_option(argc, argv, "--tree"))
 		return tree();
+#if !defined(WIN32)
+	if (lws_cmdline_option(argc, argv, "--stuck"))
+		return stuck();
+#endif
 
 	/*
 	 * The helpers are us again.  The spawned child starts somewhere else,
