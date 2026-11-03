@@ -25,12 +25,11 @@ static const char * const boot_css =
 	"body { background-color: #fff; color: #000; font-family: sans }"
 	"#ov { position: absolute; left: 0; top: 0; background-color: #fff }"
 	"#win { position: absolute; overflow: hidden }"
-	"#list { position: relative }"
+	"#list { position: relative; border-spacing: 0 }"
 	".ic { border-radius: 4px }"
+	".tx { white-space: nowrap }"
 	".pending { opacity: 0.25 }"
-	".focus { background-color: #ccc }"
-	"#info { position: absolute; overflow: hidden }"
-	".t { font-weight: bold }";
+	".focus { background-color: #ccc }";
 
 static const struct {
 	const char		*name;
@@ -49,14 +48,6 @@ static const struct {
 
 typedef char lhp_boot_icons_match[
 		LWS_ARRAY_SIZE(icons) == LHP_BOOT_COUNT ? 1 : -1];
-
-static const char * const stage_title[] = {
-	"Setup", "Wifi", "IPv4", "IPv6", "Internet", "Date", "Firmware",
-	"Account", "Ready"
-};
-
-/* the most APs we list while looking for one we can join */
-#define LHP_BOOT_MAX_APS	8
 
 int
 lhp_boot_init(struct lws_context *cx, lhp_boot_t *b,
@@ -204,41 +195,35 @@ bw_text(bw_t *w, const char *s, size_t max)
 	}
 }
 
-static void
-bw_line(bw_t *w, const char *label, const char *val, size_t max)
-{
-	bw_printf(w, "<div>%s", label);
-	if (val)
-		bw_text(w, val, max);
-	bw_printf(w, "</div>");
-}
+/*
+ * What we have to say about each stage, on its row next to its icon.  It is
+ * one line, cut off by the window if it is too long: the rows are all the
+ * same height, so the row being worked on can be found and shown.
+ */
 
 static void
-lhp_boot_info_aps(const lhp_boot_t *b, bw_t *w)
+lhp_boot_text_wlan(const lhp_boot_t *b, int reached, bw_t *w)
 {
-	int n = 0;
+	uint32_t seen = b->wnd ? lws_dll2_count(&b->wnd->scan) : 0;
 
-	if (!b->wnd)
+	if (b->wnd && b->wnd->current_attempt_ssid[0]) {
+		if (!reached)
+			bw_printf(w, "Looking for ");
+		bw_text(w, b->wnd->current_attempt_ssid,
+			sizeof(b->wnd->current_attempt_ssid));
+		return;
+	}
+
+	if (reached)
 		return;
 
-	/* the scan list is kept sorted strongest-first from the head */
-
-	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      lws_dll2_get_head(&b->wnd->scan)) {
-		lws_wifi_sta_t *s = lws_container_of(d, lws_wifi_sta_t, list);
-
-		if (n++ == LHP_BOOT_MAX_APS)
-			break;
-
-		bw_printf(w, "<div>%d ", rssi_averaged(s));
-		/* the ssid is stored after the lws_wifi_sta_t */
-		bw_text(w, (const char *)&s[1], 32);
-		bw_printf(w, "</div>");
-	} lws_end_foreach_dll(d);
+	bw_printf(w, "Looking for an AP");
+	if (seen)
+		bw_printf(w, ", %u seen", (unsigned int)seen);
 }
 
 static void
-lhp_boot_info_date(bw_t *w)
+lhp_boot_text_date(bw_t *w)
 {
 	struct tm tm;
 	char d[32];
@@ -248,100 +233,91 @@ lhp_boot_info_date(bw_t *w)
 	    !strftime(d, sizeof(d), "%Y-%m-%d %H:%M UTC", &tm))
 		return;
 
-	bw_line(w, "", d, sizeof(d));
+	bw_text(w, d, sizeof(d));
 }
 
 static void
-lhp_boot_info_ota(const lhp_boot_t *b, bw_t *w)
+lhp_boot_text_ota(const lhp_boot_t *b, bw_t *w)
 {
 	static const char * const ota_state[] = {
 		"", "Checking for updates", "Up to date", "Updating",
 		"Update check failed", "Updates disabled"
 	};
+
 #if defined(LWS_WITH_OTA)
-	const lws_system_ops_t *ops = lws_system_get_ops(b->cx);
-	uint64_t fw = 0;
-	struct tm tm;
-	char d[32];
-	time_t t;
-
-	bw_line(w, "", lws_ota_variant_name(), 64);
-
-	if (ops && ops->ota_ops.ota_get_last_fw_unixtime &&
-	    !ops->ota_ops.ota_get_last_fw_unixtime(&fw)) {
-		t = (time_t)fw;
-		if (gmtime_r(&t, &tm) &&
-		    strftime(d, sizeof(d), "%Y-%m-%d %H:%M", &tm))
-			bw_line(w, "", d, sizeof(d));
-	}
+	bw_text(w, lws_ota_variant_name(), 64);
+	if (b->ota && b->ota < LWS_ARRAY_SIZE(ota_state))
+		bw_printf(w, ": ");
 #endif
 
-	if (b->ota < LWS_ARRAY_SIZE(ota_state) && b->ota)
-		bw_line(w, "", ota_state[b->ota], 32);
+	if (b->ota < LWS_ARRAY_SIZE(ota_state))
+		bw_printf(w, "%s", ota_state[b->ota]);
 }
 
-/* information about the stage being worked on, for #info */
-
 static void
-lhp_boot_info(const lhp_boot_t *b, lhp_boot_stage_t f, bw_t *w)
+lhp_boot_text(const lhp_boot_t *b, lhp_boot_stage_t s, lhp_boot_stage_t f,
+	      bw_t *w)
 {
 	static const char * const cpd[] = {
-		"", "", "Captive portal", "No internet"
+		"Checking connectivity", "", "Captive portal", "No internet"
 	};
+	int reached = !!(b->reached & (1u << s));
 	lws_cpd_result_t c;
 
-	bw_printf(w, "<div class=\"t\">%s</div>", stage_title[f]);
+	if (!reached && s > f && s != LHP_BOOT_OTA)
+		/* we haven't got to it yet: there's nothing to say */
+		return;
 
-	switch (f) {
+	switch (s) {
 	case LHP_BOOT_SETUP:
-		bw_line(w, "No wifi credentials", NULL, 0);
-		lhp_boot_info_aps(b, w);
+		bw_printf(w, reached ? "Wifi credentials stored" :
+				       "No wifi credentials");
 		break;
 
 	case LHP_BOOT_WLAN:
-		if (b->wnd && b->wnd->current_attempt_ssid[0])
-			bw_line(w, "Joining ", b->wnd->current_attempt_ssid,
-				sizeof(b->wnd->current_attempt_ssid));
-		else
-			bw_line(w, "Looking for an AP", NULL, 0);
-		lhp_boot_info_aps(b, w);
+		lhp_boot_text_wlan(b, reached, w);
 		break;
 
 	case LHP_BOOT_IPV4:
-		if (b->wnd)
-			bw_line(w, "", b->wnd->current_attempt_ssid,
-				sizeof(b->wnd->current_attempt_ssid));
-		bw_line(w, "Waiting for an address", NULL, 0);
+		if (reached)
+			bw_text(w, b->ipv4, sizeof(b->ipv4));
+		else
+			bw_printf(w, "Waiting for an address");
+		break;
+
+	case LHP_BOOT_IPV6:
+		/* we never wait for it, it's only shown if we have one */
+		if (reached)
+			bw_text(w, b->ipv6, sizeof(b->ipv6));
 		break;
 
 	case LHP_BOOT_INTERNET:
-		bw_line(w, "", b->ipv4, sizeof(b->ipv4));
-		if (b->ipv6[0])
-			bw_line(w, "", b->ipv6, sizeof(b->ipv6));
+		if (reached) {
+			bw_printf(w, "Connected");
+			break;
+		}
 		c = lws_system_cpd_state_get(b->cx);
-		if (c > LWS_CPD_INTERNET_OK && (size_t)c < LWS_ARRAY_SIZE(cpd))
-			bw_line(w, cpd[c], NULL, 0);
-		else
-			bw_line(w, "Checking connectivity", NULL, 0);
+		if ((size_t)c < LWS_ARRAY_SIZE(cpd))
+			bw_printf(w, "%s", cpd[c]);
 		break;
 
 	case LHP_BOOT_DATE:
-		bw_line(w, "Asking for the time", NULL, 0);
+		if (reached)
+			lhp_boot_text_date(w);
+		else
+			bw_printf(w, "Asking for the time");
 		break;
 
 	case LHP_BOOT_OTA:
-		lhp_boot_info_ota(b, w);
-		lhp_boot_info_date(w);
+		/* the variant is known from the start */
+		lhp_boot_text_ota(b, w);
 		break;
 
 	case LHP_BOOT_AUTH:
-		bw_line(w, "Signing in", NULL, 0);
-		lhp_boot_info_date(w);
+		bw_printf(w, reached ? "Signed in" : "Signing in");
 		break;
 
 	default:
-		lhp_boot_info_ota(b, w);
-		lhp_boot_info_date(w);
 		break;
 	}
 }
@@ -352,7 +328,7 @@ lhp_boot_html(const lhp_boot_t *b, char *buf, size_t len)
 	int W = b->ic->wh_px[0].whole, H = b->ic->wh_px[1].whole;
 	static const int sizes[] = { 48, 32, 24 };
 	lhp_boot_stage_t f = lhp_boot_focus(b);
-	int m = 2, i = 24, pad, row, rows = 2, top = 0, ow, il, fs, n;
+	int m = 2, i = 24, pad, row, rows, wh, top = 0, ow, fs, tp, n;
 	bw_t w;
 
 	if (len < 2)
@@ -363,34 +339,46 @@ lhp_boot_html(const lhp_boot_t *b, char *buf, size_t len)
 	w.full = 0;
 
 	/*
-	 * The biggest icons the whole list fits the display at, or if even the
-	 * smallest don't fit, a window of two rows onto the list: the last
-	 * stage we reached, and the one being worked on
+	 * The biggest icons the whole list fits the display at.  If even the
+	 * smallest don't fit, the list is shown through a window as tall as
+	 * the display, offset so the row of the stage being worked on is in
+	 * the middle of it: as that moves on, so does the list
 	 */
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(sizes); n++) {
 		pad = sizes[n] / 16;
 		if (LHP_BOOT_COUNT * (sizes[n] + 2 * pad) + 2 * m <= H) {
 			i = sizes[n];
-			rows = LHP_BOOT_COUNT;
 			break;
 		}
 	}
 	pad = i / 16;
 	row = i + 2 * pad;
 
+	rows = (H - 2 * m) / row;
+	if (rows > LHP_BOOT_COUNT)
+		rows = LHP_BOOT_COUNT;
+	if (rows < 1)
+		rows = 1;
+	wh = rows < LHP_BOOT_COUNT ? H - 2 * m : rows * row;
+
 	if (rows < LHP_BOOT_COUNT) {
-		top = (int)f - 1;
-		if (top > LHP_BOOT_COUNT - rows)
-			top = LHP_BOOT_COUNT - rows;
+		/* all done is shown as the last stage being worked on */
+		n = f < LHP_BOOT_COUNT ? (int)f : LHP_BOOT_COUNT - 1;
+		top = n * row - (wh - row) / 2;
+		if (top > LHP_BOOT_COUNT * row - wh)
+			top = LHP_BOOT_COUNT * row - wh;
 		if (top < 0)
 			top = 0;
 	}
 
 	/* on a big display, the overlay only needs the top left of it */
 	ow = W <= 320 ? W : W / 2;
-	il = m + row + 2 * m;
 	fs = H <= 64 ? 10 : (i >= 48 ? 16 : 12);
+	/* the text in the middle of its row, for a line about 1.2em tall */
+	tp = (row - (fs * 6) / 5) / 2;
+	if (tp < 0)
+		tp = 0;
 
 	bw_printf(&w, "<!doctype html><html><head><meta charset=\"utf-8\">"
 		"<link rel=\"stylesheet\" href=\"boot.css\"><style>"
@@ -399,26 +387,28 @@ lhp_boot_html(const lhp_boot_t *b, char *buf, size_t len)
 		"#list { top: -%dpx }"
 		".ic { width: %dpx; height: %dpx; padding: %dpx }"
 		".ic img { width: %dpx; height: %dpx }"
-		"#info { left: %dpx; top: %dpx; width: %dpx; height: %dpx; "
-			"font-size: %dpx }"
+		".tx { width: %dpx; height: %dpx; padding-top: %dpx; "
+			"padding-left: %dpx; font-size: %dpx }"
 		"</style></head><body><div id=\"ov\">"
-		"<div id=\"win\"><div id=\"list\">",
-		ow, rows * row + 2 * m,
-		m, m, row, rows * row,
-		top * row,
+		"<div id=\"win\"><table id=\"list\">",
+		ow, wh + 2 * m,
+		m, m, ow - 2 * m, wh,
+		top,
 		i, i, pad,
 		i, i,
-		il, m, ow - il - m, rows * row, fs);
+		ow - 2 * m - row - 2 * m, row - tp, tp, 2 * m, fs);
 
-	for (n = 0; n < LHP_BOOT_COUNT; n++)
-		bw_printf(&w, "<div class=\"ic %s\"><img src=\"%s\"></div>",
-			  n == (int)f ? "focus" :
-			  ((b->reached & (1u << n)) ? "done" : "pending"),
-			  icons[n].name);
+	for (n = 0; n < LHP_BOOT_COUNT; n++) {
+		const char *cl = n == (int)f ? "focus" :
+				((b->reached & (1u << n)) ? "done" : "pending");
 
-	bw_printf(&w, "</div></div><div id=\"info\">");
-	lhp_boot_info(b, f, &w);
-	bw_printf(&w, "</div></div></body></html>");
+		bw_printf(&w, "<tr><td class=\"ic %s\"><img src=\"%s\"></td>"
+			      "<td class=\"tx %s\">", cl, icons[n].name, cl);
+		lhp_boot_text(b, (lhp_boot_stage_t)n, f, &w);
+		bw_printf(&w, "</td></tr>");
+	}
+
+	bw_printf(&w, "</table></div></div></body></html>");
 
 	if (w.full)
 		return -1;

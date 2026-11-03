@@ -210,7 +210,8 @@ page_show(const char *name, char *html, int len)
 
 /*
  * Order-independent signature of the set of APs in the scan list, so we can
- * tell when the boot overlay's AP list is stale without redrawing on every
+ * tell when what the boot overlay says about the APs seen while it looks for
+ * one is stale, without redrawing on every
  * scan (the averaged rssi jitters, so rssi and ordering are deliberately left
  * out)
  */

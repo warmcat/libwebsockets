@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta charset="utf-8"><!-- the boot overlay minimal-examples/embedded/lhp/boot-ui.c makes at 600 x 448, focus on the date, with its boot.css inlined -->
+<style>* { margin: 0; padding: 0 }body { background-color: #fff; color: #000; font-family: sans }#ov { position: absolute; left: 0; top: 0; background-color: #fff }#win { position: absolute; overflow: hidden }#list { position: relative; border-spacing: 0 }.ic { border-radius: 4px }.tx { white-space: nowrap }.pending { opacity: 0.25 }.focus { background-color: #ccc }
+</style>
+
+<style>#ov { width: 300px; height: 436px }#win { left: 2px; top: 2px; width: 296px; height: 432px }#list { top: -0px }.ic { width: 48px; height: 48px; padding: 3px }.ic img { width: 48px; height: 48px }.tx { width: 238px; height: 37px; padding-top: 17px; padding-left: 4px; font-size: 16px }
+</style></head>
+<body><div id="ov"><div id="win"><table id="list">
+<tr><td class="ic done"><img src="boot-1-setup.svg"></td><td class="tx done">Wifi credentials stored</td></tr>
+<tr><td class="ic done"><img src="boot-2-wlan.svg"></td><td class="tx done"></td></tr>
+<tr><td class="ic done"><img src="boot-3-ipv4.svg"></td><td class="tx done">192.168.1.23</td></tr>
+<tr><td class="ic done"><img src="boot-4-ipv6.svg"></td><td class="tx done">2001:db8::23</td></tr>
+<tr><td class="ic done"><img src="boot-5-internet.svg"></td><td class="tx done">Connected</td></tr>
+<tr><td class="ic focus"><img src="boot-6-date.svg"></td><td class="tx focus">Asking for the time</td></tr>
+<tr><td class="ic pending"><img src="boot-7-ota.svg"></td><td class="tx pending">Checking for updates</td></tr>
+<tr><td class="ic pending"><img src="boot-8-auth.svg"></td><td class="tx pending"></td></tr>
+</table></div></div></body></html>

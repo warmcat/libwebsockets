@@ -39,6 +39,8 @@ if (requirements)
 			# 21-image-reclaim is a render comparison below
 			# 34-tag-case-upper is compared with 34-tag-case's golden
 			# 35-tiny-viewport gets its own entry below, at panel size
+			# 37- and 38-boot-overlay get their own entries below,
+			# at the display sizes they were made for
 			list(REMOVE_ITEM LHP_CASES
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/11-asset-queue.html
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/13-adblock.html
@@ -47,7 +49,9 @@ if (requirements)
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/23-abs-image.html
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/29-bg-cover.html
 					${CMAKE_CURRENT_SOURCE_DIR}/cases/34-tag-case-upper.html
-					${CMAKE_CURRENT_SOURCE_DIR}/cases/35-tiny-viewport.html)
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/35-tiny-viewport.html
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/37-boot-overlay.html
+					${CMAKE_CURRENT_SOURCE_DIR}/cases/38-boot-overlay-window.html)
 		foreach(C ${LHP_CASES})
 			get_filename_component(CN ${C} NAME_WE)
 			# a case whose assets need a decoder this build lacks
@@ -126,6 +130,30 @@ if (requirements)
 				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/35-tiny-viewport.dlo
 				-DW=104 -DH=212
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+
+		# the boot overlay of the lhp embedded examples, as boot-ui.c
+		# makes it: a table of a row per boot stage, its icon and what
+		# we know about it.  On a 600 x 448 epd the whole table fits;
+		# on a 128 x 64 oled it's shown through a window, offset so the
+		# row being worked on is in its middle
+		if (LWS_WITH_SVG)
+			add_test(NAME api-test-lhp-dlo-37-boot-overlay
+				 COMMAND ${CMAKE_COMMAND}
+					-DTOOL=$<TARGET_FILE:${SAMP}>
+					-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/37-boot-overlay.html
+					-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/cases/37-boot-overlay.dlo
+					-DOUT=${CMAKE_CURRENT_BINARY_DIR}/37-boot-overlay.dlo
+					-DW=600 -DH=448
+					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+			add_test(NAME api-test-lhp-dlo-38-boot-overlay-window
+				 COMMAND ${CMAKE_COMMAND}
+					-DTOOL=$<TARGET_FILE:${SAMP}>
+					-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/38-boot-overlay-window.html
+					-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/cases/38-boot-overlay-window.dlo
+					-DOUT=${CMAKE_CURRENT_BINARY_DIR}/38-boot-overlay-window.dlo
+					-DW=128 -DH=64
+					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+		endif()
 
 		if (LWS_WITH_CACHE_BLOB)
 			# with the asset cache enabled and bluecat.jpg preseeded

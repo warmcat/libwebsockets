@@ -26,14 +26,17 @@ booting has got, as a vertical list of icons for the stages
 |ota|the first update check says we are on the latest firmware|
 |auth|the system passed its AUTH states|
 
-Stages reached are shown as they are, the others dimmed.  The stage being
-worked on, the first not reached, is highlighted, and what is known about
-it is shown to the right of the list, eg, the APs seen while there is
-nothing to join, the addresses, the date, or the OTA variant.
+Each stage is a row of a table, its icon and next to it what is known
+about it: the AP being looked for, or joined, the IPv4 and IPv6 addresses,
+whether there is internet, the date, the OTA variant and what the update
+check said.  Stages reached are shown as they are, the others dimmed.  The
+row of the stage being worked on, the first not reached, is highlighted.
 
-When the display is too short for the whole list, only the last stage
-reached and the one being worked on are shown, through a window onto the
-list made with css `overflow: hidden` and a `position: relative` offset.
+When the display is too short for the whole table, eg, the 64px high
+heltec OLED, it's shown through a window as tall as the display, made with css
+`overflow: hidden`, with the table offset by a `position: relative` top so
+the row being worked on is in the middle.  As the boot moves on to the next
+stage, the overlay is redrawn with the table moved up a row.
 
 Until the network is up, the overlay only uses what is built in: a font,
 and the stage icons, which `boot-icons.cmake` makes into C arrays at build

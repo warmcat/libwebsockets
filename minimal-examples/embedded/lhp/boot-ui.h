@@ -7,12 +7,13 @@
  * Universal Public Domain Dedication.
  *
  * The boot overlay is html, laid out and rendered by lhp like any other page.
- * It shows the boot stages as a vertical list of icons at the top left of the
- * display, the stages reached at full opacity and the others dimmed, with the
- * stage being worked on highlighted, and information about that stage to the
- * right of the list.  When the display is too short for the whole list, only
- * the last stage reached and the one being worked on are shown, through a
- * window onto the list.
+ * It shows the boot stages as a table at the top left of the display, a row
+ * per stage with its icon, and next to it what we know about it, eg, the AP
+ * we are looking for or the addresses we got.  The stages reached are at full
+ * opacity and the others dimmed, with the row of the stage being worked on
+ * highlighted.  When the display is too short for the whole table, it's shown
+ * through a window as tall as the display, offset so the row being worked on
+ * is in the middle: as that moves on, the table moves with it.
  *
  * Nothing here is platform-specific: the caller tells us which stages were
  * reached and what it knows about them, and we make the html.
