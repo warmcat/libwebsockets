@@ -69,10 +69,12 @@ typedef struct {
 	const char		*name;
 	const uint8_t		*jpg;
 	size_t			len;
-	unsigned int		w, h, comps;
+	unsigned int		w, h, comps;	/* as it decodes */
+	uint8_t			tiny;	/* progressive: 1/8 scale */
 } test_img_t;
 
-#define TI(_n, _w, _h, _c) { #_n, jpg_##_n, sizeof(jpg_##_n), _w, _h, _c }
+#define TI(_n, _w, _h, _c) { #_n, jpg_##_n, sizeof(jpg_##_n), _w, _h, _c, 0 }
+#define TP(_n, _w, _h, _c) { #_n, jpg_##_n, sizeof(jpg_##_n), _w, _h, _c, 1 }
 
 static const test_img_t test_imgs[] = {
 	TI(gray,		29, 19, 1),
@@ -82,6 +84,7 @@ static const test_img_t test_imgs[] = {
 	TI(gray_dri,		29, 19, 1),
 	TI(rgb_h1v1_dri,	37, 21, 3),
 	TI(rgb_h2v2_dri,	45, 37, 3),
+	TP(rgb_h2v2_prog,	 6,  5, 3),
 };
 
 /*
@@ -217,6 +220,15 @@ selftest_img(const test_img_t *ti)
 	}
 
 	/*
+	 * A progressive image decodes at 1/8 scale from its DC scan alone,
+	 * which isn't close enough to the pattern to check against it: it
+	 * must still decode the same however it is cut up
+	 */
+
+	if (ti->tiny)
+		goto cuts;
+
+	/*
 	 * It is lossy, so it can only be close to the pattern.  Something
 	 * that has lost its place in the entropy-coded data is nowhere near,
 	 * and nor is a block that was never decoded.  So the mean error is
@@ -251,6 +263,7 @@ selftest_img(const test_img_t *ti)
 			}
 		}
 
+cuts:
 	/*
 	 * However it is cut up, the result must be identical: fixed-size
 	 * pieces down to 1 byte, and every two-way split

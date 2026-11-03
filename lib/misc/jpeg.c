@@ -202,7 +202,7 @@ struct lws_jpeg {
 	pjpeg_scan_type_t	scan_type;
 	
 	const uint8_t		*inbuf;
-	lws_fragbuf_t		*lines; /* mcu_max_size_y + 8 rows */
+	lws_fragbuf_t		*lines; /* mcu_max_size_y rows of the image width */
 	size_t			insize;
 
 	lws_jpeg_decode_state_t	dstate;
@@ -2683,27 +2683,38 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 	 */
 
 	size_t xo = (size_t)(j->mcu_ofs_x * j->mcu_max_size_x * j->frame_comps);
+	/* a block is 8 x 8 pixels, or one pixel when progressive tiny */
 	unsigned int step = j->is_progressive_tiny ? 1 : 8;
 
-         for (y = 0; y < j->mcu_max_size_y; y += step) {
-		unsigned int by_limit = (unsigned int)((unsigned int)j->image_height -
-					(unsigned int)((unsigned int)j->mcu_ofs_y *
-					(unsigned int)j->mcu_max_size_y +
-							(unsigned int)y));
+	/*
+	 * Only what is inside the image is written, so nothing lands outside
+	 * the band's rows or past the image width in a row: a partial MCU at
+	 * the right or bottom edge is clipped here
+	 */
 
-		if (by_limit > 8)
-			by_limit = 8;
+	for (y = 0; y < j->mcu_max_size_y; y += step) {
+		unsigned int by_limit, iy = (unsigned int)j->mcu_ofs_y *
+					    (unsigned int)j->mcu_max_size_y + y;
+
+		if (iy >= j->image_height)
+			break; /* the rest of the MCU is below the image */
+
+		by_limit = (unsigned int)j->image_height - iy;
+		if (by_limit > step)
+			by_limit = step;
 
 		for (x = 0; x < j->mcu_max_size_x; x += step) {
 			size_t dbo = xo + (size_t)(x * j->frame_comps);
 			uint8_t src_ofs;
 			const uint8_t *pSrcR, *pSrcG, *pSrcB;
-			unsigned int bx_limit = (unsigned int)(
-				(unsigned int)j->image_width -
-				(unsigned int)((unsigned int)j->mcu_ofs_x *
-				(unsigned int)j->mcu_max_size_x +
-							(unsigned int)x));
-			unsigned int bx, by;
+			unsigned int bx_limit, bx, by,
+				     ix = (unsigned int)j->mcu_ofs_x *
+					  (unsigned int)j->mcu_max_size_x + x;
+
+			if (ix >= j->image_width)
+				break; /* the rest is right of the image */
+
+			bx_limit = (unsigned int)j->image_width - ix;
 
 			if (j->is_progressive_tiny)
 				src_ofs = (uint8_t)(x + y * j->mcu_max_size_x);
@@ -2714,8 +2725,8 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 			pSrcG = j->mcu_buf_G + src_ofs;
 			pSrcB = j->mcu_buf_B + src_ofs;
 
-			if (bx_limit > 8)
-				bx_limit = 8;
+			if (bx_limit > step)
+				bx_limit = step;
 
 			/*
 			 * The row step is the only thing that changed: the
@@ -2948,38 +2959,14 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 				goto fin;
 
 			/*
-			 * 8, or 16 lines of 24-bpp according to MCU height
-			 */
-			/*
-			 * row_pitch = (size_t)j->image_witdh * j->frame_comps
+			 * The MCU-height band of pixels, a row at a time, each
+			 * row exactly the image width: the MCU blit clips
+			 * partial MCUs at the right and bottom edges, so
+			 * nothing is written outside the band's rows or past
+			 * the end of one.
 			 *
-			 * max dr
-			 * j->lines + (size_t)(j->mcu_max_row * j->mcu_max_size_x * j->frame_comps) + (size_t)(row_pitch * j->mcu_max_size_y)
-			 *
-			 * max db
-			 * max dr + (size_t)(j->mcu_max_size_x * j->frame_comps) + (size_t)(by_limit * row_pitch)
-			 *
-			 * max pDst
-			 * max db + (size_t)(bx_limit * 3)
-			 *
-			 * max by_limit and bx_limit = 8
-			*/
-			/*
-			 * The MCU-height band of pixels, a row at a time.
-			 *
-			 * The slack the old single allocation carried is now
-			 * per row and per band: a block write at the right
-			 * hand edge can run up to one MCU past the end of its
-			 * row when the width is not a multiple of the MCU
-			 * width, and a block write on the last row of the
-			 * band can run up to 8 rows past the end of it.  Both
-			 * used to land in the tail of one big buffer; now
-			 * each row carries its own tail and the band carries
-			 * 8 spare rows, so neither can reach another row's
-			 * pixels.
-			 *
-			 * Being per row is also what lets this be a fragbuf:
-			 * the band is tens of KB, which on a small target is
+			 * Being per row is what lets this be a fragbuf: the
+			 * band is tens of KB, which on a small target is
 			 * exactly the size that stops being available before
 			 * the heap is anywhere near full.
 			 *
@@ -2989,15 +2976,14 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 			 * it.  Those must be black, not old heap.
 			 */
 
-			mcu_buf_len = (size_t)(j->image_width * j->frame_comps) +
-				      (size_t)(j->mcu_max_size_x * j->frame_comps);
+			mcu_buf_len = (size_t)(j->image_width * j->frame_comps);
 
 			j->lines = lws_fragbuf_create(
-					(size_t)j->mcu_max_size_y + 8,
+					(size_t)j->mcu_max_size_y,
 					mcu_buf_len);
 			if (!j->lines) {
 				lwsl_jpeg("%s: OOM (%d x %d)\n", __func__,
-					  (int)j->mcu_max_size_y + 8,
+					  (int)j->mcu_max_size_y,
 					  (int)mcu_buf_len);
 				r = LWS_SRET_FATAL + 32;
 				goto fin;
