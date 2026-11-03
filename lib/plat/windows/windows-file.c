@@ -207,12 +207,7 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops_own,
 		goto bail_close;
 
 	fop_fd->fops = fops;
-#if defined(__MINGW32__)
-	/* we use filesystem_priv */
-	fop_fd->fd = (int)(intptr_t)ret;
-#else
 	fop_fd->fd = ret;
-#endif
 	fop_fd->filesystem_priv = ret;
 	fop_fd->flags = *flags;
 	fop_fd->len = llFileSize.QuadPart;

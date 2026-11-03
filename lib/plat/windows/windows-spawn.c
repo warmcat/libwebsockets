@@ -91,7 +91,7 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 	if(lws_dll2_is_empty(&context->vhost_list_owner))
 		return NULL;
 
-	if ((unsigned int)context->pt[tsi].fds_count ==
+	if ((unsigned int)pt->fds_count ==
 	    context->fd_limit_per_thread - 1) {
 		lwsl_err("no space for new conn\n");
 		return NULL;
