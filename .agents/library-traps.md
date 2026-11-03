@@ -1015,3 +1015,8 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    frees in real use (G-226, api-test-dnssec-monitor-inventory).
  - Logic in plugins with no end-to-end test (eg ACME) goes in a separate
    testable file (`acme-json.c`) that an api-test compiles in.
+ - On esp32, `esp_get_free_heap_size()` (the footprint dump's "heap free")
+   is summed over several regions and the holes between allocations: a
+   29KB request failed with 47KB free.  Judge whether a big buffer (png
+   inflate window, jpeg line buffer, mbedtls in-buffer) fits by the dump's
+   "largest free block" line, not the free total.
