@@ -28,6 +28,13 @@
  *  C: a GET is answered, then a second GET on the same connection is lost.
  *     The server's GOAWAY says it took the first stream only, and the second
  *     GET is answered on a new connection.
+ *
+ * And a connection the client itself is closing takes no new request:
+ *
+ *  D: a GET is answered, and as it is, its connection starts closing, as if
+ *     what came after the response broke it (the h3_conn_close_on_reply
+ *     fault).  A second GET to the same place goes at once, on a new
+ *     connection, and is answered there before the old one is gone.
  */
 
 #include <libwebsockets.h>
@@ -39,12 +46,16 @@
 #define GRT_IDLE_S		1
 /* the lost requests can be answered only after the server gave up on them */
 #define GRT_RETRY_MIN_US	((GRT_IDLE_S * LWS_US_PER_SEC) - (200 * LWS_US_PER_MS))
+/* a closing connection lasts 3s: D2 must not wait for it to go */
+#define GRT_D2_MAX_US		(2 * LWS_US_PER_SEC)
 
 enum {
 	GRT_A,
 	GRT_B,
 	GRT_C1,
 	GRT_C2,
+	GRT_D1,
+	GRT_D2,
 
 	GRT_COUNT
 };
@@ -53,23 +64,35 @@ struct grt_req {
 	const char		*path;
 	const char		*method;
 	lws_usec_t		start;
+	lws_usec_t		done;
 	int			status; /* 0 until it ends, -1 if it failed */
 	int			srv_hits;
 	char			srv_conn[64];
-	char			lost; /* its first try is lost */
+	const char		*fault; /* on its first try */
 	char			want_ok;
 };
 
 static struct grt_req reqs[GRT_COUNT] = {
-	[GRT_A]  = { .path = "/a",  .method = "GET",  .lost = 1, .want_ok = 1 },
-	[GRT_B]  = { .path = "/b",  .method = "POST", .lost = 1 },
-	[GRT_C1] = { .path = "/c1", .method = "GET",             .want_ok = 1 },
-	[GRT_C2] = { .path = "/c2", .method = "GET",  .lost = 1, .want_ok = 1 },
+	[GRT_A]  = { .path = "/a",  .method = "GET",  .fault = "h3_req_lost",
+		     .want_ok = 1 },
+	[GRT_B]  = { .path = "/b",  .method = "POST", .fault = "h3_req_lost" },
+	[GRT_C1] = { .path = "/c1", .method = "GET",  .want_ok = 1 },
+	[GRT_C2] = { .path = "/c2", .method = "GET",  .fault = "h3_req_lost",
+		     .want_ok = 1 },
+	[GRT_D1] = { .path = "/d1", .method = "GET",
+		     .fault = "h3_conn_close_on_reply", .want_ok = 1 },
+	[GRT_D2] = { .path = "/d2", .method = "GET",  .want_ok = 1 },
+};
+
+/* the vhost, and so the connection, each request starts on */
+static const int req_vh[GRT_COUNT] = {
+	[GRT_A] = 0, [GRT_B] = 1, [GRT_C1] = 2, [GRT_C2] = 2,
+	[GRT_D1] = 3, [GRT_D2] = 3,
 };
 
 static struct lws_context *context;
-static struct lws_vhost *vh_cli[3];
-static lws_sorted_usec_list_t sul_watchdog, sul_c2;
+static struct lws_vhost *vh_cli[4];
+static lws_sorted_usec_list_t sul_watchdog, sul_c2, sul_d2;
 static const char *server_addr = "127.0.0.1";
 static int port, result = 1, finished;
 
@@ -138,8 +161,8 @@ grt_request(int idx)
 
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
-	/* C's two requests share a connection, the others have their own */
-	i.vhost			= vh_cli[idx < GRT_C1 ? idx : 2];
+	/* C's and D's two requests go to the same place, on one vhost */
+	i.vhost			= vh_cli[req_vh[idx]];
 	i.address		= server_addr;
 	i.host			= server_addr;
 	i.origin		= server_addr;
@@ -155,10 +178,10 @@ grt_request(int idx)
 	i.disable_h3_fallback	= 1;
 	i.opaque_user_data	= r;
 
-	if (r->lost) {
-		/* the request's first try, and only that, is lost */
+	if (r->fault) {
+		/* the request's first try, and only that, has the fault */
 		memset(&fi, 0, sizeof(fi));
-		fi.name = "h3_req_lost";
+		fi.name = r->fault;
 		fi.type = LWSFI_DETERMINISTIC;
 		fi.pre = 0;
 		fi.count = 1;
@@ -185,11 +208,19 @@ c2_cb(lws_sorted_usec_list_t *sul)
 }
 
 static void
+d2_cb(lws_sorted_usec_list_t *sul)
+{
+	if (grt_request(GRT_D2))
+		grt_check();
+}
+
+static void
 grt_req_done(struct grt_req *r, int status)
 {
 	if (!r || r->status)
 		return;
 	r->status = status;
+	r->done = lws_now_usecs();
 
 	lwsl_user("%s: %s %s: %d after %lldms\n", __func__, r->method, r->path,
 		  status, (long long)(lws_now_usecs() - r->start) /
@@ -199,6 +230,12 @@ grt_req_done(struct grt_req *r, int status)
 	if (r == &reqs[GRT_C1] && status > 0) {
 		/* from the event loop, not the callback of a request closing */
 		lws_sul_schedule(context, 0, &sul_c2, c2_cb, 1);
+		return;
+	}
+
+	/* D's second request goes while D1's connection is closing */
+	if (r == &reqs[GRT_D1] && status > 0) {
+		lws_sul_schedule(context, 0, &sul_d2, d2_cb, 1);
 		return;
 	}
 
@@ -310,8 +347,18 @@ grt_check(void)
 		return;
 	}
 
+	/* D2 did not join D1's closing connection, nor wait for it to go */
+	if (!strcmp(reqs[GRT_D1].srv_conn, reqs[GRT_D2].srv_conn)) {
+		grt_finish("D2 was answered on D1's closing connection", 0);
+		return;
+	}
+	if (reqs[GRT_D2].done - reqs[GRT_D2].start > GRT_D2_MAX_US) {
+		grt_finish("D2 waited for D1's closing connection", 0);
+		return;
+	}
+
 	grt_finish("lost GETs answered on a new connection, the lost POST "
-		   "failed", 1);
+		   "failed, a closing connection took no new GET", 1);
 }
 
 static void
@@ -388,7 +435,8 @@ main(int argc, const char **argv)
 	info.keepalive_timeout		= 0;
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(vh_cli); n++) {
 		/* the vhost keeps the name */
-		static const char * const names[] = { "cli-a", "cli-b", "cli-c" };
+		static const char * const names[] = { "cli-a", "cli-b",
+						      "cli-c", "cli-d" };
 
 		info.vhost_name = names[n];
 		vh_cli[n] = lws_create_vhost(context, &info);
@@ -401,7 +449,8 @@ main(int argc, const char **argv)
 	lws_sul_schedule(context, 0, &sul_watchdog, watchdog_cb,
 			 GRT_TIMEOUT_S * LWS_US_PER_SEC);
 
-	if (grt_request(GRT_A) || grt_request(GRT_B) || grt_request(GRT_C1)) {
+	if (grt_request(GRT_A) || grt_request(GRT_B) || grt_request(GRT_C1) ||
+	    grt_request(GRT_D1)) {
 		lwsl_err("Failed to start the requests\n");
 		goto bail;
 	}
@@ -412,6 +461,7 @@ main(int argc, const char **argv)
 bail:
 	lws_sul_cancel(&sul_watchdog);
 	lws_sul_cancel(&sul_c2);
+	lws_sul_cancel(&sul_d2);
 	lws_context_destroy(context);
 
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");

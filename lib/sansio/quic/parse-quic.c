@@ -593,6 +593,15 @@ lws_quic_rx_fin_h3(struct lws *nwsi, struct lws *wsi_child,
 
 	if (lwsi_role_client(wsi_child)) {
 #if defined(LWS_WITH_CLIENT)
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		/*
+		 * As if what came after the response broke the connection: it
+		 * is still closing when the app hears the response
+		 */
+		if (lws_fi(&wsi_child->fic, "h3_conn_close_on_reply"))
+			lws_quic_enter_closing_state(nwsi, LWS_H3_INTERNAL_ERROR,
+						     0, 1);
+#endif
 		wsi_child->client_mux_substream = 1;
 		if (lws_http_transaction_completed_client(wsi_child))
 			lwsl_info("Transaction completed and wsi closed\n");
