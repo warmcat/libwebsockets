@@ -80,9 +80,22 @@ lws_led_gpio_create(const lws_led_ops_t *led_ops)
 void
 lws_led_gpio_destroy(struct lws_led_state *lcs)
 {
+	lws_led_gpio_controller_t *lgc = lcs->controller;
+	int n;
+
 #if defined(LWS_PLAT_TIMER_DELETE)
 	LWS_PLAT_TIMER_DELETE(lcs->timer);
 #endif
+
+	/*
+	 * Nothing will sequence the leds any more: leave them off, not at
+	 * whatever intensity they were at, eg, a backlight half way through
+	 * fading out
+	 */
+
+	for (n = 0; n < lgc->count_leds; n++)
+		lgc->led_ops.intensity(&lgc->led_ops, lgc->led_map[n].name, 0);
+
 	lws_free(lcs);
 }
 
