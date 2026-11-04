@@ -37,7 +37,13 @@ isect(lws_circle_t *c, lws_fx_t *f, lws_fx_t *axsq)
 
 	lws_fx_sub(f, &c->rsq, axsq);
 
-	if (f->whole < 0) {
+	/*
+	 * Outside the circle: that includes between -1 and 0, which has a
+	 * whole of 0 and a negative frac, eg, the line through the middle of
+	 * the first row of a corner of radius 0
+	 */
+
+	if (lws_neg(f)) {
 		f->whole = 0;
 		f->frac = 0;
 	} else
@@ -199,8 +205,8 @@ lws_display_render_rect(struct lws_display_render_state *rs)
 
 	if (s.whole < 0)
 		lws_fx_set(s, 0, 0);
-	if (e.whole >= rs->ic->wh_px[0].whole)
-		lws_fx_set(e, rs->ic->wh_px[0].whole - 1, 0);
+	if (e.whole > rs->ic->wh_px[0].whole)
+		lws_fx_set(e, rs->ic->wh_px[0].whole, 0);
 	if (e.whole <= 0 || e.whole < s.whole)
 		return LWS_SRET_OK; /* off to the left */
 
@@ -208,12 +214,15 @@ lws_display_render_rect(struct lws_display_render_state *rs)
 	if (lws_fx_comp(&w, &dlo->box.w) > 0)
 		lws_fx_add(&e, &s, &dlo->box.w);
 
-	/* render the part of the line occupied by the rect body */
+	/*
+	 * Render the part of the line occupied by the rect body.  e is where
+	 * it ends, so the pixel at e.whole is only covered by e.frac of it
+	 */
 
 	sfy = s;
 	os = s.whole;
 	s.frac = 0;
-	le = e.whole + 1;
+	le = e.whole;
 
 	while (s.whole <= le) {
 		unsigned int alpha = row_alpha;
