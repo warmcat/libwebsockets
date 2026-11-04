@@ -37,6 +37,11 @@
  * first few LWS_DLO_IMAGE_HEAD_CREDIT of it, so the layout depends on its
  * fetch being given more, a little at a time.
  *
+ * The page's stylesheet, big.css, is four windows long, and only arrives
+ * whole if its fetch is given more credit as lhp parses it.  Its last rule
+ * gives the gap above the png its height, so the png is at line
+ * IF_GAP_PX only if all of the stylesheet came.
+ *
  * No fonts are registered, so the page's text has no face: the <br> and the
  * list item in the gaps check a line strut and a list marker are left out
  * then, rather than made in a face that isn't there.
@@ -79,6 +84,8 @@ static const struct lws_switches switches[] = {
 
 #define IF_TIMEOUT_S		30
 #define IF_MAX_IMAGES		4
+/* the gap above the png, from the last rule of big.css */
+#define IF_GAP_PX		40
 
 /* the server's name, which lws resolves to loopback itself */
 #define IF_SERVER		"srv.localhost"
@@ -313,6 +320,13 @@ check(int again)
 			 nimages);
 		fails++;
 		return;
+	}
+
+	if (images[0].top != IF_GAP_PX) {
+		lwsl_err("%s: %s at line %d, expected %d: big.css didn't all "
+			 "come\n", __func__, images[0].name, images[0].top,
+			 IF_GAP_PX);
+		fails++;
 	}
 
 	for (n = 0; n < nimages; n++) {

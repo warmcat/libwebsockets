@@ -57,6 +57,9 @@ LWS_SS_USER_TYPEDEF
 	lws_sorted_usec_list_t		*ssevsul; /* sul to use to resume rz */
 	lws_sorted_usec_list_t		sul; /* used for initial metadata cb */
 	lws_dlo_image_t			u; /* we use the lws_flow_t in here */
+	lws_flow_t			css_flow; /* a stylesheet has no dlo to
+						   * hold a flow: it only asks
+						   * for more credit with it */
 	lws_dll2_t			active_asset_list; /*cx->active_assets*/
 #if defined(LWS_WITH_CACHE_BLOB)
 	struct lws_buflist		*cache_bl; /* whole-payload mirror for
@@ -841,6 +844,18 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 				  "awaits\n", __func__, (unsigned int)len,
 				  m->url);
 
+		/*
+		 * The fetch may only send a window ahead of what we took: it
+		 * was all taken just now, parsed or dropped, so let it send
+		 * the next window, or a stylesheet bigger than one window
+		 * stalls until the stream times out.  Nothing is buffered, so
+		 * the flow only asks for credit.  A cached stylesheet's feed
+		 * comes with EOM, so it never asks a stream it doesn't have.
+		 */
+		if (flags & LWSSS_FLAG_EOM)
+			m->css_flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
+		lws_flow_req(&m->css_flow);
+
 		if (flags & LWSSS_FLAG_EOM) {
 			lws_dll2_remove(&m->active_asset_list);
 			/* the slot is free before the ss winds down */
@@ -1358,6 +1373,9 @@ dloss_start(const lws_dlo_ss_create_info_t *i, const char *url, uint8_t type,
 		flow = &dloss->u.u.dlo_gif->flow;
 		break;
 #endif
+	case LWSDLOSS_TYPE_CSS:
+		flow = &dloss->css_flow;
+		break;
 	}
 
 	if (flow) {

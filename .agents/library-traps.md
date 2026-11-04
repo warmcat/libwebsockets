@@ -829,6 +829,13 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    harness sampling per line must count line `top - 1` as "on" the image,
    and a render that yields there is re-entered on the same line.
 
+ - **An asset's flow control window is only enforced over h2 and h3**:
+   `manual_initial_tx_credit` means nothing to h1 or `file://`, so a fetch
+   that is never given more credit works in api-test-lhp-dlo's local cases
+   and stalls for real.  Only api-test-lhp-image-flow (its own tls server,
+   h2 / h3, 4KB window) sees it.  Stylesheets bigger than a window stalled
+   that way until their fetch was given credit as they were parsed.
+
  - lwsac takes its chunks with plain `malloc()`, not `lws_malloc()`, so
    `lws_get_allocated_heap()` and `lws_heap_limit_set()` don't see them.
    To measure an svg's cost, use `lws_svg_get_heap_peak()`.
