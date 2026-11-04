@@ -19,6 +19,7 @@ lws_netdev_instance_wifi_t *wnd;
 lws_settings_instance_t *si;
 
 const char *carousel_urls[] = {
+        "https://slashdot.org",
         "https://libwebsockets.org/lhp-tests/t4.html",
         "https://libwebsockets.org/lhp-tests/t7.html",
         "https://libwebsockets.org/lhp-tests/t1.html",
