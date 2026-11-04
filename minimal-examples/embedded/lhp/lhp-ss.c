@@ -20,9 +20,21 @@
 #define RELAYOUT_RETRY_US	(250 * LWS_US_PER_MS)
 #define RELAYOUT_TRIES		40
 
+/*
+ * On a touch display, a page is laid out as far down as this, so all of a page
+ * longer than the display can be dragged into view, if there's the memory for
+ * it.  It's only a ceiling: the layout holds what is in the page, not what is
+ * below it
+ */
+#define LAYOUT_H_MAX		16384
+
 static lws_sorted_usec_list_t sul_relayout;
 static lws_display_render_state_t *relayout_rs;
 static int relayout_tries;
+/* where the view of the page was moved to, kept across a relayout */
+static int32_t relayout_pan_x, relayout_pan_y;
+/* render() is drawing a page laid out before again, eg, panned */
+static char redraw;
 
 static void
 render(lws_sorted_usec_list_t *sul);
@@ -80,6 +92,11 @@ relayout(lws_display_render_state_t *rs)
 
 	free(rs->line);
 	rs->line = NULL;
+	redraw = 0;
+
+	/* browsing it again resets the pan: it's put back when it renders */
+	relayout_pan_x = rs->pan_x;
+	relayout_pan_y = rs->pan_y;
 
 	lws_display_list_destroy(rs->lds->ctx, &rs->displaylist);
 	lws_display_render_free_ids(rs);
@@ -113,20 +130,38 @@ render(lws_sorted_usec_list_t *sul)
 
 	if (!rs->line) {
 
-		/*
-		 * We must finalize the ids list with the accurate dlo box info
-		 * before starting the render, since some EPD need to keep
-		 * copies of the pixel data for that region in order to over-
-		 * write it later.
-		 */
+		if (redraw)
+			/* all of the display, wherever the page is on it */
+			rs->lowest_id_y = (lws_display_scalar)
+						rs->ic->wh_px[1].whole;
+		else {
+			/*
+			 * We must finalize the ids list with the accurate dlo
+			 * box info before starting the render, since some EPD
+			 * need to keep copies of the pixel data for that
+			 * region in order to overwrite it later.
+			 */
 
-		lws_display_get_ids_boxes(rs);
-		rs->sp = 0;
+			lws_display_get_ids_boxes(rs);
 
 #if defined(LWS_WITH_FOOTPRINT)
-		/* the layout is complete: what holds the heap at its peak */
-		lws_footprint_dump(rs->lds->ctx, 1);
+			/* the layout is complete: what holds the heap at its
+			 * peak */
+			lws_footprint_dump(rs->lds->ctx, 1);
 #endif
+
+			if (rs->layout_clipped)
+				lwsl_notice("%s: the page is longer than it "
+					    "was laid out, it's cut short\n",
+					    __func__);
+
+			/* laid out again, the view goes back where it was */
+			lws_display_render_pan(rs, relayout_pan_x,
+					       relayout_pan_y);
+			relayout_pan_x = relayout_pan_y = 0;
+		}
+
+		rs->sp = 0;
 		rs->st[0].dlo = NULL;
 
 		/* allocate one line of output pixels to render into */
@@ -201,8 +236,9 @@ render(lws_sorted_usec_list_t *sul)
 	box.h.whole = 0;
 	rs->lds->disp->blit(rs->lds, (uint8_t *)rs->line, &box, &rs->ids);
 
-        free(rs->line);
-        rs->line = NULL;
+	free(rs->line);
+	rs->line = NULL;
+	redraw = 0;
 
 	/*
 	 * A retained display list stays with the render state while what it
@@ -229,6 +265,8 @@ init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
 	lws_display_list_destroy(cx, &rs->displaylist);
 	lws_display_render_free_ids(rs);
 	rs->retained = !!tcs;
+	relayout_pan_x = relayout_pan_y = 0;
+	redraw = 0;
 
 	/*
 	 * Lay it out in faces from the server where we can, and if the render
@@ -241,9 +279,42 @@ init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
 	rs->ic = &lds.disp->ic;
 	rs->lds = &lds;
 
+	/*
+	 * With a touch panel, the page can be dragged around on the display:
+	 * lay all of it out, however long, so the rest of a long one can be
+	 * seen.  On a round display, it can be dragged a little beyond its
+	 * edges too, to see what is in the corners the circle doesn't show
+	 */
+	rs->layout_h = tcs ? LAYOUT_H_MAX : 0;
+
 	rs->lds->display_busy = 1;
 	lws_strncpy(rs->lds->current_url, url, sizeof(rs->lds->current_url));
 
 	return lws_lhp_ss_browse(cx, rs, url, render);
+}
+
+/*
+ * Draw the page on the display again as it was laid out, eg, after
+ * lws_display_render_pan() moved the view of it.  The display list was kept
+ * for that, see init_browse().  Returns 0 if it was started: the display is
+ * busy until it's finished
+ */
+
+int
+redraw_page(lws_display_render_state_t *rs)
+{
+	if (rs->html != 2 || !rs->retained || rs->line || redraw ||
+	    rs->lds->display_busy ||
+	    !lws_dll2_get_head(&rs->displaylist.dl))
+		return 1;
+
+	memset(rs->st, 0, sizeof(rs->st));
+	rs->sp = 0;
+	redraw = 1;
+
+	rs->lds->display_busy = 1;
+	lws_sul_schedule(rs->lds->ctx, 0, &rs->sul, render, 1);
+
+	return 0;
 }
 

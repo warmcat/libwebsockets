@@ -35,4 +35,6 @@ extern void
 next_carousel(lws_sorted_usec_list_t *sul);
 extern int
 init_browse(struct lws_context *cx, lws_display_render_state_t *rs, const char *url);
+extern int
+redraw_page(lws_display_render_state_t *rs);
 

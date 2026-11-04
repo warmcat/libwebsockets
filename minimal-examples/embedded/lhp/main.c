@@ -24,6 +24,10 @@
  * The application is a placeholder for now: it visits each URL in the
  * board's carousel once, rendering it on the display via LHP, and showing
  * each for 10s once it is on the display, the last one too, then it ends.
+ * On a touch display, the page shown can be dragged around, to see the rest
+ * of one longer or wider than the display, or on a round display, what is in
+ * the corners the circle doesn't show.  Each drag gives the page another 10s
+ * before the carousel moves on.  Pressing a link stops the carousel.
  * An EPD keeps its image with no power, so it should be left white for
  * storage: there a white page is shown after the last one, and it ends once
  * that is on the display.
@@ -80,6 +84,13 @@ static lws_sorted_usec_list_t sul_app, sul_boot_timeout, sul_ui;
 static char display_ready, boot_dirty, boot_done, seen_operational,
 	    finished;
 static uint32_t scan_sig_shown;
+/* a drag began on the application page: it moves the page */
+static char app_drag;
+/* how far drags moved the page while the display was busy */
+static int pan_dx, pan_dy;
+
+static void
+pan_kick(void);
 static struct lws_plat_file_ops dlo_fops;
 static lws_display_render_state_t rs;
 static lhp_boot_t boot;
@@ -791,6 +802,8 @@ display_completion_cb(lws_display_state_t *lds, int a)
 
 		/* the strip ui draws anything that changed meanwhile */
 		lws_dlo_ui_kick(sui);
+		/* and the page is drawn where it was dragged to meanwhile */
+		pan_kick();
 
 		if (ui != UI_APP || carousel_phase == CAROUSEL_DONE ||
 		    update_pc_shown >= 0)
@@ -838,11 +851,12 @@ display_completion_cb(lws_display_state_t *lds, int a)
  *
  * Scrolls and long presses are not presses: the finger moved, so it did not
  * mean to press what it started on, or it was held, which asks for something
- * else that this example doesn't have.
+ * else that this example doesn't have.  A scroll that began on the page drags
+ * it around instead, see page_drag().
  */
 
 static int
-json_coord(const void *buf, size_t len, const char *name, int *v)
+json_int(const void *buf, size_t len, const char *name, int *v)
 {
 	const char *p;
 	char num[8];
@@ -855,21 +869,89 @@ json_coord(const void *buf, size_t len, const char *name, int *v)
 	lws_strnncpy(num, p, al, sizeof(num));
 	*v = atoi(num);
 
-	return *v < 0;
+	return 0;
+}
+
+static int
+json_coord(const void *buf, size_t len, const char *name, int *v)
+{
+	return json_int(buf, len, name, v) || *v < 0;
+}
+
+/* is there a settled application page on the display to touch? */
+
+static int
+app_page_shown(void)
+{
+	lws_system_states_t st = (lws_system_states_t)
+				lws_system_get_state_manager(cx)->state;
+
+	return ui == UI_APP && rs.html == 2 &&
+	       st != LWS_SYSTATE_AWAITING_MODAL_UPDATING &&
+	       st != LWS_SYSTATE_MODAL_UPDATING;
+}
+
+/*
+ * Move the page by what it was dragged meanwhile, and draw it there, once
+ * the display is free: the render must not see the page move under it, and
+ * a drag faster than the display can follow only draws where it got to
+ */
+
+static void
+pan_kick(void)
+{
+	if ((!pan_dx && !pan_dy) || lds.display_busy)
+		return;
+
+	if (!app_page_shown()) {
+		pan_dx = pan_dy = 0;
+		return;
+	}
+
+	if (!lws_display_render_pan(&rs, pan_dx, pan_dy)) {
+		/* it's as far as it goes that way already */
+		pan_dx = pan_dy = 0;
+		return;
+	}
+
+	if (!redraw_page(&rs))
+		pan_dx = pan_dy = 0;
+}
+
+/* the page follows the finger, without being laid out again */
+
+static void
+page_drag(const void *buf, size_t len)
+{
+	int dx, dy;
+
+	if (!app_drag || !app_page_shown() ||
+	    json_int(buf, len, "\"dx\":", &dx) ||
+	    json_int(buf, len, "\"dy\":", &dy))
+		return;
+
+	/* the user is looking at it: show it for as long again from now */
+
+	if (carousel_phase == CAROUSEL_RUNNING)
+		lws_sul_schedule(cx, 0, &sul_app, app_next, CAROUSEL_PAGE_US);
+	if (carousel_phase == CAROUSEL_SHOWING_LAST)
+		lws_sul_schedule(cx, 0, &sul_app, app_last_shown,
+				 CAROUSEL_PAGE_US);
+
+	/* the finger moving right shows more of the left of the page */
+	pan_dx -= dx;
+	pan_dy -= dy;
+	pan_kick();
 }
 
 static void
 touch_press(const void *buf, size_t len)
 {
-	lws_system_states_t st = (lws_system_states_t)
-				lws_system_get_state_manager(cx)->state;
 	char url[sizeof(lds.current_url)];
 	lws_dlo_hit_t *h;
 	int x, y;
 
-	if (ui != UI_APP || lds.display_busy ||
-	    st == LWS_SYSTATE_AWAITING_MODAL_UPDATING ||
-	    st == LWS_SYSTATE_MODAL_UPDATING)
+	if (!app_page_shown() || lds.display_busy)
 		/* there's no settled application page to press on */
 		return;
 
@@ -877,7 +959,10 @@ touch_press(const void *buf, size_t len)
 	    json_coord(buf, len, "\"y\":", &y))
 		return;
 
-	h = lws_display_dl_hit_test(&rs.displaylist, x, y, NULL);
+	/* where it is on the page, wherever the page was dragged to */
+
+	h = lws_display_dl_hit_test(&rs.displaylist, x + (int)rs.pan_x,
+				    y + (int)rs.pan_y, NULL);
 	if (!h || !h->url)
 		return;
 
@@ -919,6 +1004,13 @@ smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
 		/* while the strip ui is up, touches are for it */
 		if (sui)
 			lws_dlo_ui_touch(sui, buf, len);
+		else if (!lws_json_simple_strcmp(buf, len, "\"event\":",
+						 "down"))
+			/* a drag beginning now moves the page, if it's up */
+			app_drag = (char)app_page_shown();
+		else if (!lws_json_simple_strcmp(buf, len, "\"event\":",
+						 "scroll"))
+			page_drag(buf, len);
 		else if (!lws_json_simple_strcmp(buf, len, "\"event\":",
 						 "press"))
 			touch_press(buf, len);

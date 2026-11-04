@@ -108,12 +108,32 @@ a touch panel.
 On boards with a touch panel (`esp32s3-waveshare-240-240-touch`), while the
 boot overlay is up, touches are for it, see above.  After that, pressing
 a link on the displayed page follows it, and stops the carousel: the user is
-driving then, so it no longer ends by itself.
+driving then, so it no longer ends by itself.  Dragging the page moves it
+around on the display, and gives it another 10s on the display before the
+carousel moves on.
+
+The whole page is laid out, as far down as 16384px (`rs.layout_h`), if there
+is the memory for it, so all of a page longer or wider than the display can be
+dragged into view, as far as its end, including anything positioned or
+overflowing outside the box it is in.  On a round display, the page can also be dragged a little beyond
+its edges, just far enough to bring each corner of it to the first pixel of
+the circle that can be seen there, so what is in the corners the circle
+doesn't show can be seen too.  Beyond the page is white.
+
+Dragging the page doesn't lay it out again: it is drawn again from the display
+list it was laid out in, from where it was dragged to, with
+`lws_display_render_pan()`.  If the finger moves faster than the display can
+be drawn, it is drawn where the finger got to once the display is free again.
+Images on the page have to be fetched again each time it's drawn, unless the
+context has a document asset cache (`dlo_asset_cache_dir`), which these boards
+don't, so moving a page with images on it is slower.
 
 The touch controller issues `{"type":"touch",...}` `LWSSMDCL_INTERACTION`
 events, see `lib/drivers/touch/README.md`.  A `press` is resolved to the
-link displayed under it with `lws_display_dl_hit_test()`.  Scrolls and long
-presses do not follow links.
+link displayed under it with `lws_display_dl_hit_test()`, at where it is on
+the page wherever it was dragged to.  A `scroll` that began on the page
+(after its `down`) moves the page.  Scrolls and long presses do not follow
+links.
 
 To make that possible, on these boards the display list is kept after the
 page has been rendered (`rs.retained`), for as long as the page is on the
