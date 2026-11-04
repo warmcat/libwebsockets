@@ -161,3 +161,39 @@ lws_plat_callers(uintptr_t *pcs, int max, int skip)
 	return m;
 }
 #endif
+
+static void
+lws_plat_timer_sync_cb(void *p, uint32_t u)
+{
+	(void)u;
+
+	xSemaphoreGive((SemaphoreHandle_t)p);
+}
+
+void
+lws_plat_timer_delete_sync(TimerHandle_t t)
+{
+	StaticSemaphore_t ss;
+	SemaphoreHandle_t s;
+
+	if (!t)
+		return;
+
+	xTimerDelete(t, portMAX_DELAY);
+
+	if (xTaskGetCurrentTaskHandle() == xTimerGetTimerDaemonTaskHandle())
+		/* the timer task would wait on itself */
+		return;
+
+	/*
+	 * The timer task deals with what it is sent in order, and runs the
+	 * callbacks: once it has run this, the delete is done, and no callback
+	 * of the timer is running, or will
+	 */
+
+	s = xSemaphoreCreateBinaryStatic(&ss);
+	if (xTimerPendFunctionCall(lws_plat_timer_sync_cb, s, 0,
+				   portMAX_DELAY) == pdPASS)
+		xSemaphoreTake(s, portMAX_DELAY);
+	vSemaphoreDelete(s);
+}
