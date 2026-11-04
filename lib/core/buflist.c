@@ -322,6 +322,29 @@ lws_buflist_linear_copy(struct lws_buflist **head, size_t ofs, uint8_t *buf,
 	return lws_ptr_diff(buf, obuf);
 }
 
+const uint8_t *
+lws_buflist_at(struct lws_buflist **head, size_t ofs, size_t *avail)
+{
+	struct lws_buflist *p = *head;
+
+	while (p) {
+		size_t live = p->len - p->pos; /* live region only */
+
+		if (ofs < live) {
+			*avail = live - ofs;
+
+			return lws_buflist_seg_base(p) + p->pos + ofs;
+		}
+
+		ofs -= live;
+		p = p->next;
+	}
+
+	*avail = 0;
+
+	return NULL;
+}
+
 int
 lws_buflist_linear_use(struct lws_buflist **head, uint8_t *buf, size_t len)
 {

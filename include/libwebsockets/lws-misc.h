@@ -220,6 +220,24 @@ lws_buflist_linear_copy(struct lws_buflist **head, size_t ofs, uint8_t *buf,
 			size_t len);
 
 /**
+ * lws_buflist_at(): the byte at an offset, and how much follows it in one run
+ *
+ * \param head: list head
+ * \param ofs: offset into the buflist content in bytes, from the head's
+ *	       current position
+ * \param avail: set to how many contiguous bytes there are from the result
+ *		 in the segment it is in
+ *
+ * For consumers that keep data in the buflist and read it in place by offset,
+ * rather than copying it out: nothing is consumed.  The pointer stays valid
+ * until the segment it points into is used up or the buflist is destroyed.
+ *
+ * Returns NULL, with *avail 0, if ofs is at or past the end of the content.
+ */
+LWS_VISIBLE LWS_EXTERN const uint8_t *
+lws_buflist_at(struct lws_buflist **head, size_t ofs, size_t *avail);
+
+/**
  * lws_buflist_linear_use(): copy and consume from buflist head
  *
  * \param head: list head
