@@ -808,6 +808,20 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
 
 ## lhp (html / css)
 
+ - **`lws_fx_t` between -1 and 0 has `whole == 0` and a negative `frac`**,
+   so test the sign with `lws_neg()`, never `whole < 0`.  dlo-rect's
+   `isect()` took the square root of -0.25 that way, drawing the top row of
+   every unrounded rect ~6.5px left (a9c3ed94e).
+
+ - **An `<img>` that is itself a flex item isn't placed by
+   `justify-content` / `align-items`**: it stays at the container's top left
+   while text items beside it are placed.  Wrap it in a div (dlo-ui.c does).
+
+ - **The context makes things the first time lhp browses**: the secure
+   streams vhost and its tls context, a few KB.  A test checking an lhp user
+   gives back its heap must measure across a second pass, as
+   api-test-dlo-ui does, or it blames them on the code under test.
+
  - `lws_display_list_render_line()` calls a dlo's render from the line
    *before* its top (`curr >= co.y - 1`), and skips it (destroying it, if
    not retained) only once `curr > roundup(bottom)`: a dlo's own render
