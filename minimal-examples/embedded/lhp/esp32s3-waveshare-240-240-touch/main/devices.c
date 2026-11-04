@@ -19,10 +19,10 @@ lws_netdev_instance_wifi_t *wnd;
 lws_settings_instance_t *si;
 
 const char *carousel_urls[] = {
-        "https://libwebsockets.org/lhp-tests/t4-320.html",
+        "https://libwebsockets.org/lhp-tests/t4.html",
         "https://libwebsockets.org/lhp-tests/t7.html",
-        "https://libwebsockets.org/lhp-tests/t1-320.html",
-        "https://libwebsockets.org/lhp-tests/t2-320.html",
+        "https://libwebsockets.org/lhp-tests/t1.html",
+        "https://libwebsockets.org/lhp-tests/t2.html",
         NULL
 };
 
