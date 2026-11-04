@@ -145,6 +145,81 @@ lws_display_dlo_add(lws_displaylist_t *dl, lws_dlo_t *dlo_parent, lws_dlo_t *dlo
 	return 0;
 }
 
+/* the integer square root, rounded down */
+
+static uint32_t
+isqrt32(uint32_t v)
+{
+	uint32_t r = 0, b = 1u << 30;
+
+	while (b > v)
+		b >>= 2;
+
+	while (b) {
+		if (v >= r + b) {
+			v -= r + b;
+			r = (r >> 1) + b;
+		} else
+			r >>= 1;
+		b >>= 2;
+	}
+
+	return r;
+}
+
+int
+lws_surface_visible_span(const lws_surface_info_t *ic, int y0, int y1,
+			 int *x0, int *x1)
+{
+	int w = ic->wh_px[0].whole, h = ic->wh_px[1].whole, d, e0, e1, e;
+	uint32_t c;
+
+	*x0 = *x1 = 0;
+
+	if (w <= 0 || h <= 0 || y0 < 0 || y1 > h || y0 >= y1)
+		return 1;
+
+	if (!ic->round) {
+		*x1 = w;
+		return 0;
+	}
+
+	/*
+	 * Working in half pixels, so the centres of the pixels and of the
+	 * circle are whole: line y's centre is 2y + 1 half pixels down, the
+	 * circle's is h, and its diameter is the shorter side.  A pixel can be
+	 * seen if its centre is inside the circle.  The chord is shortest at
+	 * the line of the band furthest from the middle, which is one of its
+	 * ends.
+	 */
+
+	d = w < h ? w : h;
+	e0 = 2 * y0 + 1 - h;
+	e1 = 2 * (y1 - 1) + 1 - h;
+	if (e0 < 0)
+		e0 = -e0;
+	if (e1 < 0)
+		e1 = -e1;
+	e = e0 > e1 ? e0 : e1;
+
+	if (e >= d)
+		return 1;
+
+	/* the chord, in pixels, is sqrt(d^2 - e^2) */
+
+	c = isqrt32((uint32_t)(d * d - e * e));
+
+	/*
+	 * The columns whose centres are inside it, |2x + 1 - w| <= c half
+	 * pixels, so from (w - c) / 2 up to w less that
+	 */
+
+	*x0 = (w - (int)c) / 2;
+	*x1 = w - *x0;
+
+	return *x0 >= *x1;
+}
+
 void
 lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
 		   const lws_display_colour_t *c)

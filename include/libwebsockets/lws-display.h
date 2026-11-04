@@ -57,7 +57,39 @@ typedef struct lws_surface_info {
 	uint8_t				greyscale:1; /* line: 0 = RGBA, 1 = YA */
 	uint8_t				partial:1; /* can handle partial */
 	uint8_t				render_to_rgba:1; /* render to 32-bit RGBA, not 24-bit RGB */
+	uint8_t				round:1; /* only the circle inscribed
+						  * in the surface can be seen,
+						  * eg, a round LCD: the corners
+						  * of the framebuffer are not
+						  * there */
+	uint8_t				band:1; /* the blit can update a band
+						 * of whole lines, at least 2,
+						 * not only the whole surface:
+						 * a blit of the band's box
+						 * opens it, then its lines
+						 * follow, then a zero-height
+						 * blit ends it */
 } lws_surface_info_t;
+
+/**
+ * lws_surface_visible_span() - the columns that can be seen across a band
+ *
+ * \param ic: the surface
+ * \param y0: the first line of the band
+ * \param y1: one past the last line of the band
+ * \param x0: set to the first column visible on every line of the band
+ * \param x1: set to one past the last column visible on every line of it
+ *
+ * On a rectangular surface that is the whole width.  On a round one, it is
+ * the chord of the circle at the line of the band furthest from its middle,
+ * so whatever is laid out between x0 and x1 in the band can all be seen.
+ *
+ * Returns 0, or nonzero if no column of the band can be seen on all its lines,
+ * eg, it is wholly or partly off the surface, when x0 == x1.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_surface_visible_span(const lws_surface_info_t *ic, int y0, int y1,
+			 int *x0, int *x1);
 
 typedef struct lws_greyscale_error {
 	int16_t				rgb[1];
