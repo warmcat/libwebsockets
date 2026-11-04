@@ -123,8 +123,15 @@ lws_netdev_wifi_scan_select(lws_netdev_instance_wifi_t *wnd)
 	 */
 
 	if (!netdevs->ac_creds &&
-	    lws_netdev_credentials_settings_get(netdevs))
+	    lws_netdev_credentials_settings_get(netdevs)) {
+		/*
+		 * None are stored yet: keep scanning, so what is around stays
+		 * known, eg, for the user to pick one to store
+		 */
+		lws_sul_schedule(cx, 0, &wnd->sul_scan, lws_netdev_wifi_scan,
+				 3 * LWS_US_PER_SEC);
 		return 0;
+	}
 	netdevs->refcount_creds++;
 
 	/*
