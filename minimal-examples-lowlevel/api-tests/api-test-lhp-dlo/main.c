@@ -30,6 +30,8 @@ enum {
 		LWS_SW_KERN_CHECK,
 		LWS_SW_RETAINED,
 		LWS_SW_SVG_LIVE_MAX,
+		LWS_SW_LAYOUT_H,
+		LWS_SW_PAN,
 		LWS_SW_HELP,
 };
 
@@ -54,6 +56,8 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_KERN_CHECK] = { "--kern-check", "Check how the registered 14px regular face kerns pairs of glyphs, instead of laying out a page" },
 	[LWS_SW_RETAINED] = { "--retained",    "Render the display list retained, as for a touch panel, keeping its DLOs as the raster passes them" },
 	[LWS_SW_SVG_LIVE_MAX] = { "--svg-live-max", "Fail if more than this many svg images were held at once" },
+	[LWS_SW_LAYOUT_H] = { "--layout-h",    "Lay the page out this tall in px, taller than --h, so it can be panned down (rs.layout_h)" },
+	[LWS_SW_PAN]	= { "--pan",           "x,y: render the display list panned this far right and down with lws_display_render_pan(), kept to what is laid out" },
 	[LWS_SW_HELP]	= { "--help",          "Show this help information" },
 };
 
@@ -194,6 +198,7 @@ static lws_surface_info_t ic = {
 
 int fdin = 0, fdout = 1, result = 0;
 static const char *dump_path;
+static int pan_x, pan_y;
 static int reclaim_lines, reclaimed_line = -1, svg_live_max = -1, starve_ms;
 static size_t heap_limit;
 static lws_sorted_usec_list_t sul_starve;
@@ -652,6 +657,12 @@ render(lws_sorted_usec_list_t *sul)
 	if (!rs->line) {
 
 		lws_display_get_ids_boxes(rs);
+
+		if (pan_x || pan_y) {
+			lws_display_render_pan(rs, pan_x, pan_y);
+			lwsl_user("%s: panned to %d, %d\n", __func__,
+				  (int)rs->pan_x, (int)rs->pan_y);
+		}
 		//lws_display_dl_dump(&rs->displaylist);
 
 		/* allocate one line of RGB output pixels to render into */
@@ -1072,6 +1083,20 @@ main(int argc, const char **argv)
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_FONTS_LOCAL].sw))
 		drs.fonts_local = 1;
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_LAYOUT_H].sw)))
+		drs.layout_h = atoi(p);
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PAN].sw))) {
+		const char *c = strchr(p, ',');
+
+		if (!c) {
+			lwsl_err("--pan takes x,y\n");
+			return 1;
+		}
+		pan_x = atoi(p);
+		pan_y = atoi(c + 1);
+	}
 
 	/*
 	 * If the render can't have a face from the server some text was laid

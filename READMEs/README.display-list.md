@@ -168,6 +168,38 @@ drawing can take advantage of
    the whole width of the display.  (This is not `.partial`, which the EPD
    drivers use to mean they can do a partial refresh.)
 
+## Panning a page bigger than the display
+
+A retained display list (`lws_display_render_state_t .retained`) can be
+rendered again at another offset without laying it out again, eg, as a page is
+dragged on a touch display.  `lws_display_render_pan(rs, dx, dy)` moves the
+view by dx, dy, kept to what the page's content covers, and returns nonzero if
+it moved; the caller then renders the display list again from the top of the
+display.  `rs->pan_x`, `rs->pan_y` is the point of the page at the top left of
+the display, so a touch at x, y on the display is at x + pan_x, y + pan_y on
+the page, eg, for `lws_display_dl_hit_test()`.  Where the view shows beyond the
+page, the lines start out white.
+
+The layout drops content below the surface it is given, so for a page longer
+than the display to be panned down to its end, set `rs->layout_h` to a height
+to lay it out to before browsing it with `lws_lhp_ss_browse()`.  css viewport
+units and the like still resolve against the display's height, unless
+`rs->viewport_h` says else.
+
+On a round display, a page the size of the display has things in its corners
+that the circle doesn't show.  So there the view can also go beyond each edge
+of the content, but only as far as it takes to bring a corner of it to the
+first pixel of the circle that can be seen there, at 45 degrees from its
+middle: 36px on a 240px circle.
+
+png and jpeg decoders only go forwards.  Images the raster has passed are
+fetched again for the next render, from the document asset cache if there is
+one, and an image the raster goes back up, eg, one partway down the display
+when the view moves down, is started again, renewed from the cache if it's
+there, else fetched again from where it came from.
+
+`minimal-examples-lowlevel/api-tests/api-test-dlo-pan` shows and checks it.
+
 ## Strip ui
 
 `lws-dlo-ui.h` is a finished user interface for small displays: the caller

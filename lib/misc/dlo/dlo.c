@@ -224,6 +224,131 @@ lws_surface_visible_span(const lws_surface_info_t *ic, int y0, int y1,
 	return *x0 >= *x1;
 }
 
+/*
+ * How far the view of a display list may go beyond the edges of its content
+ * on the axis whose length is len: on a round surface, as far as it takes to
+ * bring a corner of the content to the first pixel of the circle that can be
+ * seen there, at 45 degrees from the centre.  Short of that, the corner isn't
+ * in the circle: the visible circle meets the square that the corner moves
+ * in only at the square's far corner, so it's the circle that limits it.
+ */
+
+static int32_t
+pan_affordance(const lws_surface_info_t *ic, int32_t len)
+{
+	int32_t d = ic->wh_px[0].whole < ic->wh_px[1].whole ?
+		    ic->wh_px[0].whole : ic->wh_px[1].whole, r = d / 2, a;
+
+	if (!ic->round || r <= 0)
+		return 0;
+
+	/* the centre less r / sqrt(2) */
+
+	a = len / 2 - (int32_t)isqrt32((uint32_t)(r * r) / 2);
+
+	return a < 0 ? 0 : a;
+}
+
+/*
+ * The pan on one axis, kept to the content's extent there.  Content shorter
+ * than the display can always be where it was laid out: on a round display,
+ * if it's that short, its far corner is already inside the circle there
+ */
+
+static int32_t
+pan_clamp(int64_t pan, int32_t extent, int32_t len, int32_t aff)
+{
+	int64_t lo = -aff, hi = (int64_t)extent - len + aff;
+
+	if (hi < 0)
+		hi = 0;
+	if (pan < lo)
+		pan = lo;
+	if (pan > hi)
+		pan = hi;
+
+	return (int32_t)pan;
+}
+
+/*
+ * How far across and down what is in the display list reaches.  The first dlo
+ * is the root, eg, the html's background: laid out, it fills the surface it
+ * was given however much is in it, so it's what is in it that counts.  That
+ * may be anywhere, eg, positioned below a body with a fixed height, except
+ * outside a dlo that clips what is in it
+ */
+
+static void
+dl_extent(lws_displaylist_t *dl, int32_t *ew, int32_t *eh)
+{
+	struct {
+		lws_dlo_t	*dlo;
+		lws_fx_t	x, y;	/* its parent's origin */
+	} st[LWS_DLO_STACK_DEPTH];
+	lws_dll2_t *d = lws_dll2_get_head(&dl->dl);
+	int sp = 0;
+	lws_fx_t t;
+
+	*ew = *eh = 0;
+	if (!d)
+		return;
+
+	memset(st, 0, sizeof(st));
+	st[0].dlo = lws_container_of(d, lws_dlo_t, list);
+
+	while (sp >= 0) {
+		lws_dlo_t *dlo = st[sp].dlo;
+		lws_fx_t x, y;
+
+		if (!dlo) {
+			sp--;
+			continue;
+		}
+
+		d = lws_dll2_get_next(&dlo->list);
+		st[sp].dlo = d ? lws_container_of(d, lws_dlo_t, list) : NULL;
+
+		lws_fx_add(&x, &st[sp].x, &dlo->box.x);
+		lws_fx_add(&y, &st[sp].y, &dlo->box.y);
+
+		lws_fx_add(&t, &x, &dlo->box.w);
+		if (lws_fx_roundup(&t) > *ew)
+			*ew = lws_fx_roundup(&t);
+
+		/* the root is as wide as the page, but not as tall */
+
+		lws_fx_add(&t, &y, &dlo->box.h);
+		if ((sp || dlo->list.prev) && lws_fx_roundup(&t) > *eh)
+			*eh = lws_fx_roundup(&t);
+
+		d = lws_dll2_get_head(&dlo->children);
+		if (!d || dlo->flag_clip || sp + 1 == (int)LWS_ARRAY_SIZE(st))
+			continue;
+
+		sp++;
+		st[sp].dlo = lws_container_of(d, lws_dlo_t, list);
+		st[sp].x = x;
+		st[sp].y = y;
+	}
+}
+
+int
+lws_display_render_pan(lws_display_render_state_t *rs, int dx, int dy)
+{
+	int32_t ox = rs->pan_x, oy = rs->pan_y, ew, eh;
+
+	dl_extent(&rs->displaylist, &ew, &eh);
+
+	rs->pan_x = pan_clamp((int64_t)rs->pan_x + dx, ew,
+			      rs->ic->wh_px[0].whole,
+			      pan_affordance(rs->ic, rs->ic->wh_px[0].whole));
+	rs->pan_y = pan_clamp((int64_t)rs->pan_y + dy, eh,
+			      rs->ic->wh_px[1].whole,
+			      pan_affordance(rs->ic, rs->ic->wh_px[1].whole));
+
+	return rs->pan_x != ox || rs->pan_y != oy;
+}
+
 void
 lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
 		   const lws_display_colour_t *c)
@@ -704,9 +829,20 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 			/* nothing in dlo */
 			return LWS_SRET_OK;
 
-	//	memset(rs->line, 0, (size_t)rs->ic->wh_px[0].whole *
-	//				(rs->ic->greyscale ? 1 : 3));
+		/*
+		 * Laid out on the surface, the display list covers the whole
+		 * of every line itself.  Panned, the view may show beyond it,
+		 * which starts out white like paper
+		 */
+
+		if (rs->pan_x || rs->pan_y)
+			memset(rs->line, 0xff, (size_t)rs->ic->wh_px[0].whole *
+				(rs->ic->greyscale ? 1 :
+				 (rs->ic->render_to_rgba ? 4 : 3)));
+
 		memset(&rs->st[0].co, 0, sizeof(rs->st[0].co));
+		rs->st[0].co.x.whole = -rs->pan_x;
+		rs->st[0].co.y.whole = -rs->pan_y;
 		rs->st[0].opacity = 255;
 		rs->st[0].clip[0] = rs->st[0].clip[1] = INT32_MIN;
 		rs->st[0].clip[2] = rs->st[0].clip[3] = INT32_MAX;

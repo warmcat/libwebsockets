@@ -544,6 +544,12 @@ typedef struct lws_display_render_state {
 	lws_display_scalar		curr;
 	lws_display_scalar		lowest_id_y;
 
+	int32_t				pan_x; /* the display list point at */
+	int32_t				pan_y; /* the surface's top left: 0, or
+						* where lws_display_render_pan()
+						* moved the view of a retained
+						* display list to */
+
 	char				html;
 	char				retained; /* nonzero: keep DLOs when the
 						* render cursor passes them, so
@@ -603,6 +609,15 @@ typedef struct lws_display_render_state {
 						* surface is taller than what is
 						* shown at once (a scrolling
 						* window) */
+	int32_t				layout_h; /* 0, or the height
+						* lws_lhp_ss_browse() lays the
+						* page out to, when it's more
+						* than the surface's: a page that
+						* long can be panned down to its
+						* end with
+						* lws_display_render_pan().  The
+						* viewport is still the surface,
+						* unless .viewport_h says else */
 	int32_t				window; /* 0, or the flow control
 						* window lws_lhp_ss_browse()
 						* fetches the document and its
@@ -692,6 +707,43 @@ lws_dlo_ensure_err_diff(lws_dlo_t *dlo);
  */
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lws_display_list_render_line(lws_display_render_state_t *rs);
+
+/**
+ * lws_display_render_pan() - move the view of a laid out display list
+ *
+ * \param rs: the render state, whose display list is laid out
+ * \param dx: how far to move the view right, in pixels, or left if negative
+ * \param dy: how far to move the view down, in pixels, or up if negative
+ *
+ * Lines rendered afterwards show the display list from rs->pan_x, rs->pan_y
+ * at the top left of the surface: what is laid out is only drawn somewhere
+ * else, it is not laid out again.  Each line starts white wherever the view
+ * shows something the display list doesn't cover.
+ *
+ * The view is kept to what is laid out, as far as the display list's content
+ * reaches across and down: a page longer than the surface can be moved down
+ * to its end, if it was laid out that long, see .layout_h.  On a round
+ * surface (lws_surface_info_t .round) the view can also go beyond each edge
+ * of the content, but only as far as it takes to bring a corner of it, eg,
+ * the content's (0, 0), to the first pixel of the circle that can be seen
+ * there, so everything in the corners the circle doesn't show can be brought
+ * into it.
+ *
+ * Call with dx and dy of 0 to only keep a pan made before to what is laid
+ * out now, eg, after a relayout.  Points on the surface, eg, a touch, are at
+ * the display list's (x + rs->pan_x, y + rs->pan_y), eg, for
+ * lws_display_dl_hit_test().
+ *
+ * To show the move, the display list is then rendered again from the top of
+ * the surface, as a retained display list can be (see .retained).  Images
+ * the raster passed are fetched again for it, from the document asset cache
+ * if there is one, and those it was partway down are only drawn from the top
+ * again if lws_dlo_ss_renew_images() can renew them from the cache.
+ *
+ * Returns nonzero if the view moved.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_display_render_pan(lws_display_render_state_t *rs, int dx, int dy);
 
 /*
  * lws_display_render_set_px() - compose one pixel of the dlo being rendered

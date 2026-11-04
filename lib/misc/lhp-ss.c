@@ -428,6 +428,7 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 			 sul_cb_t render, const lws_lhp_filter_t *filter)
 {
 	struct lws_ss_handle *h = NULL;
+	lws_surface_info_t lic;
 	lws_ss_info_t ssi;
 	int32_t w = 64 * 1024;
 
@@ -473,18 +474,36 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 	 * and we buflist the lot.
 	 */
 
+	/*
+	 * The surface the page is laid out on: the display's, or taller, so
+	 * a long page can be panned down to its end.  It stays as many pixels
+	 * to the mm.  rs->ic stays the display, that the page is rendered on
+	 */
+
+	lic = *rs->ic;
+	if (rs->layout_h > lic.wh_px[1].whole && lic.wh_px[1].whole > 0) {
+		lws_fx_t a, b, t;
+
+		lws_fx_set(a, rs->layout_h, 0);
+		lws_fx_div(&t, &a, &rs->ic->wh_px[1]);
+		lws_fx_mul(&b, &rs->ic->wh_mm[1], &t);
+		lic.wh_mm[1] = b;
+		lic.wh_px[1] = a;
+	}
+
 	m->drt.dl = &rs->displaylist;
-	m->drt.w = rs->ic->wh_px[0].whole;
-	m->drt.h = rs->ic->wh_px[1].whole;
+	m->drt.w = lic.wh_px[0].whole;
+	m->drt.h = lic.wh_px[1].whole;
 	m->drt.clipped = 0;
 
 	m->rs = rs;
 	m->rs->html = 1; /* render must wait for html to complete */
 	m->rs->layout_clipped = 0;
 	m->rs->layout_failed = 0;
+	rs->pan_x = rs->pan_y = 0;
 	rs->hss_html = h; /* for lws_lhp_ss_cancel() */
 
-	if (lws_lhp_construct(&m->lhp, lhp_displaylist_layout, &m->drt, rs->ic)) {
+	if (lws_lhp_construct(&m->lhp, lhp_displaylist_layout, &m->drt, &lic)) {
 		lwsl_err("%s: lhp create %s failed\n", __func__, url);
 		goto bail1;
 	}
@@ -497,7 +516,10 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
 	m->lhp.user1 = cx;
 	/* after lws_lhp_construct(), which zeroes the ctx */
 	m->lhp.window = w;
-	m->lhp.viewport_h = rs->viewport_h;
+	/* laid out taller, the page's viewport is still the display */
+	m->lhp.viewport_h = rs->viewport_h ? rs->viewport_h :
+			(lic.wh_px[1].whole != rs->ic->wh_px[1].whole ?
+					rs->ic->wh_px[1].whole : 0);
 	m->lhp.reclaim_elems = rs->reclaim_elems;
 	m->lhp.fonts_local = !!rs->fonts_local;
 	rs->displaylist.hold_fonts = !!rs->fonts_hold;
