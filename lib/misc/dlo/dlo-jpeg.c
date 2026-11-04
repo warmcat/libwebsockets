@@ -38,6 +38,7 @@ lws_display_dlo_jpeg_destroy(struct lws_dlo *dlo)
 	lws_reclaimable_remove(&dlo_jpeg->rc);
 	lws_buflist_destroy_all_segments(&dlo_jpeg->flow.bl);
 	lws_free_set_NULL(dlo_jpeg->row);
+	lws_dll2_remove(&dlo_jpeg->rf.released);
 	lws_free_set_NULL(dlo_jpeg->rf.url);
 
 	if (dlo_jpeg->j)

@@ -351,6 +351,12 @@ typedef struct lws_dlo_refetch {
 	char				*url; /* heap, or NULL: it can't be */
 	sul_cb_t			on_rx; /* wakes the render as the */
 	lws_sorted_usec_list_t		*on_rx_sul; /* payload arrives */
+	lws_dll2_t			released; /* on the context's list
+						   * while its fetch is given
+						   * back before the raster
+						   * reaches it, so the layout
+						   * can still find it by url */
+	uint8_t				type; /* LWSDLOSS_TYPE_ */
 } lws_dlo_refetch_t;
 
 /*

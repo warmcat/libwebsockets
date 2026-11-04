@@ -622,6 +622,9 @@ struct lws_context {
 #if defined(LWS_WITH_SECURE_STREAMS)
 	lws_dll2_owner_t			active_assets; /* dloss_t */
 	lws_dll2_owner_t			pending_assets; /* dloss_t, queued for a slot */
+	lws_dll2_owner_t			released_images; /* lws_dlo_refetch_t,
+						 * laid out, fetch given back
+						 * until the raster */
 #if defined(LWS_WITH_FOOTPRINT)
 	lws_footprint_t				fp_dlo_assets; /* both lists */
 #endif

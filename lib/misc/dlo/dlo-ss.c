@@ -138,6 +138,76 @@ dloss_arm_reclaim(dloss_t *m)
 }
 
 /*
+ * The layout has the dimensions of a png or jpeg it is still laying out, and
+ * nothing more of it is wanted until the raster reaches it, if it ever does,
+ * eg, it's below what is displayed.  But until then its fetch, allowed no more
+ * than the header, keeps its fetch slot.  With more images on a server than
+ * may be fetched from it at once, the ones queued for a slot hold the layout
+ * up until they have their dimensions, the layout holds the raster up, and
+ * the raster is what lets the fetches in the slots finish: it only comes
+ * apart as they time out.
+ *
+ * So give the fetch back once the layout has placed the image, as the raster
+ * does once it has left one.  The dlo keeps its box, and how to fetch the
+ * image again when the raster reaches it.  An image that has all arrived
+ * already is kept, and so is one a render already under way may be on.
+ *
+ * It waits for the parse it resumed to have gone past the element: until
+ * then, the parse finds the image by url among the active assets, and
+ * would fetch it again, without them.  It is scheduled on m->sul, which
+ * DESTROYING cancels if the asset goes first.  This destroys m.
+ *
+ * The layout may come to the same url again, eg, the same image further down,
+ * or the element laid out again after waiting for something else.  So the
+ * dlo goes on the context's released images, where lws_dlo_ss_find() finds it
+ * as it found the asset, until it's fetched again or destroyed.  Its box
+ * keeps the dimensions its decoder had.
+ */
+
+static void
+dloss_release_until_raster_cb(lws_sorted_usec_list_t *sul)
+{
+	dloss_t *m = lws_container_of(sul, dloss_t, sul);
+	struct lws_context *cx = m->cx;
+	lws_display_render_state_t *rs;
+	uint8_t type = m->type;
+	lws_dlo_refetch_t *rf;
+
+	if (!m->ssevsul || m->u.failed || !m->u.u.dlo_png ||
+	    m->u.u.dlo_png->flow.state != LWSDLOFLOW_STATE_READ)
+		return;
+
+	/*
+	 * A render may have its line before the layout is complete, but it
+	 * draws nothing until then
+	 */
+	rs = lws_container_of(m->ssevsul, lws_display_render_state_t, sul);
+	if (rs->html != 1 && rs->line)
+		return;
+
+	if (type == LWSDLOSS_TYPE_PNG) {
+		rf = &m->u.u.dlo_png->rf;
+		lws_display_dlo_png_release(m->u.u.dlo_png);
+	}
+#if defined(LWS_WITH_JPEG)
+	else if (type == LWSDLOSS_TYPE_JPEG) {
+		rf = &m->u.u.dlo_jpeg->rf;
+		lws_display_dlo_jpeg_release(m->u.u.dlo_jpeg);
+	}
+#endif
+	else
+		return;
+
+	/* m is gone now, if it was released */
+
+	if (!rf->url)
+		return; /* it couldn't be: it's still fetching */
+
+	rf->type = type;
+	lws_dll2_add_tail(&rf->released, &cx->released_images);
+}
+
+/*
  * dlo images call back here when they have their dimensions (or have failed)
  */
 
@@ -215,6 +285,15 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 
 	/* we are resuming the html parsing */
 	lws_lhp_ss_html_parse_from_lhp(m->lhp);
+
+	/*
+	 * The page is being laid out, so this is the image's fetch for the
+	 * layout: a fetch for the raster only starts once the render has
+	 * begun, after the layout is complete
+	 */
+	if (m->type == LWSDLOSS_TYPE_PNG || m->type == LWSDLOSS_TYPE_JPEG)
+		lws_sul_schedule(m->cx, 0, &m->sul,
+				 dloss_release_until_raster_cb, 1);
 }
 
 #if defined(LWS_WITH_SECURE_STREAMS)
@@ -1193,6 +1272,28 @@ lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u)
 		}
 
 	} lws_end_foreach_dll(d);
+
+	/* ... and so is one laid out whose fetch was given back */
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&cx->released_images)) {
+		lws_dlo_refetch_t *rf = lws_container_of(d, lws_dlo_refetch_t,
+							 released);
+
+		if (!strcmp(url, rf->url)) {
+			memset(u, 0, sizeof(*u));
+			u->type = (lws_dlo_image_type_t)rf->type;
+			if (rf->type == LWSDLOSS_TYPE_PNG)
+				u->u.dlo_png = lws_container_of(rf,
+							lws_dlo_png_t, rf);
+			else
+				u->u.dlo_jpeg = lws_container_of(rf,
+							lws_dlo_jpeg_t, rf);
+
+			return 0; /* found */
+		}
+
+	} lws_end_foreach_dll(d);
 #endif
 	return 1; /* not found */
 }
@@ -1967,6 +2068,10 @@ lws_dlo_ss_refetch(lws_dlo_t *dlo, const lws_dlo_refetch_t *rf,
 
 	if (!rf->url || !rf->cx)
 		return -1;
+
+	/* fetched again, it's found among the active assets again */
+	if (type == LWSDLOSS_TYPE_PNG || type == LWSDLOSS_TYPE_JPEG)
+		lws_dll2_remove(&dlo_refetch(dlo, type)->released);
 
 	memset(&i, 0, sizeof(i));
 	i.cx		= rf->cx;

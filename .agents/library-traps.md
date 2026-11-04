@@ -836,6 +836,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    h2 / h3, 4KB window) sees it.  Stylesheets bigger than a window stalled
    that way until their fetch was given credit as they were parsed.
 
+ - **lhp looks an image up again by url** (`lws_dlo_ss_find()`) each
+   time the parse comes back to its element, eg, retrying while it waits
+   for something else, and for a css background each time its element is
+   laid out.  An image whose fetch is given back must stay findable
+   (`cx->released_images`), or it's fetched again, or duplicated.
+
  - lwsac takes its chunks with plain `malloc()`, not `lws_malloc()`, so
    `lws_get_allocated_heap()` and `lws_heap_limit_set()` don't see them.
    To measure an svg's cost, use `lws_svg_get_heap_peak()`.

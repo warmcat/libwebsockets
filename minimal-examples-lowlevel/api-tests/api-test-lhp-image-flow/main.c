@@ -37,6 +37,14 @@
  * first few LWS_DLO_IMAGE_HEAD_CREDIT of it, so the layout depends on its
  * fetch being given more, a little at a time.
  *
+ * Below them is a column of six more pngs, sized by css, so the layout
+ * doesn't wait on their dimensions and has them all fetching or queued at
+ * once: more than LWS_DLO_MAX_CONCURRENT_PER_HOST from the one server.  Each
+ * fetch gives back its slot once the layout has the image's dimensions, or
+ * the ones queued behind them would hold the layout up, waiting on slots
+ * held until the raster reaches their images, which waits on the layout:
+ * the images in the slots would time out undrawn.
+ *
  * The page's stylesheet, big.css, is four windows long, and only arrives
  * whole if its fetch is given more credit as lhp parses it.  Its last rule
  * gives the gap above the png its height, so the png is at line
@@ -83,7 +91,9 @@ static const struct lws_switches switches[] = {
 };
 
 #define IF_TIMEOUT_S		30
-#define IF_MAX_IMAGES		4
+#define IF_MAX_IMAGES		12
+/* the png, two jpegs, then the column of sized pngs */
+#define IF_IMAGES		9
 /* the gap above the png, from the last rule of big.css */
 #define IF_GAP_PX		40
 
@@ -118,8 +128,8 @@ static uint32_t line_hash[1024]; /* each line of the first pass */
 static char url[128];
 
 static lws_surface_info_t ic = {
-	.wh_px = { { 600,0 },       { 560,0 } },
-	.wh_mm = { { 114,5000000 }, { 106,5000000 } },
+	.wh_px = { { 600,0 },       { 840,0 } },
+	.wh_mm = { { 114,5000000 }, { 159,75000000 } },
 	.type  = LWSSURF_TRUECOLOR32,
 };
 
@@ -315,9 +325,9 @@ check(int again)
 #endif
 	int n;
 
-	if (nimages != 3) {
-		lwsl_err("%s: %d images laid out, expected 3\n", __func__,
-			 nimages);
+	if (nimages != IF_IMAGES) {
+		lwsl_err("%s: %d images laid out, expected %d\n", __func__,
+			 nimages, IF_IMAGES);
 		fails++;
 		return;
 	}
