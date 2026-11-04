@@ -57,7 +57,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_RETAINED] = { "--retained",    "Render the display list retained, as for a touch panel, keeping its DLOs as the raster passes them" },
 	[LWS_SW_SVG_LIVE_MAX] = { "--svg-live-max", "Fail if more than this many svg images were held at once" },
 	[LWS_SW_LAYOUT_H] = { "--layout-h",    "Lay the page out this tall in px, taller than --h, so it can be panned down (rs.layout_h)" },
-	[LWS_SW_PAN]	= { "--pan",           "x,y: render the display list panned this far right and down with lws_display_render_pan(), kept to what is laid out" },
+	[LWS_SW_PAN]	= { "--pan",           "x,y[:x,y...]: render the display list panned to x,y with lws_display_render_pan(), kept to what is laid out.  With --retained, more are rendered one after the other from the same display list, as a touch display redraws a page dragged around, and the last goes in the bmp" },
 	[LWS_SW_HELP]	= { "--help",          "Show this help information" },
 };
 
@@ -198,7 +198,11 @@ static lws_surface_info_t ic = {
 
 int fdin = 0, fdout = 1, result = 0;
 static const char *dump_path;
-static int pan_x, pan_y;
+#define PAN_MAX		8
+static struct {
+	int x, y;
+} pans[PAN_MAX];
+static int pan_count, pan_step;
 static int reclaim_lines, reclaimed_line = -1, svg_live_max = -1, starve_ms;
 static size_t heap_limit;
 static lws_sorted_usec_list_t sul_starve;
@@ -658,8 +662,10 @@ render(lws_sorted_usec_list_t *sul)
 
 		lws_display_get_ids_boxes(rs);
 
-		if (pan_x || pan_y) {
-			lws_display_render_pan(rs, pan_x, pan_y);
+		if (pan_step < pan_count) {
+			lws_display_render_pan(rs, pans[pan_step].x - rs->pan_x,
+					       pans[pan_step].y - rs->pan_y);
+			pan_step++;
 			lwsl_user("%s: panned to %d, %d\n", __func__,
 				  (int)rs->pan_x, (int)rs->pan_y);
 		}
@@ -786,7 +792,22 @@ render(lws_sorted_usec_list_t *sul)
 		memset(rs->line, 0xff, lbuflen);
 	}
 
-        free(rs->line);
+	free(rs->line);
+	rs->line = NULL;
+
+	if (pan_step < pan_count) {
+		/* --pan: render the display list again from the top, panned */
+		memset(rs->st, 0, sizeof(rs->st));
+		rs->sp = 0;
+		if (fdout != 1 && lseek(fdout, 0, SEEK_SET)) {
+			lwsl_err("%s: unable to rewind the bmp\n", __func__);
+			result = 1;
+			lws_default_loop_exit(cx);
+			return;
+		}
+		lws_sul_schedule(cx, 0, &rs->sul, render, 1);
+		return;
+	}
 
 #if defined(LWS_WITH_SVG)
 	/*
@@ -1088,14 +1109,26 @@ main(int argc, const char **argv)
 		drs.layout_h = atoi(p);
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PAN].sw))) {
-		const char *c = strchr(p, ',');
+		while (*p) {
+			const char *c = strchr(p, ','), *n;
 
-		if (!c) {
-			lwsl_err("--pan takes x,y\n");
+			if (!c || pan_count == PAN_MAX) {
+				lwsl_err("--pan takes up to %d x,y separated "
+					 "by :\n", PAN_MAX);
+				return 1;
+			}
+			pans[pan_count].x = atoi(p);
+			pans[pan_count++].y = atoi(c + 1);
+			n = strchr(c, ':');
+			if (!n)
+				break;
+			p = n + 1;
+		}
+		if (pan_count > 1 && !drs.retained) {
+			lwsl_err("--pan with more than one x,y needs "
+				 "--retained\n");
 			return 1;
 		}
-		pan_x = atoi(p);
-		pan_y = atoi(c + 1);
 	}
 
 	/*
