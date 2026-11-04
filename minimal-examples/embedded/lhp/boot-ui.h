@@ -27,7 +27,7 @@
 /* in the order they are shown, matching contrib/assets/boot-status */
 
 typedef enum {
-	LHP_BOOT_SETUP,		/* wifi credentials are stored */
+	LHP_BOOT_SETUP,		/* wifi credentials are stored, see .ap */
 	LHP_BOOT_WLAN,		/* associated to the AP */
 	LHP_BOOT_IPV4,		/* have an IPv4 address */
 	LHP_BOOT_IPV6,		/* have an IPv6 address (optional) */
@@ -55,8 +55,11 @@ typedef struct lhp_boot {
 	const lws_surface_info_t	*ic;	/* the display */
 	lws_netdev_instance_wifi_t	*wnd;	/* NULL, or wifi, for the APs */
 
+	char				ap[33];	 /* the first stored AP's SSID */
 	char				ipv4[16];
 	char				ipv6[48];
+
+	uint8_t				aps;	 /* how many APs are stored */
 
 	uint16_t			reached; /* 1 << lhp_boot_stage_t */
 	uint8_t				ota;	 /* lhp_boot_ota_t */

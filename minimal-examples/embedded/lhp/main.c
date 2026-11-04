@@ -304,21 +304,35 @@ boot_timeout_cb(lws_sorted_usec_list_t *sul)
 }
 
 /*
- * Whether any wifi credentials are stored, which is the first boot stage.  The
- * credentials are only kept in memory while something is using them.
+ * Whether any wifi credentials are stored, which is the first boot stage, and
+ * the AP they are for, which the overlay shows: the first stored, and how many
+ * more.  The credentials are only kept in memory while something is using
+ * them.
  */
 
 static int
 boot_have_creds(void)
 {
 	lws_netdevs_t *nds = lws_netdevs_from_ctx(cx);
+	lws_wifi_creds_t *c;
+	uint32_t count;
 	int have;
+
+	boot.ap[0] = '\0';
+	boot.aps = 0;
 
 	if (!nds->ac_creds && lws_netdev_credentials_settings_get(nds))
 		return 0;
 	nds->refcount_creds++;
 
 	have = !!lws_dll2_get_head(&nds->owner_creds);
+	if (have) {
+		c = lws_container_of(lws_dll2_get_head(&nds->owner_creds),
+				     lws_wifi_creds_t, list);
+		lws_strncpy(boot.ap, c->ssid, sizeof(boot.ap));
+		count = lws_dll2_count(&nds->owner_creds);
+		boot.aps = (uint8_t)(count > 255 ? 255 : count);
+	}
 
 	if (!--nds->refcount_creds) {
 		lws_dll2_owner_clear(&nds->owner_creds);

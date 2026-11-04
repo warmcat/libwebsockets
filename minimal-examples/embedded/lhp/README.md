@@ -27,7 +27,8 @@ booting has got, as a vertical list of icons for the stages
 |auth|the system passed its AUTH states|
 
 Each stage is a row of a table, its icon and next to it what is known
-about it: the AP being looked for, or joined, the IPv4 and IPv6 addresses,
+about it: the AP stored in the settings, or "Not configured" if there is
+none, the AP being looked for, or joined, the IPv4 and IPv6 addresses,
 whether there is internet, the date, the OTA variant and what the update
 check said.  Stages reached are shown as they are, the others dimmed.  The
 row of the stage being worked on, the first not reached, is highlighted.

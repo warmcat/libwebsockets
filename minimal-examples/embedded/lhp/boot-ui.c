@@ -270,8 +270,14 @@ lhp_boot_text(const lhp_boot_t *b, lhp_boot_stage_t s, lhp_boot_stage_t f,
 
 	switch (s) {
 	case LHP_BOOT_SETUP:
-		bw_printf(w, reached ? "Wifi credentials stored" :
-				       "No wifi credentials");
+		/* the AP we will look for, from what is stored */
+		if (!b->ap[0]) {
+			bw_printf(w, reached ? "Configured" : "Not configured");
+			break;
+		}
+		bw_text(w, b->ap, sizeof(b->ap));
+		if (b->aps > 1)
+			bw_printf(w, " and %u more", (unsigned int)(b->aps - 1));
 		break;
 
 	case LHP_BOOT_WLAN:

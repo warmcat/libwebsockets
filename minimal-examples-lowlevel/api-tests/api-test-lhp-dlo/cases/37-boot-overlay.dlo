@@ -6,7 +6,7 @@ rect (0.0,0.0) [600.0 x 448.0] rgba=FFFFFFFF
      rect (0.0,0.0) [54.0 x 54.0] rgba=00000000 radii=4.0,4.0,4.0,4.0
       svg (3.0,3.0) [48.0 x 48.0]
      rect (54.0,0.0) [242.0 x 54.0] rgba=00000000
-      text (4.0,17.0) [132.0 x 19.0] rgba=FF000000 f=17/400 "Wifi credentials stored"
+      text (4.0,17.0) [136.0 x 19.0] rgba=FF000000 f=17/400 "warmcat-iot and 1 more"
     rect (0.0,54.0) [296.0 x 54.0] rgba=00000000
      rect (0.0,0.0) [54.0 x 54.0] rgba=00000000 radii=4.0,4.0,4.0,4.0
       svg (3.0,3.0) [48.0 x 48.0]
