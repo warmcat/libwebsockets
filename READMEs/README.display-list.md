@@ -175,7 +175,8 @@ says what is in it, as data, and is told what the user picked, without
 writing any html itself.  It is made of strips stacked down the display,
 each clipped to itself.  Its list page has
 
- - a title strip, saying where we are, eg, "Boot"
+ - a title strip, saying where we are, eg, "Boot".  Pressing it calls the
+   title callback, if there is one, eg, to go back or show another list.
 
  - a list strip, of rows of an optional icon and a line of text, centred,
    that scrolls by dragging it on a touch display, or to keep the row the
@@ -206,6 +207,7 @@ anything.
 	i.lds = &lds;
 	i.row = my_row_cb;	/* fills in row n: icon, text, state */
 	i.pick = my_pick_cb;	/* row n was pressed */
+	i.title = my_title_cb;	/* optional: the title was pressed */
 	i.done = my_done_cb;	/* what was typed, or NULL if abandoned */
 	i.css = "#t { background-color: #800 }";	/* optional */
 

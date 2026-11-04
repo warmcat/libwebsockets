@@ -15,7 +15,8 @@
  *
  *  - the title and the list's rows were drawn where they should be
  *
- *  - pressing a row picks it, and pressing below the last row doesn't
+ *  - pressing a row picks it, and pressing below the last row doesn't;
+ *    pressing the title calls the title callback instead
  *
  *  - dragging the list scrolls it, and only the list's band of lines is sent
  *    to the display again; setting the title only sends the title's band
@@ -86,7 +87,7 @@ static lws_display_state_t lds;
 static struct lws_dlo_ui *ui;
 static lws_sorted_usec_list_t sul_step, sul_timeout;
 static int step, fail, picked = -1, updates, upd_y0, upd_y1, win_y0, win_y1,
-	   lines, pass, seen_updates, done_calls, done_keep, kbx;
+	   lines, pass, seen_updates, done_calls, done_keep, kbx, titled;
 static char done_text[LWS_DLO_UI_EDIT_MAX];
 static char done_null, in_edit;
 static size_t heap_before;
@@ -183,6 +184,12 @@ static void
 pick_cb(void *opaque, int idx)
 {
 	picked = idx;
+}
+
+static void
+title_cb(void *opaque)
+{
+	titled++;
 }
 
 static int
@@ -338,6 +345,7 @@ start(void)
 	ui_info.lds = &lds;
 	ui_info.row = row_cb;
 	ui_info.pick = pick_cb;
+	ui_info.title = title_cb;
 	ui_info.done = done_cb;
 	if (pass)
 		ui_info.css = css_red_title;
@@ -404,10 +412,12 @@ next_step(lws_sorted_usec_list_t *sul)
 		}
 		picked = -1;
 
-		/* the title isn't the list */
+		/* the title isn't the list, but says it was pressed */
+		titled = 0;
 		touch("press", W / 2, TITLE_H / 2, 0, 0);
-		if (picked != -1) {
-			lwsl_err("title press picked %d\n", picked);
+		if (picked != -1 || titled != 1) {
+			lwsl_err("title press picked %d, titled %d\n", picked,
+				 titled);
 			finish(0);
 			return;
 		}
@@ -587,7 +597,7 @@ next_step(lws_sorted_usec_list_t *sul)
 		key(0, 6);
 		in_edit = 0;
 		touch("press", W / 2, TITLE_H / 2, 0, 0);
-		if (done_calls != 3 || !done_null) {
+		if (done_calls != 3 || !done_null || titled != 1) {
 			lwsl_err("title press didn't abandon the edit\n");
 			finish(0);
 			return;

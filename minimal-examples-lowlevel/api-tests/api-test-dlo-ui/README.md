@@ -10,8 +10,8 @@ a framebuffer and notes the window of each update.  It checks
 
  - the title and the list's rows were drawn
 
- - pressing a row picks it, and pressing the title, or below the last row,
-   doesn't
+ - pressing a row picks it, and pressing below the last row doesn't;
+   pressing the title calls the title callback instead
 
  - dragging the list scrolls it, and only the list's band of lines is sent
    to the display again; setting the title only sends the title's band

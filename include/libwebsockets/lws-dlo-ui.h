@@ -33,7 +33,8 @@
  *
  * It shows one of two pages.  Down the display, the list page has
  *
- *  - a title strip, saying where we are, eg, "Boot", then "AP"
+ *  - a title strip, saying where we are, eg, "Boot", then "AP".  Pressing it
+ *    tells the caller, if it wants to know.
  *
  *  - a list strip, taking the rest of the display: rows of an optional icon
  *    and a line of text, centred.  It scrolls by dragging it, or to keep the
@@ -124,6 +125,9 @@ typedef int (*lws_dlo_ui_row_cb_t)(void *opaque, int idx,
 /* row idx of the list was pressed */
 typedef void (*lws_dlo_ui_pick_cb_t)(void *opaque, int idx);
 
+/* the title strip of the list page was pressed */
+typedef void (*lws_dlo_ui_title_cb_t)(void *opaque);
+
 /*
  * Done was pressed on the edit page: text is what was typed.  Or the title
  * was pressed, abandoning the edit: text is NULL.
@@ -149,6 +153,10 @@ typedef struct lws_dlo_ui_info {
 	lws_dlo_ui_pick_cb_t		pick;
 	/**< NULL, or told which row of the list was pressed.  As for done,
 	 * it may call the other apis, but not destroy the ui */
+	lws_dlo_ui_title_cb_t		title;
+	/**< NULL, or told the title strip of the list page was pressed, eg,
+	 * to go back, or to show another list.  As for pick, it may call the
+	 * other apis, but not destroy the ui */
 	lws_dlo_ui_done_cb_t		done;
 	/**< NULL, or told what was typed on the edit page: needed to use
 	 * lws_dlo_ui_edit() */

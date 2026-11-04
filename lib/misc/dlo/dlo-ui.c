@@ -1403,8 +1403,12 @@ lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len)
 
 	switch (strip) {
 	case UI_STRIP_TITLE:
-		if (ui->page_strips != UI_PAGE_EDIT)
-			return 0;
+		if (ui->page_strips != UI_PAGE_EDIT) {
+			if (!ui->i.title)
+				return 0;
+			ui->i.title(ui->i.opaque);
+			return 1;
+		}
 		/* going back from editing abandons it */
 		gen = ui->edit_gen;
 		ui->i.done(ui->i.opaque, NULL);
