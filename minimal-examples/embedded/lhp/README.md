@@ -40,12 +40,19 @@ If no wifi credentials are stored, once a scan has found some APs, the ui
 is titled "AP" instead and lists them, strongest first, one row per network.
 On a touch display, the list can be dragged to scroll it, and an AP picked by
 pressing it.  If the AP needs one, the ui then shows its edit page, titled
-"Passphrase", with its keyboard, to type it in: dragging the keyboard moves
-it around to reach the keys, and pressing the title goes back to the APs.
-When Done is pressed with at least the 8 characters WPA needs, the
-credentials are stored with `lws_netdev_credentials_add()`, the wifi netdev,
-which keeps scanning while it has none, joins the AP when it next sees it,
-and the ui is titled "Boot" again.
+"Passphrase", with its keyboard, to type it in, shown as it is typed:
+dragging the keyboard moves it around to reach the keys, and pressing the
+title goes back to the APs.  It starts empty, even if a passphrase is stored
+for the AP already.  When Done is pressed with at least the 8 characters WPA
+needs, the credentials are stored with `lws_netdev_credentials_add()`, the
+wifi netdev, which keeps scanning while it isn't joined, joins the AP when it
+next sees it, and the ui is titled "Boot" again.
+
+Credentials can be stored for any number of APs: the wifi netdev joins the
+strongest one it sees that it has credentials for.  While the overlay is up,
+pressing the "Boot" title shows the APs, the ones with credentials stored
+highlighted, to pick one to add, or to change its passphrase; pressing the
+"AP" title goes back.  This is only a stopgap until there is a settings ui.
 
 The ui's title strip is given the example's own colours, by the css it
 passes the ui (`lws_dlo_ui_info_t .css`) to follow its default theme.

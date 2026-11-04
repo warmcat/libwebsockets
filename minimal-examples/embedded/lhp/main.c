@@ -96,8 +96,10 @@ static uint8_t flip;
 
 static struct lws_dlo_ui *sui;
 static char sui_aps;	/* the list is of the APs, not the boot stages */
+static char sui_want_aps; /* the APs were asked for, by pressing the title */
 static char aps[AP_LIST_MAX][33];
 static char aps_open[AP_LIST_MAX];	/* needs no passphrase */
+static char aps_stored[AP_LIST_MAX];	/* we have credentials for it */
 static int ap_count;
 static char sui_ssid[33];	/* the AP picked, whose passphrase is typed */
 
@@ -277,11 +279,15 @@ scan_sig(void)
 static void
 aps_update(void)
 {
+	lws_netdevs_t *nds = lws_netdevs_from_ctx(cx);
 	int n;
 
 	ap_count = 0;
 	if (!wnd)
 		return;
+
+	/* which we have credentials for */
+	lws_netdev_credentials_hold(nds);
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&wnd->scan)) {
@@ -299,11 +305,21 @@ aps_update(void)
 			if (!strcmp(aps[n], ssid))
 				break;
 
-		if (n == ap_count) {
-			aps_open[ap_count] = w->authmode == WIFI_AUTH_OPEN;
-			memcpy(aps[ap_count++], ssid, sizeof(ssid));
-		}
+		if (n < ap_count)
+			continue;
+
+		aps_open[ap_count] = w->authmode == WIFI_AUTH_OPEN;
+		aps_stored[ap_count] = 0;
+		lws_start_foreach_dll(struct lws_dll2 *, c,
+				      lws_dll2_get_head(&nds->owner_creds)) {
+			if (!strcmp(lws_container_of(c, lws_wifi_creds_t,
+						     list)->ssid, ssid))
+				aps_stored[ap_count] = 1;
+		} lws_end_foreach_dll(c);
+		memcpy(aps[ap_count++], ssid, sizeof(ssid));
 	} lws_end_foreach_dll(d);
+
+	lws_netdev_credentials_release(nds);
 }
 
 static int
@@ -316,6 +332,9 @@ sui_row(void *opaque, int idx, lws_dlo_ui_row_t *row)
 		return 1;
 
 	lws_strncpy(row->text, aps[idx], sizeof(row->text));
+	/* the ones we can already join are highlighted */
+	if (aps_stored[idx])
+		row->state = LWS_DLO_UI_ROW_FOCUS;
 
 	return 0;
 }
@@ -342,6 +361,7 @@ sui_store(const char *passphrase)
 	lwsl_user("%s: stored credentials for %s\n", __func__, sui_ssid);
 
 	/* the boot overlay goes on to show it being joined */
+	sui_want_aps = 0;
 	lhp_boot_set(&boot, LHP_BOOT_SETUP, boot_have_creds());
 	boot_changed();
 }
@@ -359,8 +379,12 @@ sui_pick(void *opaque, int idx)
 		return;
 	}
 
-	/* WPA passphrases are up to 63 characters */
-	if (lws_dlo_ui_edit(sui, "Passphrase", 63, LWS_DLO_UI_EDIT_MASKED))
+	/*
+	 * WPA passphrases are up to 63 characters.  It's shown as it's typed,
+	 * so typos can be seen on the small keyboard.  It starts empty, even
+	 * if one is stored for the AP: Done replaces that one
+	 */
+	if (lws_dlo_ui_edit(sui, "Passphrase", 63, 0))
 		lwsl_err("%s: unable to edit passphrase\n", __func__);
 }
 
@@ -380,6 +404,18 @@ sui_done(void *opaque, const char *text)
 	sui_store(text);
 
 	return 0;
+}
+
+/*
+ * Pressing the title goes between the boot stages and the APs, eg, to add
+ * credentials for another AP, or change them for one
+ */
+
+static void
+sui_title(void *opaque)
+{
+	sui_want_aps = !sui_aps;
+	boot_changed();
 }
 
 static void
@@ -403,6 +439,7 @@ sui_show(void)
 		i.lds = &lds;
 		i.row = sui_row;
 		i.pick = sui_pick;
+		i.title = sui_title;
 		i.done = sui_done;
 		/* the title strip in the example's colours */
 		i.css = "#t { background-color: #1a5c3a } #tt { color: #ffe680 }";
@@ -420,7 +457,8 @@ sui_show(void)
 	scan_sig_shown = scan_sig();
 	aps_update();
 
-	sui_aps = !(boot.reached & (1u << LHP_BOOT_SETUP)) && ap_count;
+	sui_aps = (sui_want_aps || !(boot.reached & (1u << LHP_BOOT_SETUP))) &&
+		  ap_count;
 	if (sui_aps) {
 		lws_dlo_ui_set_title(sui, "AP");
 		lws_dlo_ui_set_list(sui, ap_count, -1);
@@ -486,9 +524,7 @@ boot_have_creds(void)
 	boot.ap[0] = '\0';
 	boot.aps = 0;
 
-	if (!nds->ac_creds && lws_netdev_credentials_settings_get(nds))
-		return 0;
-	nds->refcount_creds++;
+	lws_netdev_credentials_hold(nds);
 
 	have = !!lws_dll2_get_head(&nds->owner_creds);
 	if (have) {
@@ -499,10 +535,7 @@ boot_have_creds(void)
 		boot.aps = (uint8_t)(count > 255 ? 255 : count);
 	}
 
-	if (!--nds->refcount_creds) {
-		lws_dll2_owner_clear(&nds->owner_creds);
-		lwsac_free(&nds->ac_creds);
-	}
+	lws_netdev_credentials_release(nds);
 
 	return have;
 }
