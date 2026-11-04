@@ -27,7 +27,11 @@
 #include <private-lib-core.h>
 #include "private-lib-drivers-display-dlo.h"
 
-#define dlodump_loglevel                LLL_NOTICE
+/*
+ * The dump has the text of the page in it, which may be a secret, eg, a
+ * passphrase being typed: only in debug logging
+ */
+#define dlodump_loglevel                LLL_DEBUG
 #if (_LWS_ENABLED_LOGS & dlodump_loglevel)
 #define lwsl_dlodump(...)               _lws_log(dlodump_loglevel, __VA_ARGS__)
 #else
@@ -268,12 +272,12 @@ lws_display_dl_dump(lws_displaylist_t *dl)
 	char b[4][22], b1[4][22], dt[96];
 
 	if (!d) {
-		lwsl_notice("%s: empty dl\n", __func__);
+		lwsl_dlodump("%s: empty dl\n", __func__);
 
 		return;
 	}
 
-	lwsl_notice("%s\n", __func__);
+	lwsl_dlodump("%s\n", __func__);
 
 	memset(&st, 0, sizeof(st));
 	st[0].dlo = lws_container_of(d, lws_dlo_t, list);
