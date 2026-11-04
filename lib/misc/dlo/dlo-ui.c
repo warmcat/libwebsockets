@@ -23,11 +23,14 @@
  *
  * Strip ui, see lws-dlo-ui.h
  *
- * Whatever changes, the html for the whole display is made again and laid
- * out, which for the few elements a small display can show is cheap.  The
- * display list is kept, and only the bands of lines of the strips that
- * changed are rendered from it and sent to the display, if it can take a
- * band.
+ * When what is shown changes, the html for the whole display is made again
+ * and laid out.  The display list is kept, and only the bands of lines of
+ * the strips that changed are rendered from it and sent to the display, if
+ * it can take a band.
+ *
+ * Dragging the keyboard doesn't change what is shown, only where: the whole
+ * keyboard is laid out once, in one element, and a drag just moves that
+ * element's dlo in the display list, and renders the keyboard's strip again.
  *
  * The geometry, which depends on the display, is worked out here and given
  * to the elements by id in a style block, after the theme and the caller's
@@ -174,6 +177,8 @@ struct lws_dlo_ui {
 	size_t				edit_len;
 	size_t				edit_max;
 	int				kx, ky;	/* the keyboard is dragged by */
+	lws_dlo_t			*kb;	/* the keyboard's dlo, which a drag
+						 * moves, while laid out */
 	int				escroll; /* px the text is dragged by */
 	unsigned int			edit_gen;
 
@@ -538,7 +543,7 @@ static const char * const ui_css =
 static void
 ui_html_edit(struct lws_dlo_ui *ui, ui_w_t *w)
 {
-	int y0, y1, ky0, ky1, x0, x1, n, vis, end, start, kx, ky;
+	int y0, y1, ky0, ky1, x0, x1, n, vis, end, start;
 	char t[LWS_DLO_UI_EDIT_MAX + 2];
 	const ui_kpos_t *kp;
 
@@ -556,19 +561,20 @@ ui_html_edit(struct lws_dlo_ui *ui, ui_w_t *w)
 		     " font-size: %dpx }", x0 + ui->pad, ui->pad,
 		     x1 - x0 - 2 * ui->pad, y1 - y0 - 2 * ui->pad, ui->fs_row);
 
-	/* only the keys that can be seen in the strip are in the html */
+	/*
+	 * All the keys are in the keyboard, #kb, wherever it was dragged to:
+	 * a drag only moves #kb's dlo, without laying it out again
+	 */
 
-	kx = ui->kx;
-	ky = ui->ky;
-	ui_printf(w, ".k { font-size: %dpx }", ui->fs_row);
+	ui_printf(w, "#kb { position: absolute; left: %dpx; top: %dpx;"
+		     " width: %dpx; height: %dpx }.k { font-size: %dpx }",
+		     ui->kx, ui->ky, (UI_KB_HALVES * ui->row_h) / 2,
+		     ui_kb_rows(ui) * ui->row_h, ui->fs_row);
 	for (n = 0; n < ui->nkeys; n++) {
 		kp = &ui->keys[n];
-		if (kx + kp->x + kp->w <= 0 || kx + kp->x >= ui->w ||
-		    ky + kp->y + ui->row_h <= 0 || ky + kp->y >= ky1 - ky0)
-			continue;
 		ui_printf(w, "#k%d { left: %dpx; top: %dpx; width: %dpx;"
-			     " height: %dpx }", n, kx + kp->x + ui->pad,
-			     ky + kp->y + ui->pad, kp->w - 2 * ui->pad,
+			     " height: %dpx }", n, kp->x + ui->pad,
+			     kp->y + ui->pad, kp->w - 2 * ui->pad,
 			     ui->row_h - 2 * ui->pad);
 	}
 
@@ -596,17 +602,13 @@ ui_html_edit(struct lws_dlo_ui *ui, ui_w_t *w)
 		     "<div class=\"x\">");
 	ui_text(w, t, sizeof(t));
 	lws_explicit_bzero(t, sizeof(t));
-	ui_printf(w, "</div></div></div><div id=\"k\">");
+	ui_printf(w, "</div></div></div><div id=\"k\"><div id=\"kb\">");
 
 	for (n = 0; n < ui->nkeys && !w->full; n++) {
 		const char *cap;
 		char c[2];
 
 		kp = &ui->keys[n];
-		if (kx + kp->x + kp->w <= 0 || kx + kp->x >= ui->w ||
-		    ky + kp->y + ui->row_h <= 0 || ky + kp->y >= ky1 - ky0)
-			continue;
-
 		cap = kp->k->cap;
 		if (kp->k->act == K_CHR && ui->layer == UI_LAYER_UPPER) {
 			c[0] = (char)toupper((unsigned char)cap[0]);
@@ -626,7 +628,7 @@ ui_html_edit(struct lws_dlo_ui *ui, ui_w_t *w)
 		ui_printf(w, "</div></div>");
 	}
 
-	ui_printf(w, "</div></div></body></html>");
+	ui_printf(w, "</div></div></div></body></html>");
 }
 
 static int
@@ -779,7 +781,15 @@ ui_layout(struct lws_dlo_ui *ui)
 	lws_lhp_ss_cancel(&ui->rs);
 	lws_display_list_destroy(ui->i.cx, &ui->rs.displaylist);
 	lws_display_render_free_ids(&ui->rs);
+	ui->kb = NULL;
 	lws_display_dl_init(&ui->rs.displaylist, ui->i.lds);
+
+	/* to find the keyboard's dlo after layout, to move it for drags */
+	if (ui->page_strips == UI_PAGE_EDIT &&
+	    !lws_display_render_add_id(&ui->rs, "kb", NULL)) {
+		ui_page_drop(ui);
+		return 1;
+	}
 
 	memset(ui->rs.st, 0, sizeof(ui->rs.st));
 	ui->rs.sp = 0;
@@ -805,6 +815,42 @@ ui_layout(struct lws_dlo_ui *ui)
 	}
 
 	return 0;
+}
+
+/* the dlo the id is tagged on, in the laid out display list, or NULL */
+
+static lws_dlo_t *
+ui_dlo_by_id(lws_displaylist_t *dl, const lws_display_id_t *id)
+{
+	lws_dll2_t *st[LWS_DLO_STACK_DEPTH];
+	int sp = 0;
+
+	if (!id)
+		return NULL;
+
+	st[0] = lws_dll2_get_head(&dl->dl);
+
+	while (sp >= 0) {
+		lws_dll2_t *d = st[sp];
+		lws_dlo_t *dlo;
+
+		if (!d) {
+			sp--;
+			continue;
+		}
+
+		dlo = lws_container_of(d, lws_dlo_t, list);
+		st[sp] = lws_dll2_get_next(d);
+
+		if (dlo->id == id)
+			return dlo;
+
+		if (lws_dll2_get_head(&dlo->children) &&
+		    sp + 1 < (int)LWS_ARRAY_SIZE(st))
+			st[++sp] = lws_dll2_get_head(&dlo->children);
+	}
+
+	return NULL;
 }
 
 /* start rendering the bands of the strips that are dirty */
@@ -866,6 +912,12 @@ ui_scan_start(struct lws_dlo_ui *ui)
 	ui->rs.curr = ui->y0;
 	ui->rs.line = ui->line;
 
+	/* the keyboard is where it has been dragged to since it was laid out */
+	if (ui->kb) {
+		lws_fx_set(ui->kb->box.x, ui->kx, 0);
+		lws_fx_set(ui->kb->box.y, ui->ky, 0);
+	}
+
 	ui->phase = UI_SCAN;
 	ui->i.lds->display_busy = 1;
 
@@ -924,6 +976,9 @@ ui_render(lws_sorted_usec_list_t *sul)
 		if (rs->layout_failed)
 			lwsl_warn("%s: layout incomplete\n", __func__);
 
+		/* before the ids are decoupled from the dlos */
+		ui->kb = ui_dlo_by_id(&rs->displaylist,
+				      lws_display_render_get_id(rs, "kb"));
 		lws_display_get_ids_boxes(rs);
 
 		/* the whole of what changed is drawn from the new layout */
@@ -1113,6 +1168,7 @@ lws_dlo_ui_destroy(struct lws_dlo_ui **pui)
 	lws_sul_cancel(&ui->rs.sul);
 	lws_display_list_destroy(ui->i.cx, &ui->rs.displaylist);
 	lws_display_render_free_ids(&ui->rs);
+	ui->kb = NULL;
 	lws_free_set_NULL(ui->line);
 	ui_page_drop(ui);
 	lws_explicit_bzero(ui->edit, sizeof(ui->edit));
@@ -1387,8 +1443,24 @@ lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len)
 			ui->kx += dx;
 			ui->ky += dy;
 			ui_clamp_kb(ui);
-			if (ui->kx != v || ui->ky != idx)
+			if (ui->kx == v && ui->ky == idx)
+				return 1;
+
+			if (ui->stale || (!ui->kb && ui->phase != UI_LAYOUT)) {
+				/*
+				 * Either it will be laid out again anyway, or
+				 * it isn't laid out to be moved
+				 */
 				ui_edit_changed(ui, UI_STRIP_KEYS);
+				return 1;
+			}
+
+			/*
+			 * Just move the keyboard as it was, or is being, laid
+			 * out, when its strip is next rendered
+			 */
+			ui->dirty |= UI_STRIP_KEYS;
+			lws_dlo_ui_kick(ui);
 			return 1;
 
 		default:

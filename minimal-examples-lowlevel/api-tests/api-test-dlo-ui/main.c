@@ -547,6 +547,23 @@ next_step(lws_sorted_usec_list_t *sul)
 			return;
 		}
 
+		/*
+		 * The drag only moved the keyboard as it was laid out, after
+		 * it was drawn there: the keys moved with it, backgrounds and
+		 * all.  The top of the t key, between its rounded corners and
+		 * above its letter, is key coloured, and the gap before it
+		 * isn't
+		 */
+		top = kbx + 4 * ROW_H;
+		if (colour_in(top + 6, KB_Y0 + 3, top + ROW_H - 6, KB_Y0 + 6,
+			      0xdd, 0xdd, 0xdd) != (ROW_H - 12) * 3 ||
+		    colour_in(top - 1, KB_Y0 + 8, top + 1, KB_Y0 + 12,
+			      0xdd, 0xdd, 0xdd)) {
+			lwsl_err("keys not where the keyboard was dragged\n");
+			finish(0);
+			return;
+		}
+
 		/* the caller can refuse it, and editing goes on */
 
 		done_keep = 1;
