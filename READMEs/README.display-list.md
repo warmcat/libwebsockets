@@ -173,7 +173,7 @@ drawing can take advantage of
 `lws-dlo-ui.h` is a finished user interface for small displays: the caller
 says what is in it, as data, and is told what the user picked, without
 writing any html itself.  It is made of strips stacked down the display,
-each clipped to itself
+each clipped to itself.  Its list page has
 
  - a title strip, saying where we are, eg, "Boot"
 
@@ -181,6 +181,22 @@ each clipped to itself
    that scrolls by dragging it on a touch display, or to keep the row the
    caller says is the focus in its middle.  Pressing a row tells the
    caller which it was.
+
+and its edit page, shown by `lws_dlo_ui_edit()` to type something in, eg, a
+passphrase, has
+
+ - the title strip, saying what is typed: pressing it abandons the edit
+
+ - an edit strip, showing what was typed, or stars if it is masked, which
+   can be dragged sideways to see all of it
+
+ - a keyboard strip: the ui owns the keyboard, with lower and upper case and
+   symbol layers.  It is bigger than a small display, and dragged around its
+   strip to reach the keys.  Done gives what was typed to the done callback,
+   which can accept it, or keep it being edited.
+
+Each strip only moves for drags that begin in it, and dragging never types
+anything.
 
 ```
 	lws_dlo_ui_info_t i;
@@ -190,6 +206,8 @@ each clipped to itself
 	i.lds = &lds;
 	i.row = my_row_cb;	/* fills in row n: icon, text, state */
 	i.pick = my_pick_cb;	/* row n was pressed */
+	i.done = my_done_cb;	/* what was typed, or NULL if abandoned */
+	i.css = "#t { background-color: #800 }";	/* optional */
 
 	ui = lws_dlo_ui_create(&i);
 	lws_dlo_ui_set_title(ui, "AP");
@@ -202,6 +220,15 @@ it and render just the bands of the strips that changed, on a display that
 says it is `.band`.  On a `.round` one, each strip's content, and each row
 of the list, is kept to the columns of the circle that can be seen where it
 is.  Everything the caller gives it is shown as text, never taken as markup.
+
+How it looks is css: a default theme, which the caller's css follows and can
+override.  The ids and classes it can style, eg, `#t` for the title strip and
+`#tt` for its text, `.k` for a key, are listed in `lws-dlo-ui.h`.  Where
+things are and how big is set by the ui after that, from the display, so css
+can't move them.
+
+What is typed is cleared from the ui's memory when the edit ends, and from
+the html it was shown in when that is made again.
 
 It uses the display like any other update: it sets `lds->display_busy`, the
 display's completion callback clears it, and should then call

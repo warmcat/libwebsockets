@@ -20,6 +20,18 @@
  *  - dragging the list scrolls it, and only the list's band of lines is sent
  *    to the display again; setting the title only sends the title's band
  *
+ *  - the edit page (where the keyboard can be dragged anywhere, so keys may
+ *    be drawn outside the circle): typing on its keyboard, with shift and the
+ *    symbols layer, only sends the edit strip's band, or the keyboard's when
+ *    that changes; dragging the keyboard moves it, without typing anything, and
+ *    Done gives what was typed and shows the list page again.  Pressing the
+ *    title abandons an edit.
+ *
+ *  - the theme: the first time, the default theme's title strip colour is
+ *    drawn; the second time, the ui is given css that makes the title strip
+ *    white with red text, which is drawn instead, and with nothing then drawn
+ *    outside the circle at all
+ *
  *  - destroying the ui gives back all the heap it took.  The context makes
  *    some things the first time they are used, eg, the vhost the secure
  *    streams lhp fetches with use, so all this is done twice, and the heap is
@@ -29,6 +41,7 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#include <stdlib.h>
 
 #define W		240
 #define H		240
@@ -36,6 +49,16 @@
 #define TITLE_H		(H / 6)
 #define ROW_H		36
 #define ROWS		12
+
+/* the edit page: the edit strip is a row high, the keyboard strip below it */
+#define EDIT_Y0		TITLE_H
+#define KB_Y0		(TITLE_H + ROW_H)
+/* the keys are ROW_H apart; the keyboard is 10 keys wide, starting centred */
+#define KB_X0		((W - 10 * ROW_H) / 2)
+
+/* the second time, the title strip is white with red text */
+static const char css_red_title[] =
+	"#t { background-color: #fff } #tt { color: #f00 }";
 
 static const uint8_t fira_c_r_16[] = {
 #include "../contrib/mcufont/fonts/FiraSansCondensed-Regular16.mcufont.h"
@@ -63,7 +86,9 @@ static lws_display_state_t lds;
 static struct lws_dlo_ui *ui;
 static lws_sorted_usec_list_t sul_step, sul_timeout;
 static int step, fail, picked = -1, updates, upd_y0, upd_y1, win_y0, win_y1,
-	   lines, pass;
+	   lines, pass, seen_updates, done_calls, done_keep, kbx;
+static char done_text[LWS_DLO_UI_EDIT_MAX];
+static char done_null, in_edit;
 static size_t heap_before;
 
 /* what the display shows, RGB */
@@ -161,6 +186,17 @@ pick_cb(void *opaque, int idx)
 }
 
 static int
+done_cb(void *opaque, const char *text)
+{
+	done_calls++;
+	done_null = !text;
+	if (text)
+		lws_strncpy(done_text, text, sizeof(done_text));
+
+	return done_keep;
+}
+
+static int
 dark(int x, int y)
 {
 	const uint8_t *p = &fb[(y * W + x) * 3];
@@ -180,14 +216,36 @@ dark_in(int x0, int y0, int x1, int y1)
 	return n;
 }
 
-/* nothing but white may be drawn where the circle can't be seen */
+/* pixels of about the colour r, g, b in the box */
+
+static int
+colour_in(int x0, int y0, int x1, int y1, int r, int g, int b)
+{
+	int x, y, n = 0;
+
+	for (y = y0; y < y1; y++)
+		for (x = x0; x < x1; x++) {
+			const uint8_t *p = &fb[(y * W + x) * 3];
+
+			n += abs(p[0] - r) < 24 && abs(p[1] - g) < 24 &&
+			     abs(p[2] - b) < 24;
+		}
+
+	return n;
+}
+
+/*
+ * Nothing but white may be drawn where the circle can't be seen.  The default
+ * theme's title strip is coloured across the whole display, so the first time
+ * that is left out
+ */
 
 static int
 outside_circle_white(void)
 {
 	int x, y, n = 0;
 
-	for (y = 0; y < H; y++)
+	for (y = pass ? 0 : TITLE_H; y < H; y++)
 		for (x = 0; x < W; x++) {
 			int dx = 2 * x + 1 - W, dy = 2 * y + 1 - H;
 			const uint8_t *p = &fb[(y * W + x) * 3];
@@ -205,15 +263,49 @@ outside_circle_white(void)
 }
 
 static void
-touch(const char *event, int x, int y, int dy)
+touch(const char *event, int x, int y, int dx, int dy)
 {
 	char buf[128];
 	int n;
 
 	n = lws_snprintf(buf, sizeof(buf), "{\"type\":\"touch\",\"src\":\"ts\","
-			 "\"event\":\"%s\",\"x\":%d,\"y\":%d,\"dx\":0,"
-			 "\"dy\":%d}", event, x, y, dy);
+			 "\"event\":\"%s\",\"x\":%d,\"y\":%d,\"dx\":%d,"
+			 "\"dy\":%d}", event, x, y, dx, dy);
 	lws_dlo_ui_touch(ui, buf, (size_t)n);
+}
+
+/* a drag: the finger comes down, then moves */
+
+static void
+drag(int x, int y, int dx, int dy)
+{
+	touch("down", x, y, 0, 0);
+	touch("scroll", x + dx, y + dy, dx, dy);
+	touch("up", x + dx, y + dy, 0, 0);
+}
+
+/* press the key in half key hx of keyboard row r, as the keyboard is now */
+
+static void
+key(int r, int hx)
+{
+	touch("press", kbx + (hx * ROW_H) / 2 + ROW_H / 4,
+	      KB_Y0 + r * ROW_H + ROW_H / 2, 0, 0);
+}
+
+/* there was one more update, of lines y0 to y1 */
+
+static int
+updated(const char *what, int y0, int y1)
+{
+	if (updates != ++seen_updates || upd_y0 != y0 || upd_y1 != y1) {
+		lwsl_err("%s: update %d (%d): %d..%d, not %d..%d\n", what,
+			 updates, seen_updates, upd_y0, upd_y1, y0, y1);
+		return 0;
+	}
+
+	/* the keyboard is dragged anywhere: its keys may be drawn outside */
+	return in_edit || outside_circle_white();
 }
 
 static void
@@ -234,7 +326,9 @@ start(void)
 
 	step = 0;
 	updates = 0;
+	seen_updates = 0;
 	picked = -1;
+	done_calls = 0;
 	memset(fb, 0xff, sizeof(fb));
 
 	heap_before = lws_get_allocated_heap();
@@ -244,6 +338,9 @@ start(void)
 	ui_info.lds = &lds;
 	ui_info.row = row_cb;
 	ui_info.pick = pick_cb;
+	ui_info.done = done_cb;
+	if (pass)
+		ui_info.css = css_red_title;
 
 	ui = lws_dlo_ui_create(&ui_info);
 	if (!ui) {
@@ -271,18 +368,21 @@ next_step(lws_sorted_usec_list_t *sul)
 	case 0:
 		/* the first update */
 
-		if (updates != 1 || upd_y0 || upd_y1 != H) {
-			lwsl_err("first update %d: %d..%d\n", updates, upd_y0,
-				 upd_y1);
-			finish(0);
-			return;
-		}
-		if (!outside_circle_white()) {
+		if (!updated("first", 0, H)) {
 			finish(0);
 			return;
 		}
 		if (!dark_in(W / 2 - 40, 0, W / 2 + 40, TITLE_H)) {
 			lwsl_err("no title\n");
+			finish(0);
+			return;
+		}
+		/* the title strip is themed */
+		if (pass ? !colour_in(W / 2 - 40, 0, W / 2 + 40, TITLE_H,
+				      0xff, 0, 0) :
+			   colour_in(W / 2 - 40, 0, W / 2 + 40, TITLE_H,
+				     0x24, 0x47, 0x6b) < 40 * TITLE_H) {
+			lwsl_err("title strip not themed\n");
 			finish(0);
 			return;
 		}
@@ -296,7 +396,7 @@ next_step(lws_sorted_usec_list_t *sul)
 
 		/* pressing the middle of the fourth row picks row 3 */
 
-		touch("press", W / 2, TITLE_H + 3 * ROW_H + ROW_H / 2, 0);
+		touch("press", W / 2, TITLE_H + 3 * ROW_H + ROW_H / 2, 0, 0);
 		if (picked != 3) {
 			lwsl_err("press picked %d\n", picked);
 			finish(0);
@@ -305,7 +405,7 @@ next_step(lws_sorted_usec_list_t *sul)
 		picked = -1;
 
 		/* the title isn't the list */
-		touch("press", W / 2, TITLE_H / 2, 0);
+		touch("press", W / 2, TITLE_H / 2, 0, 0);
 		if (picked != -1) {
 			lwsl_err("title press picked %d\n", picked);
 			finish(0);
@@ -314,17 +414,11 @@ next_step(lws_sorted_usec_list_t *sul)
 
 		/* dragging up scrolls the list down */
 
-		touch("scroll", W / 2, H / 2, -50);
+		drag(W / 2, H / 2, 0, -50);
 		break;
 
 	case 1:
-		if (updates != 2 || upd_y0 != TITLE_H || upd_y1 != H) {
-			lwsl_err("scroll update %d: %d..%d\n", updates, upd_y0,
-				 upd_y1);
-			finish(0);
-			return;
-		}
-		if (!outside_circle_white()) {
+		if (!updated("scroll", TITLE_H, H)) {
 			finish(0);
 			return;
 		}
@@ -332,24 +426,18 @@ next_step(lws_sorted_usec_list_t *sul)
 		/* row 3 is now 50px further up */
 
 		top = TITLE_H + 3 * ROW_H + ROW_H / 2 - 50;
-		touch("press", W / 2, top, 0);
+		touch("press", W / 2, top, 0, 0);
 		if (picked != 3) {
 			lwsl_err("scrolled press picked %d\n", picked);
 			finish(0);
 			return;
 		}
 
-		lws_dlo_ui_set_title(ui, "Passphrase");
+		lws_dlo_ui_set_title(ui, "AP 3");
 		break;
 
 	case 2:
-		if (updates != 3 || upd_y0 || upd_y1 != TITLE_H) {
-			lwsl_err("title update %d: %d..%d\n", updates, upd_y0,
-				 upd_y1);
-			finish(0);
-			return;
-		}
-		if (!outside_circle_white()) {
+		if (!updated("title", 0, TITLE_H)) {
 			finish(0);
 			return;
 		}
@@ -360,10 +448,154 @@ next_step(lws_sorted_usec_list_t *sul)
 		break;
 
 	case 3:
+		if (!updated("short list", TITLE_H, H)) {
+			finish(0);
+			return;
+		}
 		picked = -1;
-		touch("press", W / 2, TITLE_H + 3 * ROW_H + ROW_H / 2, 0);
+		touch("press", W / 2, TITLE_H + 3 * ROW_H + ROW_H / 2, 0, 0);
 		if (picked != -1) {
 			lwsl_err("press below the list picked %d\n", picked);
+			finish(0);
+			return;
+		}
+
+		/* the edit page replaces the whole list page */
+
+		kbx = KB_X0;
+		in_edit = 1;
+		if (lws_dlo_ui_edit(ui, "Passphrase", 63,
+				    LWS_DLO_UI_EDIT_MASKED)) {
+			lwsl_err("edit failed\n");
+			finish(0);
+			return;
+		}
+		break;
+
+	case 4:
+		if (!updated("edit page", 0, H)) {
+			finish(0);
+			return;
+		}
+		if (!dark_in(30, KB_Y0, W - 30, H)) {
+			lwsl_err("no keyboard\n");
+			finish(0);
+			return;
+		}
+
+		/* typing changes only the edit strip */
+
+		key(0, 6); /* r */
+		break;
+
+	case 5:
+		if (!updated("typed", EDIT_Y0, KB_Y0)) {
+			finish(0);
+			return;
+		}
+		if (!dark_in(30, EDIT_Y0, W - 30, KB_Y0)) {
+			lwsl_err("nothing in the edit strip\n");
+			finish(0);
+			return;
+		}
+
+		/* Shift is off the left: drag the keyboard right to it */
+
+		drag(W / 2, KB_Y0 + 2 * ROW_H, -KB_X0, 0);
+		kbx = 0;
+		break;
+
+	case 6:
+		if (!updated("keyboard dragged", KB_Y0, H)) {
+			finish(0);
+			return;
+		}
+
+		key(2, 0);	/* Shift */
+		key(0, 8);	/* T, then the layer is lower case again */
+		key(3, 0);	/* ?123 */
+		key(0, 0);	/* 1 */
+		key(4, 0);	/* abc */
+		break;
+
+	case 7:
+		/* what was typed and the keys both changed */
+		if (!updated("shifted", EDIT_Y0, H)) {
+			finish(0);
+			return;
+		}
+
+		/* Done is off the right: drag the keyboard left to it */
+
+		drag(W / 2, KB_Y0 + 2 * ROW_H, -120, 0);
+		kbx = -120;
+		break;
+
+	case 8:
+		if (!updated("keyboard dragged again", KB_Y0, H)) {
+			finish(0);
+			return;
+		}
+
+		/* the caller can refuse it, and editing goes on */
+
+		done_keep = 1;
+		key(3, 16);	/* Done */
+		if (done_calls != 1 || done_null || strcmp(done_text, "rT1")) {
+			lwsl_err("done %d: got the wrong text\n", done_calls);
+			finish(0);
+			return;
+		}
+
+		done_keep = 0;
+		in_edit = 0;
+		key(3, 16);	/* Done */
+		if (done_calls != 2 || strcmp(done_text, "rT1")) {
+			lwsl_err("done %d: got the wrong text\n", done_calls);
+			finish(0);
+			return;
+		}
+		break;
+
+	case 9:
+		/* the list page is back, with what changed meanwhile */
+		if (!updated("list page again", 0, H)) {
+			finish(0);
+			return;
+		}
+		picked = -1;
+		touch("press", W / 2, TITLE_H + ROW_H / 2, 0, 0);
+		if (picked != 0) {
+			lwsl_err("list page press picked %d\n", picked);
+			finish(0);
+			return;
+		}
+
+		lws_dlo_ui_edit(ui, "Passphrase", 63, LWS_DLO_UI_EDIT_MASKED);
+		kbx = KB_X0;
+		in_edit = 1;
+		break;
+
+	case 10:
+		if (!updated("edit page again", 0, H)) {
+			finish(0);
+			return;
+		}
+
+		/* pressing the title abandons it */
+
+		key(0, 6);
+		in_edit = 0;
+		touch("press", W / 2, TITLE_H / 2, 0, 0);
+		if (done_calls != 3 || !done_null) {
+			lwsl_err("title press didn't abandon the edit\n");
+			finish(0);
+			return;
+		}
+		break;
+
+	case 11:
+		if (!updated("abandoned", 0, H)) {
 			finish(0);
 			return;
 		}

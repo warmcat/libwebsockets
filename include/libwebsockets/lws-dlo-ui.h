@@ -31,7 +31,7 @@
  * own.  On a display that can update a band of lines (lws_surface_info_t
  * .band), only the strips that changed are sent to it.
  *
- * Down the display there are
+ * It shows one of two pages.  Down the display, the list page has
  *
  *  - a title strip, saying where we are, eg, "Boot", then "AP"
  *
@@ -40,9 +40,43 @@
  *    row the caller says is the focus in its middle.  Pressing a row tells the
  *    caller which it was.
  *
+ * and the edit page, shown by lws_dlo_ui_edit(), has
+ *
+ *  - the title strip, saying what is being typed, eg, "Passphrase".  Pressing
+ *    it abandons the edit.
+ *
+ *  - an edit strip, showing what was typed, or as many stars if it is masked,
+ *    and a caret.  If it is too long to show, the end is shown: dragging the
+ *    strip sideways shows the rest.
+ *
+ *  - a keyboard strip, taking the rest of the display.  The keyboard is
+ *    owned by the ui: it has lower and upper case and symbol layers, with a
+ *    key to shift the next letter, to change layer, to delete, and Done.  If
+ *    what is typed is masked, a key shows it until it is pressed again.  The
+ *    keyboard is bigger than a small display: it is dragged around in its
+ *    strip to reach the keys.
+ *
+ * Each strip moves only by drags that begin in it, and dragging never changes
+ * what was typed; only pressing keys does.
+ *
  * On a round display (lws_surface_info_t .round), what is in each strip, and
  * each row of the list, is kept to the columns of the circle that can be seen
  * where it is.
+ *
+ * How it looks is set by css, which the caller may add to, see
+ * lws_dlo_ui_info_t .css.  The elements it can style are
+ *
+ *  - #ui: the whole display
+ *  - #t: the title strip, #tt: its text
+ *  - #l: the list strip, .r: a row of the list, with .f if it's the focus
+ *    row, or .d if it's dim, .i: a row's icon, .x: a row's text
+ *  - #e: the edit strip, #et: the box of text in it
+ *  - #k: the keyboard strip, .k: a key, with .ks if it is not a letter or
+ *    symbol, and .ka if what it changes is on, eg, shift
+ *
+ * The positions and sizes of these follow from the display, and are set by
+ * the ui after the caller's css, so css can't change them; colours, borders
+ * and the like are its to set.
  *
  * The ui uses the display while it draws: it sets lds->display_busy, and as
  * with any other update, the display's completion callback clears it when the
@@ -90,6 +124,20 @@ typedef int (*lws_dlo_ui_row_cb_t)(void *opaque, int idx,
 /* row idx of the list was pressed */
 typedef void (*lws_dlo_ui_pick_cb_t)(void *opaque, int idx);
 
+/*
+ * Done was pressed on the edit page: text is what was typed.  Or the title
+ * was pressed, abandoning the edit: text is NULL.
+ *
+ * Return 0 when it is finished with: the list page is shown again, and what
+ * was typed is cleared from memory.  Returning nonzero after Done keeps it
+ * being edited, eg, if it isn't acceptable; after abandoning, the edit ends
+ * anyway.  text may be a secret: copy what's needed and don't log it.
+ *
+ * It is called from inside lws_dlo_ui_touch(): it may call the other apis on
+ * the ui, eg, to edit something else, but not destroy it.
+ */
+typedef int (*lws_dlo_ui_done_cb_t)(void *opaque, const char *text);
+
 typedef struct lws_dlo_ui_info {
 	struct lws_context		*cx;
 	lws_display_state_t		*lds;
@@ -99,8 +147,22 @@ typedef struct lws_dlo_ui_info {
 	lws_dlo_ui_row_cb_t		row;
 	/**< fills in the list's rows */
 	lws_dlo_ui_pick_cb_t		pick;
-	/**< NULL, or told which row of the list was pressed */
+	/**< NULL, or told which row of the list was pressed.  As for done,
+	 * it may call the other apis, but not destroy the ui */
+	lws_dlo_ui_done_cb_t		done;
+	/**< NULL, or told what was typed on the edit page: needed to use
+	 * lws_dlo_ui_edit() */
+	const char			*css;
+	/**< NULL, or css that follows the ui's own theme, so it can change
+	 * how the ui looks, eg, "#t { background-color: #800 }": see the
+	 * elements above.  It is copied.  It is the caller's own: it can't
+	 * contain '<', and is limited to 2KB */
 } lws_dlo_ui_info_t;
+
+#define LWS_DLO_UI_EDIT_MAX		64	/* including the NUL */
+
+#define LWS_DLO_UI_EDIT_MASKED		(1 << 0)
+/**< what is typed is shown as stars, eg, a passphrase */
 
 /**
  * lws_dlo_ui_create() - make a strip ui on a display
@@ -152,6 +214,27 @@ LWS_VISIBLE LWS_EXTERN void
 lws_dlo_ui_set_list(struct lws_dlo_ui *ui, int count, int focus);
 
 /**
+ * lws_dlo_ui_edit() - show the edit page, to type something in
+ *
+ * \param ui: the ui
+ * \param title: what the title strip says while editing, eg, "Passphrase"
+ * \param max: the most that can be typed, less than LWS_DLO_UI_EDIT_MAX
+ * \param flags: LWS_DLO_UI_EDIT_MASKED, or 0
+ *
+ * Starts with nothing typed, the lower case layer of the keyboard, and the
+ * keyboard centred across its strip.  The done callback is told what was
+ * typed, then the list page is shown again; while editing, changes to the
+ * list page's title and list are kept until then.
+ *
+ * What is typed is cleared from the ui's memory when the edit ends, and the
+ * html it was shown in, when that is made again.  Returns 0 if editing
+ * started, or nonzero if the ui has no done callback or max is out of range.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dlo_ui_edit(struct lws_dlo_ui *ui, const char *title, size_t max,
+		unsigned int flags);
+
+/**
  * lws_dlo_ui_touch() - give the ui a touch event
  *
  * \param ui: the ui
@@ -159,7 +242,9 @@ lws_dlo_ui_set_list(struct lws_dlo_ui *ui, int count, int focus);
  * \param len: its length
  *
  * Dragging the list scrolls it, and pressing a row of it calls the pick
- * callback.  Returns nonzero if the ui acted on the event.
+ * callback; on the edit page, pressing keys types, dragging moves the edit
+ * text or keyboard.  The ui needs the down events, to know which strip a
+ * drag began in.  Returns nonzero if the ui acted on the event.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len);
