@@ -153,6 +153,11 @@ if (LWS_WITH_DLO)
 		list(APPEND SOURCES
 			misc/dlo/dlo-lhp.c
 		)
+		if (LWS_WITH_SECURE_STREAMS AND LWS_WITH_CLIENT)
+			# the strip ui lays its html out with lws_lhp_ss_browse()
+			list(APPEND SOURCES
+				misc/dlo/dlo-ui.c)
+		endif()
 	endif()
 
 endif()  #dlo

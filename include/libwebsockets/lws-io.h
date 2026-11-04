@@ -165,6 +165,8 @@
 
 /* the html layout engine renders into the display list: it lives with it */
 #include <libwebsockets/lws-html.h>
+/* a finished ui for small displays, made with it */
+#include <libwebsockets/lws-dlo-ui.h>
 
 #if defined(LWS_WITH_EMAIL)
 #include <libwebsockets/lws-smtp-client.h>

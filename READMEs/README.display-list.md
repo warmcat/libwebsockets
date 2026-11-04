@@ -151,3 +151,63 @@ Eg, create a white background rectange the size of the `lws_display`
 ```
 	lds->disp->blit(lds, (uint8_t *)&dl, &box);
 ```
+
+## Round displays and band updates
+
+`lws_surface_info_t` describes two things about a display that layout and
+drawing can take advantage of
+
+ - `.round`: only the circle inscribed in the surface can be seen, eg, a
+   round LCD.  `lws_surface_visible_span()` gives the columns that can be
+   seen on every line of a band of lines, so whatever is laid out between
+   them can all be seen.
+
+ - `.band`: the display's blit can be sent a band of whole lines on their
+   own, opened with a blit of the band's box, more than one line high, then
+   the lines one at a time, then a zero-height blit.  The lines are always
+   the whole width of the display.  (This is not `.partial`, which the EPD
+   drivers use to mean they can do a partial refresh.)
+
+## Strip ui
+
+`lws-dlo-ui.h` is a finished user interface for small displays: the caller
+says what is in it, as data, and is told what the user picked, without
+writing any html itself.  It is made of strips stacked down the display,
+each clipped to itself
+
+ - a title strip, saying where we are, eg, "Boot"
+
+ - a list strip, of rows of an optional icon and a line of text, centred,
+   that scrolls by dragging it on a touch display, or to keep the row the
+   caller says is the focus in its middle.  Pressing a row tells the
+   caller which it was.
+
+```
+	lws_dlo_ui_info_t i;
+
+	memset(&i, 0, sizeof(i));
+	i.cx = cx;
+	i.lds = &lds;
+	i.row = my_row_cb;	/* fills in row n: icon, text, state */
+	i.pick = my_pick_cb;	/* row n was pressed */
+
+	ui = lws_dlo_ui_create(&i);
+	lws_dlo_ui_set_title(ui, "AP");
+	lws_dlo_ui_set_list(ui, count, -1);
+```
+
+It makes the html for the whole display whenever something changes, lays it
+out with lhp, and keeps the display list, so it can resolve touches against
+it and render just the bands of the strips that changed, on a display that
+says it is `.band`.  On a `.round` one, each strip's content, and each row
+of the list, is kept to the columns of the circle that can be seen where it
+is.  Everything the caller gives it is shown as text, never taken as markup.
+
+It uses the display like any other update: it sets `lds->display_busy`, the
+display's completion callback clears it, and should then call
+`lws_dlo_ui_kick()` so anything that changed meanwhile is drawn.  Give it
+touch events with `lws_dlo_ui_touch()`.  It only uses the faces built in,
+so it can be shown before there is any network.
+
+`minimal-examples-lowlevel/api-tests/api-test-dlo-ui` shows it on a pretend
+round display, and the lhp embedded examples use it for their boot overlay.
