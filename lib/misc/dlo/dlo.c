@@ -854,6 +854,7 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 		lws_stateful_ret_t r;
 		lws_box_t co;
 		lws_fx_t t2;
+		char passed;
 
 		if (!dlo) {
 			if (rs->sp > 0)
@@ -877,76 +878,61 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 		 * A streaming render destroys DLOs once the cursor has
 		 * passed below them, to bound memory on small targets.  A
 		 * retained render (eg, an interactive viewport that will be
-		 * re-scanned at other vertical offsets) must keep them, but
-		 * either way there is no need to descend into them
+		 * re-scanned at other vertical offsets) must keep them.
+		 * Either way there is no need to draw them, but what is in
+		 * them may reach further down than they do, eg, positioned
+		 * below them, unless they clip it
 		 */
 
-		if (rs->curr > lws_fx_roundup(&t2) && dlo->box.h.whole > 3) {
-			d = lws_dll2_get_next(&dlo->list);
-			rs->st[rs->sp].dlo = d ? lws_container_of(d, lws_dlo_t,
-								list) : NULL;
+		passed = rs->curr > lws_fx_roundup(&t2) &&
+			 dlo->box.h.whole > 3;
 
-			if (!rs->retained)
-				lws_display_dlo_destroy(&dlo);
-			continue;
-		}
-
-#if 0
-		if (dlo->_destroy == lws_display_dlo_png_destroy)
-			lwsl_err("png line %d %d %d %d\n", rs->curr, co.y.whole - 1,
-					rs->st[rs->sp].co.y.whole, dlo->box.y.whole);
-#endif
-
-		if (rs->curr >= co.y.whole - 1) {
-
+		if (!passed && rs->curr >= co.y.whole - 1) {
+			/* the renderer finds the dlo at the top of the stack */
 			rs->opacity = dlo_opacity(&rs->st[rs->sp], dlo);
 			dlo_clip_line(rs, &rs->st[rs->sp]);
 			r = dlo->render(rs);
-
-			//rs->ic, dlo, &rs->st[rs->sp].co,
-			//		rs->curr, rs->line, &dlo->nle[0]);
 			if (r)
+				/* it's rendered again when we come back */
 				return r;
-
-			/* next sibling at this level if any */
-
-			d = lws_dll2_get_next(&dlo->list);
-
-			if (d)
-				rs->st[rs->sp].dlo = lws_container_of(d,
-							lws_dlo_t, list);
-			else
-				rs->st[rs->sp].dlo = NULL;
-
-
-			/* go into any children */
-
-			if(!lws_dll2_is_empty(&dlo->children)) {
-				if (rs->sp + 1 == LWS_ARRAY_SIZE(rs->st)) {
-					lwsl_err("%s: DLO stack overflow B\n",
-							__func__);
-					return LWS_SRET_FATAL;
-				}
-				rs->st[rs->sp + 1].opacity = rs->opacity;
-				dlo_child_clip(&rs->st[rs->sp], dlo, &co,
-					       rs->st[rs->sp + 1].clip);
-				rs->st[++rs->sp].dlo = lws_container_of(
-					lws_dll2_get_head(&dlo->children), lws_dlo_t, list);
-				rs->st[rs->sp].co = co;
-				continue;
-			}
-		} else {
-			/* next sibling at this level if any */
-
-			d = lws_dll2_get_next(&dlo->list);
-			if (d)
-				rs->st[rs->sp].dlo = lws_container_of(d,
-							lws_dlo_t, list);
-			else
-				rs->st[rs->sp].dlo = NULL;
 		}
 
+		/* next sibling at this level if any */
 
+		d = lws_dll2_get_next(&dlo->list);
+		rs->st[rs->sp].dlo = d ? lws_container_of(d, lws_dlo_t, list) :
+					 NULL;
+
+		if (passed) {
+			if (lws_dll2_is_empty(&dlo->children) ||
+			    dlo->flag_clip) {
+				if (!rs->retained)
+					lws_display_dlo_destroy(&dlo);
+				continue;
+			}
+
+			rs->opacity = dlo_opacity(&rs->st[rs->sp], dlo);
+		} else if (rs->curr < co.y.whole - 1)
+			/* not reached it yet */
+			continue;
+
+		/* go into any children */
+
+		if (lws_dll2_is_empty(&dlo->children))
+			continue;
+
+		if (rs->sp + 1 == LWS_ARRAY_SIZE(rs->st)) {
+			lwsl_err("%s: DLO stack overflow B\n", __func__);
+			return LWS_SRET_FATAL;
+		}
+
+		rs->st[rs->sp + 1].opacity = rs->opacity;
+		dlo_child_clip(&rs->st[rs->sp], dlo, &co,
+			       rs->st[rs->sp + 1].clip);
+		rs->st[++rs->sp].dlo = lws_container_of(
+				lws_dll2_get_head(&dlo->children), lws_dlo_t,
+				list);
+		rs->st[rs->sp].co = co;
 	}
 
 	return LWS_SRET_OK;

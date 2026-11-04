@@ -2261,10 +2261,15 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 				lws_fx_add(&cbh, &cbh, &psa->oy);
 				lws_fx_add(&cbh, &cbh, &t1);
 			} else {
+				/*
+				 * The initial containing block is the
+				 * viewport, not the surface the page is laid
+				 * out on, which may be much taller
+				 */
 				lws_fx_set(ox, 0, 0);
 				cbw = ctx->ic.wh_px[LWS_LHPREF_WIDTH];
 				cbi = cbw;
-				cbh = ctx->ic.wh_px[LWS_LHPREF_HEIGHT];
+				cbh = *lws_lhp_viewport_h(ctx);
 			}
 
 			/*

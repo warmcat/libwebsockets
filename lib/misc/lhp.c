@@ -1026,9 +1026,6 @@ struct lhp_calc {
 static const lcsp_atr_t *
 lhp_find_var(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *name, size_t len);
 
-static const lws_fx_t *
-lhp_viewport_h(lhp_ctx_t *ctx);
-
 static lws_fx_t
 lhp_calc_expr(struct lhp_calc *cs);
 
@@ -1524,13 +1521,13 @@ lws_csp_px_base(const lcsp_atr_t *a, lhp_pstack_t *ps, const lws_fx_t *base)
 		 */
 
 		if (a->unit == LCSP_UNIT_LENGTH_VH)
-			v = lhp_viewport_h(ctx);
+			v = lws_lhp_viewport_h(ctx);
 		else if (a->unit == LCSP_UNIT_LENGTH_VMIN &&
-			 lws_fx_comp(v, lhp_viewport_h(ctx)) > 0)
-			v = lhp_viewport_h(ctx);
+			 lws_fx_comp(v, lws_lhp_viewport_h(ctx)) > 0)
+			v = lws_lhp_viewport_h(ctx);
 		else if (a->unit == LCSP_UNIT_LENGTH_VMAX &&
-			 lws_fx_comp(v, lhp_viewport_h(ctx)) < 0)
-			v = lhp_viewport_h(ctx);
+			 lws_fx_comp(v, lws_lhp_viewport_h(ctx)) < 0)
+			v = lws_lhp_viewport_h(ctx);
 
 		/* the value is in 100ths of the viewport dimension */
 
@@ -4482,8 +4479,8 @@ lhp_css_drop_empty(lhp_ctx_t *ctx)
  * heroes fill the entire layout surface.
  */
 
-static const lws_fx_t *
-lhp_viewport_h(lhp_ctx_t *ctx)
+const lws_fx_t *
+lws_lhp_viewport_h(lhp_ctx_t *ctx)
 {
 	if (ctx->viewport_h) {
 		ctx->viewport_h_fx.whole = ctx->viewport_h;
@@ -4542,7 +4539,7 @@ lhp_media_feature(lhp_ctx_t *ctx, const char *p, const char *end)
 	}
 
 	if (nl == 11 && !strncmp(n, "orientation", 11))
-		return (ctx->ic.wh_px[0].whole >= lhp_viewport_h(ctx)->whole) ==
+		return (ctx->ic.wh_px[0].whole >= lws_lhp_viewport_h(ctx)->whole) ==
 		       (end - v >= 9 && !strncmp(v, "landscape", 9));
 
 	if ((nl == 9 && !strncmp(n, "max-width", 9)) ||
@@ -4556,7 +4553,7 @@ lhp_media_feature(lhp_ctx_t *ctx, const char *p, const char *end)
 		if (end - v >= 2 && (!strncmp(v, "em", 2) ||
 				     !strncmp(v, "rem", 3)))
 			val.whole *= 16;
-		px = ref ? lhp_viewport_h(ctx)->whole :
+		px = ref ? lws_lhp_viewport_h(ctx)->whole :
 			   ctx->ic.wh_px[ref].whole;
 		if (n[1] == 'a') /* max- */
 			return px <= val.whole;
@@ -6768,7 +6765,7 @@ elem_start:
 					    )
 						ps->drt.w = *lws_csp_px(ps->css_width, ps);
 
-					ps->drt.h = *lhp_viewport_h(ctx);
+					ps->drt.h = *lws_lhp_viewport_h(ctx);
 					if (ps->css_height &&
 					    ps->css_height->propval != LCSP_PROPVAL_AUTO &&
 					    /* body { height: 100% } is the viewport */
@@ -6791,13 +6788,15 @@ elem_start:
 					lws_fx_set(box.x, 0, 0);
 					lws_fx_set(box.y, 0, 0);
 					box.w = ps->drt.w;
-					box.h = ps->drt.h;
-					if (!ps->css_height ||
-					    ps->css_height->propval ==
-							LCSP_PROPVAL_AUTO ||
-					    ps->css_height->unit ==
-						    LCSP_UNIT_LENGTH_PERCENT)
-						box.h = ctx->ic.wh_px[LWS_LHPREF_HEIGHT];
+					/*
+					 * ... whatever height the body is
+					 * given, since as a browser's, its
+					 * background is the canvas', and what
+					 * overflows the body must be rendered
+					 */
+					box.h = ctx->ic.wh_px[LWS_LHPREF_HEIGHT];
+					if (lws_fx_comp(&ps->drt.h, &box.h) > 0)
+						box.h = ps->drt.h;
 
 					ps->dlo = (lws_dlo_t *)lws_display_dlo_rect_new(
 							drt->dl, NULL, &box, 0,

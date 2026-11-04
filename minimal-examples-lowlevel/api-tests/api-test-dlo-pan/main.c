@@ -37,6 +37,9 @@
  *    be moved right to bring its right corners into the circle, and up and
  *    left for its top left corner, but not down, since the bottom of what is
  *    in it is in the circle already
+ *
+ *  - in a page whose body has a fixed height, what overflows a box, here a
+ *    box 500px tall in one 20px tall, can be panned down to and is drawn
  */
 
 #include <libwebsockets.h>
@@ -66,6 +69,7 @@
 #define C_RED		0xff0000
 #define C_BLUE		0x0000ff
 #define C_GREY		0x808080
+#define C_MAGENTA	0xff00ff
 #define C_WHITE		0xffffff
 
 static const char page_html[] =
@@ -105,6 +109,25 @@ static const lws_dlo_filesystem_t fs_short = {
 	.name			= "short.html",
 	.data			= short_html,
 	.len			= sizeof(short_html) - 1,
+};
+
+/* a page with a fixed height body, and a box overflowing the box it's in */
+
+#define OVF_H		500
+
+static const char overflow_html[] =
+	"<!doctype html><html><head><meta charset=\"utf-8\" />"
+	"<style>"
+	"body { margin: 0; height: 240px; background-color: #808080 }"
+	"#r { height: 20px; background-color: #0f0 }"
+	"#t { height: 500px; width: 100px; background-color: #f0f }"
+	"</style></head><body><div id=\"r\"><div id=\"t\"></div></div>"
+	"</body></html>";
+
+static const lws_dlo_filesystem_t fs_overflow = {
+	.name			= "overflow.html",
+	.data			= overflow_html,
+	.len			= sizeof(overflow_html) - 1,
 };
 
 static const uint8_t stripes_png[] = {
@@ -394,6 +417,25 @@ next_step(lws_sorted_usec_list_t *sul)
 		expect(5, 5, C_GREEN, "top left of the short page");
 
 		done();
+		if (browse("file://dlofs/overflow.html")) {
+			fail = 1;
+			lws_default_loop_exit(cx);
+		}
+		break;
+
+	case 9:
+		expect(50, 100, C_MAGENTA, "the overflowing box");
+
+		/* down to the end of what overflows */
+		pan(0, 100000);
+		break;
+
+	case 10:
+		expect_pan(0, OVF_H - H + aff);
+		expect(50, OVF_H - 10, C_MAGENTA, "end of the overflowing box");
+		expect(150, OVF_H - 10, C_GREY, "beside the overflowing box");
+
+		done();
 		if (pass++) {
 			lws_default_loop_exit(cx);
 			break;
@@ -458,6 +500,7 @@ main(int argc, const char **argv)
 
 	lws_dlo_file_register(cx, &fs_page);
 	lws_dlo_file_register(cx, &fs_short);
+	lws_dlo_file_register(cx, &fs_overflow);
 	lws_dlo_file_register(cx, &fs_png);
 
 	if (browse("file://dlofs/pan.html")) {

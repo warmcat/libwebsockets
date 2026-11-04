@@ -33,6 +33,9 @@ the Waveshare ESP32-S3-Touch-LCD-1.28's, then a rectangular one.  It checks
    for its top left corner, but not down, since the bottom of what is in it
    is in the circle already
 
+ - in a page whose body has a fixed height, what overflows a box, here a box
+   500px tall in one 20px tall, can be panned down to and is drawn
+
 ## build
 
 ```
