@@ -81,14 +81,14 @@ takes over the display instead, whatever is on it.
 
 The application is a placeholder for now: it visits each of a short list
 of pages using h2 and renders them on the device + display combination,
-10s apart.  When the last one is on the display, it leaves it there and
+showing each for 10s once it is on the display, the last one too, then it
 ends.
 
 An EPD keeps showing its image with no power, so whatever is left on it is
 what it shows in storage: it should be left white.  On boards whose display
-says it's `bistable` in its `lws_display_t`, as the EPD drivers do, the last
-page is shown for 5s, then a white page, and it ends once that is on the
-display.
+says it's `bistable` in its `lws_display_t`, as the EPD drivers do, a white
+page is shown after the last page, and it ends once that is on the display.
+On other displays, the display is turned off as it ends.
 
 Ending tears everything down, the devices in `deinit_plat_devices()`, then
 the lws context, and logs the free heap from before the context was created

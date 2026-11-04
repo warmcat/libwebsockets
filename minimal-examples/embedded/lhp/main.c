@@ -22,11 +22,11 @@
  * the ui comes down and the application html is shown instead.
  *
  * The application is a placeholder for now: it visits each URL in the
- * board's carousel once, 10s apart, rendering it on the display via LHP; when
- * the last one is on the display, it leaves it there and ends.  An EPD keeps its
- * image with no power, so it should be left white for storage: there the last
- * page is shown for 5s, then a white page, and it ends once that is on the
- * display.
+ * board's carousel once, rendering it on the display via LHP, and showing
+ * each for 10s once it is on the display, the last one too, then it ends.
+ * An EPD keeps its image with no power, so it should be left white for
+ * storage: there a white page is shown after the last one, and it ends once
+ * that is on the display.
  *
  * Ending means everything is torn down: the devices, then the lws context.  The
  * free heap should be back to what it was before the context was created; if
@@ -54,8 +54,8 @@ static enum {
 	UI_APP,		/* the application html */
 } ui;
 
-/* how long the last page of the carousel is shown on an EPD before blanking */
-#define CAROUSEL_BLANK_DELAY_US	(5 * LWS_US_PER_SEC)
+/* how long each page of the carousel is shown, once it is on the display */
+#define CAROUSEL_PAGE_US	(10 * LWS_US_PER_SEC)
 
 /*
  * How much less free heap than before the context was created we accept after
@@ -65,20 +65,20 @@ static enum {
 #define HEAP_RETURN_MARGIN	8192
 
 /*
- * The carousel runs once: browsing its last url, then that url displayed.  On
- * an EPD, it is displayed for a while, then a white page is shown for storage
+ * The carousel runs once: browsing its last url, then that url displayed for
+ * as long as the others.  On an EPD, a white page is shown then, for storage
  */
 static enum {
 	CAROUSEL_RUNNING,
 	CAROUSEL_LAST,		/* browsing the last url */
-	CAROUSEL_SHOWING_LAST,	/* on an EPD: the last url is on the display */
+	CAROUSEL_SHOWING_LAST,	/* the last url is on the display */
 	CAROUSEL_BLANKING,	/* on an EPD: the white page is being drawn */
 	CAROUSEL_DONE
 } carousel_phase;
 static int carousel, update_pc, update_pc_shown = -1;
 static lws_sorted_usec_list_t sul_app, sul_boot_timeout, sul_ui;
 static char display_ready, boot_dirty, boot_done, seen_operational,
-	    subsequent, finished;
+	    finished;
 static uint32_t scan_sig_shown;
 static struct lws_plat_file_ops dlo_fops;
 static lws_display_render_state_t rs;
@@ -608,10 +608,13 @@ app_next(lws_sorted_usec_list_t *sul)
 		carousel_phase = CAROUSEL_LAST;
 }
 
-/* on an EPD, the last page has been shown long enough: leave it white */
+/*
+ * The last page has been shown long enough: we are done, but on an EPD,
+ * leave it white first
+ */
 
 static void
-app_blank(lws_sorted_usec_list_t *sul)
+app_last_shown(lws_sorted_usec_list_t *sul)
 {
 	static const char blank[] = "<!doctype html><html><head>"
 		"<meta charset=\"utf-8\" />"
@@ -623,14 +626,23 @@ app_blank(lws_sorted_usec_list_t *sul)
 		/* the user took over meanwhile */
 		return;
 
+	if (!lds.disp->bistable) {
+		/* the event loop ends and app_main() tears everything down */
+		carousel_phase = CAROUSEL_DONE;
+		finished = 1;
+		return;
+	}
+
 	if (lds.display_busy) {
-		lws_sul_schedule(cx, 0, &sul_app, app_blank, LWS_US_PER_SEC);
+		lws_sul_schedule(cx, 0, &sul_app, app_last_shown,
+				 LWS_US_PER_SEC);
 		return;
 	}
 
 	html = malloc(sizeof(blank));
 	if (!html) {
-		lws_sul_schedule(cx, 0, &sul_app, app_blank, LWS_US_PER_SEC);
+		lws_sul_schedule(cx, 0, &sul_app, app_last_shown,
+				 LWS_US_PER_SEC);
 		return;
 	}
 	memcpy(html, blank, sizeof(blank));
@@ -639,7 +651,8 @@ app_blank(lws_sorted_usec_list_t *sul)
 	carousel_phase = CAROUSEL_BLANKING;
 	if (page_show("blank.html", html, (int)sizeof(blank) - 1)) {
 		carousel_phase = CAROUSEL_SHOWING_LAST;
-		lws_sul_schedule(cx, 0, &sul_app, app_blank, LWS_US_PER_SEC);
+		lws_sul_schedule(cx, 0, &sul_app, app_last_shown,
+				 LWS_US_PER_SEC);
 	}
 }
 
@@ -783,38 +796,33 @@ display_completion_cb(lws_display_state_t *lds, int a)
 		    update_pc_shown >= 0)
 			break;
 
-		if (carousel_phase == CAROUSEL_LAST && lds->disp->bistable) {
-			/*
-			 * The last page of the carousel is on an EPD: show
-			 * it for a while, then leave the display white
-			 */
+		if (carousel_phase == CAROUSEL_LAST) {
+			/* the last page is on the display: show it a while */
 			carousel_phase = CAROUSEL_SHOWING_LAST;
-			lws_sul_schedule(lds->ctx, 0, &sul_app, app_blank,
-					 CAROUSEL_BLANK_DELAY_US);
+			lws_sul_schedule(lds->ctx, 0, &sul_app, app_last_shown,
+					 CAROUSEL_PAGE_US);
 			break;
 		}
 
 		if (carousel_phase == CAROUSEL_SHOWING_LAST)
-			/* app_blank() is still to come: no next browse */
+			/* app_last_shown() is still to come */
 			break;
 
-		if (carousel_phase == CAROUSEL_LAST ||
-		    carousel_phase == CAROUSEL_BLANKING) {
+		if (carousel_phase == CAROUSEL_BLANKING) {
 			/*
-			 * The last page of the carousel is on the display, or
-			 * on an EPD, the white page after it: we are done, the
-			 * event loop ends and app_main() tears everything down
+			 * On an EPD, the white page after the last is on the
+			 * display: we are done, the event loop ends and
+			 * app_main() tears everything down
 			 */
 			carousel_phase = CAROUSEL_DONE;
 			finished = 1;
 			break;
 		}
 
-		/* trigger doing the next browse */
+		/* show this page a while, then browse the next */
 
 		lws_sul_schedule(lds->ctx, 0, &sul_app, app_next,
-				 subsequent ? 10 * LWS_US_PER_SEC : 1);
-		subsequent = 1;
+				 CAROUSEL_PAGE_US);
 		break;
 	}
 
