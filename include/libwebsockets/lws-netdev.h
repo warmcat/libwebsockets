@@ -242,6 +242,23 @@ lws_netdev_credentials_settings_set(lws_netdevs_t *nds);
 LWS_VISIBLE LWS_EXTERN int
 lws_netdev_credentials_settings_get(lws_netdevs_t *nds);
 
+/**
+ * lws_netdev_credentials_add() - store credentials for an AP
+ *
+ * \param nds: the netdevs
+ * \param ssid: the AP's SSID
+ * \param passphrase: its passphrase, "" for an open AP
+ *
+ * Adds the credentials to those stored in the settings, replacing any for
+ * the same SSID, and stores them all again.  The next scan that sees the AP
+ * can join it, eg, after the wifi netdev's ops->scan() is called.
+ *
+ * Returns 0 if they were stored, else nonzero.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_netdev_credentials_add(lws_netdevs_t *nds, const char *ssid,
+			   const char *passphrase);
+
 LWS_VISIBLE LWS_EXTERN struct lws_netdev_instance *
 lws_netdev_wifi_create_plat(struct lws_context *ctx,
 			    const lws_netdev_ops_t *ops, const char *name,
