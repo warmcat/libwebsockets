@@ -210,14 +210,19 @@ render(lws_sorted_usec_list_t *sul)
 			relayout(rs);
 			return;
 		}
-		if (r & LWS_SRET_YIELD)
-			lws_sul_schedule(rs->lds->ctx, 0, &rs->sul, render, 1);
-		if (r) {
-			if (r & LWS_SRET_WANT_INPUT) {
-				lws_sul_schedule(rs->lds->ctx, 0, &rs->sul, render, LWS_US_PER_MS);
-				return;
-			}
+		if (r & (LWS_SRET_YIELD | LWS_SRET_WANT_INPUT)) {
+			/*
+			 * The line isn't finished: something on it is waiting
+			 * for its data, or for memory.  Come back to the same
+			 * line, the walk carries on from where it stopped
+			 */
+			lws_sul_schedule(rs->lds->ctx, 0, &rs->sul, render,
+					 r & LWS_SRET_YIELD ? 1 : LWS_US_PER_MS);
+			return;
 		}
+		if (r)
+			lwsl_warn("%s: line %d: 0x%x\n", __func__,
+				  (int)rs->curr, (unsigned int)r);
 
 		box.y.whole = rs->curr;
 
