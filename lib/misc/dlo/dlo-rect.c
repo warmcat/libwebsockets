@@ -74,7 +74,7 @@ lws_display_render_rect(struct lws_display_render_state *rs)
 {
 	lws_dlo_t *dlo = rs->st[rs->sp].dlo;
 	lws_dlo_rect_t *r = lws_container_of(dlo, lws_dlo_rect_t, dlo);
-	lws_fx_t cf, y, w, trim, s, e, t2, sfy, top, bot, cov;
+	lws_fx_t cf, y, w, trim, s, e, t2, sfy, top, bot, cov, ox, oy;
 	lws_display_colour_t dc;
 	unsigned int row_alpha;
 	int n, le, os;
@@ -82,9 +82,19 @@ lws_display_render_rect(struct lws_display_render_state *rs)
 	if (!LWSDC_ALPHA(dlo->dc))
 		return LWS_SRET_OK;
 
-	if (!r->init) {
-		lws_fx_add(&r->db.x,     &rs->st[rs->sp].co.x, &dlo->box.x);
-		lws_fx_add(&r->db.y,     &rs->st[rs->sp].co.y, &dlo->box.y);
+	/*
+	 * Where it is on the surface, and its corners, are worked out once,
+	 * and again if it moved, eg, a retained display list rendered again
+	 * after an ancestor's box was moved
+	 */
+
+	lws_fx_add(&ox, &rs->st[rs->sp].co.x, &dlo->box.x);
+	lws_fx_add(&oy, &rs->st[rs->sp].co.y, &dlo->box.y);
+
+	if (!r->init || lws_fx_comp(&ox, &r->db.x) ||
+	    lws_fx_comp(&oy, &r->db.y)) {
+		r->db.x = ox;
+		r->db.y = oy;
 		lws_fx_add(&r->right,    &r->db.x,   &dlo->box.w);
 		lws_fx_add(&r->btm,      &r->db.y,   &dlo->box.h);
 		lws_fx_add(&r->c[0].ory, &r->db.y,   &r->c[0].r);
