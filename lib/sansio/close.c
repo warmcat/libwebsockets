@@ -1272,13 +1272,23 @@ async_close:
 		lws_ss_destroy(&hh);
 	} else if (hh && hh->ss_dangling_connected &&
 	    lws_ss_event_helper(hh, LWSSSCS_DISCONNECTED) == LWSSSSRET_DESTROY_ME)
-		lws_ss_destroy(&hh);
+		/*
+		 * This close may be inside lws_ss_client_connect() for the
+		 * handle, eg, a quic connection that could not have a tls
+		 * session: that still uses the handle when it returns, so its
+		 * destruction is left to whoever asked for the connection.
+		 * The wsi no longer points at it.
+		 */
+		_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(
+					LWSSSSRET_DESTROY_ME, NULL, &hh);
 	else if (hh && hh_unannounced) {
 		/* treat it as the connection attempt failing */
 		if (lws_ss_event_helper(hh, LWSSSCS_UNREACHABLE) ==
 							LWSSSSRET_DESTROY_ME ||
 		    lws_ss_backoff(hh) == LWSSSSRET_DESTROY_ME)
-			lws_ss_destroy(&hh);
+			/* as above, it may be inside its own connect */
+			_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(
+					LWSSSSRET_DESTROY_ME, NULL, &hh);
 	}
 #endif
 
