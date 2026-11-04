@@ -770,8 +770,19 @@ lws_netdev_wifi_destroy_plat(struct lws_netdev_instance **pnd)
 	lws_netdev_instance_wifi_esp32_t *wnde32 =
 					(lws_netdev_instance_wifi_esp32_t *)*pnd;
 
-	if (wnde32)
-		lws_sul_cancel(&wnde32->sul_link_stats);
-	lws_free(*pnd);
+	if (!wnde32)
+		return;
+
+	/*
+	 * It should be down already, which unhooks the esp-idf events.  What
+	 * the generic netdev parts hold goes with it: the scan results, the
+	 * scheduled scan and its place on the context's list of netdevs.
+	 */
+
+	lws_netdev_wifi_down_plat(*pnd);
+	lws_sul_cancel(&wnde32->sul_link_stats);
+	lws_sul_cancel(&wnde32->wnd.sul_scan);
+	lws_netdev_wifi_scan_empty(&wnde32->wnd);
+	lws_netdev_instance_remove_destroy(*pnd);
 	*pnd = NULL;
 }
