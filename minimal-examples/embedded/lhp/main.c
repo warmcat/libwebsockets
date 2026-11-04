@@ -12,12 +12,14 @@
  *
  * Everything on the display is html, laid out and rendered by lhp.
  *
- * From boot, a modal overlay at the top left of the display shows the boot
- * stages (see boot-ui.c) as they are reached.  Until the network is up it can
- * only use what is built in, a font and the stage icons, from the dlo
- * filesystem.  Once the system is OPERATIONAL and the first update check has
- * told us we're on the latest firmware (or failed, or there's no OTA), the
- * overlay comes down and the application html is shown instead.
+ * From boot, a strip ui (lws-dlo-ui.h) titled "Boot" lists the boot stages
+ * (see boot-ui.c) as they are reached.  Until the network is up it can only
+ * use what is built in, a font and the stage icons, from the dlo filesystem.
+ * If no wifi credentials are stored, once a scan has found some APs, it lists
+ * those instead, titled "AP", strongest first, for the user to pick one on a
+ * touch display.  Once the system is OPERATIONAL and the first update check
+ * has told us we're on the latest firmware (or failed, or there's no OTA),
+ * the ui comes down and the application html is shown instead.
  *
  * The application is a placeholder for now: it visits each URL in the
  * board's carousel once, 10s apart, rendering it on the display via LHP; when
@@ -76,11 +78,25 @@ static int carousel, update_pc, update_pc_shown = -1;
 static lws_sorted_usec_list_t sul_app, sul_boot_timeout, sul_ui;
 static char display_ready, boot_dirty, boot_done, seen_operational,
 	    subsequent, finished;
-static uint32_t scan_sig_rendered;
+static uint32_t scan_sig_shown;
 static struct lws_plat_file_ops dlo_fops;
 static lws_display_render_state_t rs;
 static lhp_boot_t boot;
 static uint8_t flip;
+
+/*
+ * The boot overlay, or the APs to pick from, are a strip ui: we say what its
+ * title and list hold, and it draws them.  The APs are a copy of the scan
+ * results as they were when the list was last set, so a row picked is the AP
+ * that was shown there.
+ */
+
+#define AP_LIST_MAX		16
+
+static struct lws_dlo_ui *sui;
+static char sui_aps;	/* the list is of the APs, not the boot stages */
+static char aps[AP_LIST_MAX][33];
+static int ap_count;
 
 /* the generated page in the dlo filesystem that is being shown, if any */
 static char *page;
@@ -250,24 +266,110 @@ scan_sig(void)
 	return sig;
 }
 
-static void
-boot_show(void)
-{
-	char *html = malloc(4096);
-	int len;
+/*
+ * The networks in the scan results, the strongest BSS of each, strongest
+ * first as the scan is sorted.  Hidden ones, with no SSID, can't be picked.
+ */
 
-	if (!html)
+static void
+aps_update(void)
+{
+	int n;
+
+	ap_count = 0;
+	if (!wnd)
 		return;
 
-	len = lhp_boot_html(&boot, html, 4096);
-	if (len < 0) {
-		lwsl_err("%s: boot overlay too large\n", __func__);
-		free(html);
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&wnd->scan)) {
+		lws_wifi_sta_t *w = lws_container_of(d, lws_wifi_sta_t, list);
+		char ssid[33];
+
+		if (ap_count == AP_LIST_MAX)
+			break;
+
+		lws_strnncpy(ssid, w->ssid, w->ssid_len, sizeof(ssid));
+		if (!ssid[0])
+			continue;
+
+		for (n = 0; n < ap_count; n++)
+			if (!strcmp(aps[n], ssid))
+				break;
+
+		if (n == ap_count)
+			memcpy(aps[ap_count++], ssid, sizeof(ssid));
+	} lws_end_foreach_dll(d);
+}
+
+static int
+sui_row(void *opaque, int idx, lws_dlo_ui_row_t *row)
+{
+	if (!sui_aps)
+		return lhp_boot_row(&boot, idx, row);
+
+	if (idx < 0 || idx >= ap_count)
+		return 1;
+
+	lws_strncpy(row->text, aps[idx], sizeof(row->text));
+
+	return 0;
+}
+
+static void
+sui_pick(void *opaque, int idx)
+{
+	if (!sui_aps || idx < 0 || idx >= ap_count)
+		return;
+
+	/* asking for its passphrase is still to come */
+	lwsl_user("%s: picked AP %s\n", __func__, aps[idx]);
+}
+
+static void
+sui_drop(void)
+{
+	lws_dlo_ui_destroy(&sui);
+}
+
+/* say what the strip ui shows now: it draws it when the display is free */
+
+static void
+sui_show(void)
+{
+	lhp_boot_stage_t f;
+
+	if (!sui) {
+		lws_dlo_ui_info_t i;
+
+		memset(&i, 0, sizeof(i));
+		i.cx = cx;
+		i.lds = &lds;
+		i.row = sui_row;
+		i.pick = sui_pick;
+
+		sui = lws_dlo_ui_create(&i);
+		if (!sui) {
+			lwsl_err("%s: unable to create ui\n", __func__);
+			return;
+		}
+	}
+
+	scan_sig_shown = scan_sig();
+	aps_update();
+
+	sui_aps = !(boot.reached & (1u << LHP_BOOT_SETUP)) && ap_count;
+	if (sui_aps) {
+		lws_dlo_ui_set_title(sui, "AP");
+		lws_dlo_ui_set_list(sui, ap_count, -1);
 		return;
 	}
 
-	scan_sig_rendered = scan_sig();
-	page_show("boot.html", html, len);
+	/* all done is shown as the last stage being worked on */
+
+	f = lhp_boot_focus(&boot);
+	lws_dlo_ui_set_title(sui, "Boot");
+	lws_dlo_ui_set_list(sui, LHP_BOOT_COUNT,
+			    f < LHP_BOOT_COUNT ? (int)f : LHP_BOOT_COUNT - 1);
 }
 
 /* a stage was reached, or something the overlay shows changed */
@@ -467,6 +569,7 @@ ui_kick_cb(lws_sorted_usec_list_t *sul)
 	if (st == LWS_SYSTATE_AWAITING_MODAL_UPDATING ||
 	    st == LWS_SYSTATE_MODAL_UPDATING) {
 		/* the update display takes over, whatever else is going on */
+		sui_drop();
 		if (update_pc_shown != update_pc)
 			update_show();
 		return;
@@ -480,6 +583,7 @@ ui_kick_cb(lws_sorted_usec_list_t *sul)
 		lwsl_notice("%s: boot complete, starting application\n",
 			    __func__);
 		ui = UI_APP;
+		sui_drop();
 		lhp_boot_deinit(&boot);
 		lws_sul_schedule(cx, 0, &sul_app, app_next, 1);
 		return;
@@ -487,7 +591,7 @@ ui_kick_cb(lws_sorted_usec_list_t *sul)
 
 	if (boot_dirty) {
 		boot_dirty = 0;
-		boot_show();
+		sui_show();
 	}
 }
 
@@ -571,6 +675,9 @@ display_completion_cb(lws_display_state_t *lds, int a)
 		lds->display_busy = 0;
 		show_demo_phase(LWS_LHPCD_PHASE_IDLE);
 		page_drop();
+
+		/* the strip ui draws anything that changed meanwhile */
+		lws_dlo_ui_kick(sui);
 
 		if (ui != UI_APP || carousel_phase == CAROUSEL_DONE ||
 		    update_pc_shown >= 0)
@@ -700,9 +807,14 @@ smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
 	}
 
 	if ((_class & LWSSMDCL_INTERACTION) &&
-	    !lws_json_simple_strcmp(buf, len, "\"type\":", "touch") &&
-	    !lws_json_simple_strcmp(buf, len, "\"event\":", "press"))
-		touch_press(buf, len);
+	    !lws_json_simple_strcmp(buf, len, "\"type\":", "touch")) {
+		/* while the strip ui is up, touches are for it */
+		if (sui)
+			lws_dlo_ui_touch(sui, buf, len);
+		else if (!lws_json_simple_strcmp(buf, len, "\"event\":",
+						 "press"))
+			touch_press(buf, len);
+	}
 
 	if (_class & LWSSMDCL_INTERACTION)
 		/*
@@ -761,13 +873,14 @@ smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
 
 	/*
 	 * platform-private wifi event 1 is WIFI_EVENT_SCAN_DONE on esp32: the
-	 * overlay lists the APs while we have none to join
+	 * ui says how many APs it sees while we have none to join, and lists
+	 * them to pick from if none is stored
 	 */
 
 	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "priv") &&
 	    !lws_json_simple_strcmp(buf, len, "\"ev\":", "1") &&
 	    lhp_boot_focus(&boot) <= LHP_BOOT_WLAN &&
-	    scan_sig() != scan_sig_rendered)
+	    scan_sig() != scan_sig_shown)
 		boot_changed();
 
 	return 0;
@@ -869,6 +982,7 @@ teardown(uint32_t heap_before)
 	lws_display_list_destroy(cx, &rs.displaylist);
 	lws_display_render_free_ids(&rs);
 	page_drop();
+	sui_drop();
 	lhp_boot_deinit(&boot);
 
 	lws_display_state_off(&lds);
@@ -967,7 +1081,7 @@ app_main(void)
 
 	/* the boot overlay, shown when the display is ready */
 
-	if (lhp_boot_init(cx, &boot, &lds.disp->ic, wnd))
+	if (lhp_boot_init(cx, &boot, wnd))
 		goto spin;
 	lhp_boot_set(&boot, LHP_BOOT_SETUP, boot_have_creds());
 	boot_dirty = 1;

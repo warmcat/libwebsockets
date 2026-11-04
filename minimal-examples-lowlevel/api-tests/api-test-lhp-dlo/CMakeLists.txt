@@ -132,7 +132,8 @@ if (requirements)
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 
 		# the boot overlay of the lhp embedded examples, as boot-ui.c
-		# makes it: a table of a row per boot stage, its icon and what
+		# made it before it was a strip ui (lws-dlo-ui.h, see
+		# api-test-dlo-ui): a table of a row per boot stage, its icon and what
 		# we know about it.  On a 600 x 448 epd the whole table fits;
 		# on a 128 x 64 oled it's shown through a window, offset so the
 		# row being worked on is in its middle

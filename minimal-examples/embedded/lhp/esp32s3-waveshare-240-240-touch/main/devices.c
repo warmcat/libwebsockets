@@ -158,7 +158,11 @@ const lws_display_gc9a01a_t disp = {
 		.ic = {
 			.wh_px = { { 240,0 },      { 240,0 } },
 			.wh_mm = { { 32,40000000 },  { 32,40000000 } },
-			.type	= LWSSURF_565
+			.type	= LWSSURF_565,
+			/* the panel is round: its corners can't be seen */
+			.round	= 1,
+			/* it can be sent a band of lines on their own */
+			.band	= 1,
 		},
 		.name			= "Waveshare 1.28in 240x240 round LCD",
 		.latency_wake_ms	= 150,

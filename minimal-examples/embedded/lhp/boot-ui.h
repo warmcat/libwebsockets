@@ -6,17 +6,15 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * The boot overlay is html, laid out and rendered by lhp like any other page.
- * It shows the boot stages as a table at the top left of the display, a row
- * per stage with its icon, and next to it what we know about it, eg, the AP
- * we are looking for or the addresses we got.  The stages reached are at full
- * opacity and the others dimmed, with the row of the stage being worked on
- * highlighted.  When the display is too short for the whole table, it's shown
- * through a window as tall as the display, offset so the row being worked on
- * is in the middle: as that moves on, the table moves with it.
+ * The boot overlay is the list of a strip ui (lws-dlo-ui.h) titled "Boot": a
+ * row per boot stage, with its icon and what we know about it, eg, the AP we
+ * are looking for or the addresses we got.  The stages reached are shown
+ * normally and the others dimmed, with the row of the stage being worked on
+ * highlighted and kept in the middle of the list: as that moves on, the list
+ * scrolls with it.
  *
  * Nothing here is platform-specific: the caller tells us which stages were
- * reached and what it knows about them, and we make the html.
+ * reached and what it knows about them, and we say what each row shows.
  */
 
 #if !defined(__LHP_BOOT_UI_H__)
@@ -52,7 +50,6 @@ typedef enum {
 
 typedef struct lhp_boot {
 	struct lws_context		*cx;
-	const lws_surface_info_t	*ic;	/* the display */
 	lws_netdev_instance_wifi_t	*wnd;	/* NULL, or wifi, for the APs */
 
 	char				ap[33];	 /* the first stored AP's SSID */
@@ -66,14 +63,14 @@ typedef struct lhp_boot {
 } lhp_boot_t;
 
 /*
- * Prepare b for the display described by ic, and register the overlay's css
- * and icons in the dlo filesystem, where the overlay html refers to them
+ * Prepare b, and register the stages' icons in the dlo filesystem, where the
+ * rows refer to them
  */
 int
 lhp_boot_init(struct lws_context *cx, lhp_boot_t *b,
-	      const lws_surface_info_t *ic, lws_netdev_instance_wifi_t *wnd);
+	      lws_netdev_instance_wifi_t *wnd);
 
-/* the overlay is finished with: unregister its css and icons */
+/* the overlay is finished with: unregister its icons */
 void
 lhp_boot_deinit(lhp_boot_t *b);
 
@@ -92,10 +89,10 @@ lhp_boot_stage_t
 lhp_boot_focus(const lhp_boot_t *b);
 
 /*
- * Write the overlay html for the current state into buf, returns its length,
- * or -1 if it didn't fit
+ * Fill in the strip ui row for stage idx, as it is now.  Returns nonzero if
+ * there is no such stage.
  */
 int
-lhp_boot_html(const lhp_boot_t *b, char *buf, size_t len);
+lhp_boot_row(const lhp_boot_t *b, int idx, lws_dlo_ui_row_t *row);
 
 #endif

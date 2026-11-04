@@ -12,8 +12,9 @@ Everything on the display is html, laid out and rendered by lhp.
 
 ## Boot overlay
 
-From boot, a modal overlay at the top left of the display shows how far
-booting has got, as a vertical list of icons for the stages
+From boot, a strip ui (`lws-dlo-ui.h`, see READMEs/README.display-list.md)
+titled "Boot" shows how far booting has got, as a list of icons for the
+stages
 
 |Stage|Reached when|
 |---|---|
@@ -26,24 +27,30 @@ booting has got, as a vertical list of icons for the stages
 |ota|the first update check says we are on the latest firmware|
 |auth|the system passed its AUTH states|
 
-Each stage is a row of a table, its icon and next to it what is known
+Each stage is a row of the list, its icon and next to it what is known
 about it: the AP stored in the settings, or "Not configured" if there is
 none, the AP being looked for, or joined, the IPv4 and IPv6 addresses,
 whether there is internet, the date, the OTA variant and what the update
 check said.  Stages reached are shown as they are, the others dimmed.  The
-row of the stage being worked on, the first not reached, is highlighted.
+row of the stage being worked on, the first not reached, is highlighted, and
+kept in the middle of the list: when the display is too short for the whole
+list, eg, the 64px high heltec OLED, it scrolls as the boot moves on.
 
-When the display is too short for the whole table, eg, the 64px high
-heltec OLED, it's shown through a window as tall as the display, made with css
-`overflow: hidden`, with the table offset by a `position: relative` top so
-the row being worked on is in the middle.  As the boot moves on to the next
-stage, the overlay is redrawn with the table moved up a row.
+If no wifi credentials are stored, once a scan has found some APs, the ui
+is titled "AP" instead and lists them, strongest first, one row per network.
+On a touch display, the list can be dragged to scroll it, and an AP picked by
+pressing it.  Asking for the passphrase of the AP picked is still to come:
+for now it is only logged.
+
+On the round LCD of `esp32s3-waveshare-240-240-touch`, whose display says
+it's `.round`, everything is kept inside the circle that can be seen; it
+also says it's `.band`, so only the strips that changed are sent to it.
 
 Until the network is up, the overlay only uses what is built in: a font,
 and the stage icons, which `boot-icons.cmake` makes into C arrays at build
 time from the svg in `contrib/assets/boot-status`, served from the dlo
-filesystem.  The overlay is made by `boot-ui.c`, which has nothing
-platform-specific in it.
+filesystem.  What the rows say is worked out by `boot-ui.c`, which has
+nothing platform-specific in it.
 
 On a slow display, eg, an EPD taking 20s to update, the overlay is only
 redrawn once the previous update has finished, showing the state as it is
@@ -83,7 +90,8 @@ a touch panel.
 
 ## Touch
 
-On boards with a touch panel (`esp32s3-waveshare-240-240-touch`), pressing
+On boards with a touch panel (`esp32s3-waveshare-240-240-touch`), while the
+boot overlay is up, touches are for it, see above.  After that, pressing
 a link on the displayed page follows it, and stops the carousel: the user is
 driving then, so it no longer ends by itself.
 
