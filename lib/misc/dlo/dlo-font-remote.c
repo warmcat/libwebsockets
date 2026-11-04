@@ -49,6 +49,13 @@
 #define LWS_FONTS_FAMILY_MAX_SIZES	8
 /* a page bigger than this is not something a small device should fetch */
 #define LWS_FONTS_PAGE_MAX_LEN		(128 * 1024)
+/*
+ * A page is collected into, and kept in, pieces of this size: it is the
+ * biggest block of heap a page needs, besides its core.  Smaller is easier on
+ * a fragmented heap, at the cost of a little more overhead per piece, and
+ * more of the glyphs spanning two pieces, which are copied to be decoded
+ */
+#define LWS_FONTS_PAGE_PIECE		1024
 /* after the server failed us, how long to use the local faces instead */
 #define LWS_FONTS_REMOTE_HOLDOFF_S	30
 /*
@@ -120,6 +127,8 @@ LWS_SS_USER_TYPEDEF
 	lws_fonts_remote_t		*fr;
 	lws_mcufont_page_t		*p;	/* NULL: this is the manifest */
 	struct lws_buflist		*bl;	/* the page as it arrives */
+	uint8_t				*piece;	/* the piece being filled */
+	size_t				piece_len;
 	size_t				pos;
 	struct lejp_ctx			jctx;
 	lws_struct_args_t		a;
@@ -132,6 +141,14 @@ LWS_SS_USER_TYPEDEF
 
 static void
 lws_fonts_remote_kick(lws_fonts_remote_t *fr);
+
+/* a page is resident while it has its core */
+
+static int
+lws_mcufont_page_resident(const lws_mcufont_page_t *p)
+{
+	return !!p->core.prefix;
+}
 
 static void
 lws_fonts_remote_wake(lws_fonts_remote_t *fr)
@@ -262,7 +279,7 @@ lws_fonts_remote_kick(lws_fonts_remote_t *fr)
 				     lws_mcufont_page_t, queue);
 
 		lws_dll2_remove(&p->queue);
-		if (p->blob || p->bad)
+		if (lws_mcufont_page_resident(p) || p->bad)
 			continue;
 
 		if (lws_fonts_remote_url(fr, p, url, sizeof(url))) {
@@ -290,6 +307,18 @@ lws_fonts_remote_kick(lws_fonts_remote_t *fr)
 	lws_fonts_remote_wake(fr);
 }
 
+/* what a resident page holds, and the pieces it holds it in, go */
+
+static void
+lws_mcufont_page_free(lws_mcufont_page_t *p)
+{
+	lws_mcuf_core_glyphs_free(&p->core, 0);
+	lws_mcuf_core_free(&p->core);
+	lws_buflist_destroy_all_segments(&p->bl);
+	p->trimmed = 0;
+	p->rc.resident = 0;
+}
+
 static size_t
 lws_mcufont_page_evict_cb(lws_reclaimable_t *rc)
 {
@@ -299,11 +328,39 @@ lws_mcufont_page_evict_cb(lws_reclaimable_t *rc)
 	lwsl_info("%s: %s %04x: %u\n", __func__, p->r->path,
 		  (unsigned int)p->page, (unsigned int)freed);
 	p->r->fr->evictions++;
-	lws_free_set_NULL(p->blob);
-	p->len = 0;
-	rc->resident = 0;
+	lws_mcufont_page_free(p);
 
 	return freed;
+}
+
+/*
+ * The core reads the page from the pieces it is in.  The prefix is gone from
+ * them once the core has its own copy, and nothing should want it again
+ */
+
+static int
+lws_mcufont_page_read(lws_mcuf_core_t *c, uint32_t ofs, uint8_t *buf,
+		      uint32_t len)
+{
+	lws_mcufont_page_t *p = lws_container_of(c, lws_mcufont_page_t, core);
+
+	if (ofs < p->trimmed)
+		return 1;
+
+	return lws_buflist_linear_copy(&p->bl, ofs - p->trimmed, buf, len) !=
+								(int)len;
+}
+
+static const uint8_t *
+lws_mcufont_page_at(lws_mcuf_core_t *c, uint32_t ofs, size_t *avail)
+{
+	lws_mcufont_page_t *p = lws_container_of(c, lws_mcufont_page_t, core);
+
+	*avail = 0;
+	if (ofs < p->trimmed)
+		return NULL;
+
+	return lws_buflist_at(&p->bl, ofs - p->trimmed, avail);
 }
 
 /*
@@ -349,6 +406,9 @@ lws_mcufont_remote_page(lws_mcufont_remote_t *r, uint16_t page, int create)
 	p->r = r;
 	p->page = page;
 	p->rc.evict = lws_mcufont_page_evict_cb;
+	p->core.read = lws_mcufont_page_read;
+	p->core.at = lws_mcufont_page_at;
+	p->core.rc_glyphs = &p->rc;
 	lws_reclaimable_add(&p->rc);
 	lws_dll2_add_tail(&p->list, &r->pages);
 
@@ -359,7 +419,7 @@ static int
 lws_mcufont_page_available(const lws_mcufont_remote_t *r,
 			   const lws_mcufont_page_t *p)
 {
-	if (p && p->blob)
+	if (p && lws_mcufont_page_resident(p))
 		return 1;
 
 	return !lws_fonts_remote_down(r->fr) &&
@@ -367,11 +427,11 @@ lws_mcufont_page_available(const lws_mcufont_remote_t *r,
 }
 
 /*
- * A page's whole payload has arrived: if it is a page of the face the
- * manifest promised, and safe for the decoder, it becomes resident.  The
- * first page to arrive sets the face's header, that the others must match:
- * only the width and the baseline's x may differ, since each page is only
- * as wide as its own glyphs need
+ * A page's whole payload has arrived, in the pieces in p->bl: if it is a page
+ * of the face the manifest promised, and safe for the decoder, it becomes
+ * resident.  The first page to arrive sets the face's header, that the others
+ * must match: only the width and the baseline's x may differ, since each page
+ * is only as wide as its own glyphs need
  */
 
 static const uint8_t lws_mcufont_face_hdr[] = {
@@ -382,38 +442,62 @@ static const uint8_t lws_mcufont_face_hdr[] = {
 };
 
 static int
-lws_mcufont_page_arrived(lws_mcufont_page_t *p, uint8_t *blob, size_t len)
+lws_mcufont_page_arrived(lws_mcufont_page_t *p, size_t len)
 {
 	lws_mcufont_remote_t *r = p->r;
 	lws_display_font_t *f = r->f;
-	const char *name;
-	size_t n;
+	const uint8_t *pf;
+	size_t n, left;
 
-	if (lws_font_blob_check(blob, len, &name) ||
-	    strcmp(name, f->choice.family_name) ||
-	    lws_ser_ru16be(blob + MCUFO16_LINE_HEIGHT) !=
+	p->trimmed = 0;
+	if (len > LWS_FONTS_PAGE_MAX_LEN ||
+	    lws_mcuf_core_load(&p->core, (uint32_t)len))
+		goto bad;
+
+	pf = p->core.prefix;
+	if (strcmp((const char *)pf + lws_ser_ru32be(pf + MCUFO_FOFS_FULLNAME),
+		   f->choice.family_name) ||
+	    lws_ser_ru16be(pf + MCUFO16_LINE_HEIGHT) !=
 						f->choice.fixed_height)
 		goto bad;
 
 	if (r->hdr_valid) {
 		for (n = 0; n < LWS_ARRAY_SIZE(lws_mcufont_face_hdr); n++)
-			if (blob[lws_mcufont_face_hdr[n]] !=
+			if (pf[lws_mcufont_face_hdr[n]] !=
 					r->hdr[lws_mcufont_face_hdr[n]])
 				goto bad;
 	} else {
-		memcpy(r->hdr, blob, sizeof(r->hdr));
+		memcpy(r->hdr, pf, sizeof(r->hdr));
 		r->hdr_valid = 1;
 		f->data = r->hdr;
 		f->data_len = sizeof(r->hdr);
 	}
 
-	p->blob = blob;
-	p->len = len;
+	/* the core has its own copy of the prefix: let the pieces of it go */
+
+	left = p->core.prefix_len;
+	while (left) {
+		size_t s = lws_buflist_next_segment_len(&p->bl, NULL);
+
+		if (!s)
+			break;
+		if (s > left)
+			s = left;
+		lws_buflist_use_segment(&p->bl, s);
+		left -= s;
+	}
+	p->trimmed = p->core.prefix_len;
+
 	p->nomem = 0;
 	r->gen++;
 	r->fr->fetches++;
 
-	p->rc.resident = len;
+	/* the pieces, each with its buflist header, and the core */
+	n = lws_buflist_total_len(&p->bl);
+	p->core.rc_glyphs_base = n + p->core.core_bytes +
+			(((n + LWS_FONTS_PAGE_PIECE - 1) / LWS_FONTS_PAGE_PIECE) *
+			 (sizeof(struct lws_buflist) + LWS_PRE));
+	p->rc.resident = p->core.rc_glyphs_base;
 	p->rc.pins = r->pins;
 	lws_reclaimable_touch(&p->rc);
 
@@ -717,6 +801,22 @@ lws_fonts_remote_heap_freed(struct lws_context *cx)
  * they are only applied when the stream is destroyed
  */
 
+/* the piece being filled becomes one of the page's pieces */
+
+static int
+fontss_piece_done(fontss_t *m)
+{
+	if (!m->piece_len)
+		return 0;
+
+	if (lws_buflist_append_segment(&m->bl, m->piece, m->piece_len) < 0)
+		return 1;
+
+	m->piece_len = 0;
+
+	return 0;
+}
+
 static lws_ss_state_return_t
 fontss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
@@ -774,11 +874,9 @@ fontss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	}
 
 	/*
-	 * A page, collected as it comes in pieces the size they arrive in, and
-	 * made into one when it has all arrived.  Growing one buffer as it
-	 * came needed a bigger block each time, while the old one was still
-	 * held, which a fragmented heap often doesn't have when it does have
-	 * a block the size of the page
+	 * A page, collected into pieces of LWS_FONTS_PAGE_PIECE whatever size
+	 * it arrives in, and kept in them: it never needs a block of heap the
+	 * size of the page
 	 */
 
 	if (len > LWS_FONTS_PAGE_MAX_LEN - m->pos) {
@@ -789,17 +887,38 @@ fontss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		return LWSSSSRET_DESTROY_ME;
 	}
 
-	if (len && lws_buflist_append_segment(&m->bl, buf, len) < 0) {
-		lws_fonts_page_nomem(m->p);
-		m->done = 1;
-		return LWSSSSRET_DESTROY_ME;
-	}
 	m->pos += len;
+	while (len) {
+		size_t s = LWS_FONTS_PAGE_PIECE - m->piece_len;
+
+		if (!m->piece) {
+			m->piece = lws_malloc(LWS_FONTS_PAGE_PIECE, __func__);
+			if (!m->piece)
+				goto nomem;
+		}
+
+		if (s > len)
+			s = len;
+		memcpy(m->piece + m->piece_len, buf, s);
+		m->piece_len += s;
+		buf += s;
+		len -= s;
+
+		if (m->piece_len == LWS_FONTS_PAGE_PIECE &&
+		    fontss_piece_done(m))
+			goto nomem;
+	}
 
 	if (flags & LWSSS_FLAG_EOM)
 		m->complete = 1;
 
 	return LWSSSSRET_OK;
+
+nomem:
+	lws_fonts_page_nomem(m->p);
+	m->done = 1;
+
+	return LWSSSSRET_DESTROY_ME;
 }
 
 /* the stream is over: use what it brought, or note why it didn't */
@@ -809,7 +928,6 @@ fontss_finished(fontss_t *m)
 {
 	lws_fonts_remote_t *fr = m->fr;
 	lws_mcufont_page_t *p = m->p;
-	uint8_t *nb = NULL;
 
 	if (!p) {
 		fr->ss_manifest = NULL;
@@ -867,20 +985,19 @@ fontss_finished(fontss_t *m)
 		return;
 	}
 
-	/* the pieces it came in, made into the page */
+	/* the pieces it came in become the page */
 
-	if (m->pos) {
-		nb = lws_malloc(m->pos, __func__);
-		if (!nb) {
-			lws_fonts_page_nomem(p);
-			return;
-		}
-		lws_buflist_linear_copy(&m->bl, 0, nb, m->pos);
-		lws_buflist_destroy_all_segments(&m->bl);
+	if (fontss_piece_done(m)) {
+		lws_fonts_page_nomem(p);
+		return;
 	}
 
-	if (lws_mcufont_page_arrived(p, nb, m->pos)) {
-		lws_free(nb);
+	lws_buflist_destroy_all_segments(&p->bl);
+	p->bl = m->bl;
+	m->bl = NULL;
+
+	if (lws_mcufont_page_arrived(p, m->pos)) {
+		lws_mcufont_page_free(p);
 		p->bad = 1;
 	}
 }
@@ -924,6 +1041,7 @@ fontss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 		lwsac_free(&m->a.ac);
 		lws_buflist_destroy_all_segments(&m->bl);
+		lws_free_set_NULL(m->piece);
 		break;
 
 	default:
@@ -1130,7 +1248,7 @@ lws_mcufont_family_pick(lws_mcufont_family_t *fam, unsigned int want,
 
 		r = mcuf_remote(f);
 		p = lws_mcufont_remote_page(r, r->ranges[0], 0);
-		if (p && p->blob) {
+		if (p && lws_mcufont_page_resident(p)) {
 			d = lws_mcufont_lh_diff(f->choice.fixed_height, want);
 			if (d < bd) {
 				bd = d;
@@ -1233,7 +1351,7 @@ lws_mcufont_page_want(lws_mcufont_remote_t *r, uint16_t page)
 	if (!p)
 		return LWS_FONT_UNAVAILABLE;
 
-	if (p->blob) {
+	if (lws_mcufont_page_resident(p)) {
 		lws_reclaimable_touch(&p->rc);
 		return LWS_FONT_RESIDENT;
 	}
@@ -1304,23 +1422,25 @@ lws_mcufont_remote_resident(lws_mcufont_remote_t *r, const char *utf8,
 
 /*
  * The blob with the glyph for unicode in it, if it is resident: the page the
- * codepoint is on, or the core page if the face doesn't have that page
+ * codepoint is on, or the core page if the face doesn't have that page.  It
+ * is the page's prefix, and the rest of it is through *core
  */
 
 const uint8_t *
 lws_mcufont_remote_blob(lws_mcufont_remote_t *r, uint32_t unicode,
-			size_t *len)
+			size_t *len, lws_mcuf_core_t **core)
 {
 	lws_mcufont_page_t *p = lws_mcufont_remote_page(r,
 				lws_mcufont_remote_page_of(r, unicode), 0);
 
-	if (!p || !p->blob)
+	if (!p || !lws_mcufont_page_resident(p))
 		return NULL;
 
 	lws_reclaimable_touch(&p->rc);
-	*len = p->len;
+	*len = p->core.blob_len;
+	*core = &p->core;
 
-	return p->blob;
+	return p->core.prefix;
 }
 
 /*
@@ -1340,7 +1460,7 @@ lws_mcufont_remote_pin(lws_mcufont_remote_t *r, int pin)
 			      lws_dll2_get_head(&r->pages)) {
 		lws_mcufont_page_t *p = lws_container_of(d, lws_mcufont_page_t,
 							 list);
-		if (p->blob)
+		if (lws_mcufont_page_resident(p))
 			p->rc.pins = r->pins;
 	} lws_end_foreach_dll(d);
 }
@@ -1358,7 +1478,7 @@ lws_mcufont_remote_destroy(lws_display_font_t *f)
 		lws_reclaimable_remove(&p->rc);
 		lws_dll2_remove(&p->queue);
 		lws_dll2_remove(&p->list);
-		lws_free(p->blob);
+		lws_mcufont_page_free(p);
 		lws_free(p);
 	}
 

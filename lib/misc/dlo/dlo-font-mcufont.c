@@ -422,6 +422,7 @@ lws_display_font_mcufont_file_core(lws_display_font_t *f)
 		return 1;
 
 	ff->core.read = mcuf_file_read;
+	ff->core.rc_glyphs = &ff->rc_glyphs;
 	if (lws_mcuf_core_load(&ff->core,
 			       (uint32_t)lws_vfs_get_length(ff->fd))) {
 		mcuf_file_core_free(ff);
@@ -488,10 +489,8 @@ mcuf_src(lws_dlo_text_t *text, uint32_t unicode, size_t *len,
 #if defined(LWS_DLO_REMOTE_FONTS)
 	lws_mcufont_remote_t *r = mcuf_remote(f);
 
-	if (r) {
-		*core = NULL;
-		return lws_mcufont_remote_blob(r, unicode, len);
-	}
+	if (r)
+		return lws_mcufont_remote_blob(r, unicode, len, core);
 #endif
 	(void)unicode;
 
@@ -529,10 +528,11 @@ mcuf_glyph_ofs(const lws_mcuf_core_t *core, const uint8_t *bf,
 
 /*
  * The compressed string of the glyph at blob offset fofs, len bytes: from
- * the blob directly if it is in one piece, else from the core's cache, read
- * into it on a miss.  With pin set, for a file-backed font, the string
- * stays resident until lws_display_font_mcufont_release_glyphs() lets it go,
- * and *ppin says what to release.
+ * the blob directly if it is in one piece, or from the piece of it in
+ * memory that has the whole string, else from the core's cache, read into
+ * it on a miss.  With pin set, for a file-backed font, the string stays
+ * resident until lws_display_font_mcufont_release_glyphs() lets it go, and
+ * *ppin says what to release.
  */
 
 static const uint8_t *
@@ -548,6 +548,18 @@ mcuf_glyph(lws_dlo_text_t *text, lws_mcuf_core_t *core, const uint8_t *bf,
 	if (!core)
 		return bf + fofs;
 
+	if (!len || len > 0xffff || fofs > core->blob_len ||
+	    len > core->blob_len - fofs)
+		return NULL;
+
+	if (core->at) {
+		size_t avail;
+		const uint8_t *p = core->at(core, fofs, &avail);
+
+		if (p && avail >= len)
+			return p;
+	}
+
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&core->glyphs)) {
 		ge = lws_container_of(d, mcuf_gent_t, list);
@@ -555,10 +567,6 @@ mcuf_glyph(lws_dlo_text_t *text, lws_mcuf_core_t *core, const uint8_t *bf,
 		if (ge->fofs == fofs)
 			goto hit;
 	} lws_end_foreach_dll(d);
-
-	if (!len || len > 0xffff || fofs > core->blob_len ||
-	    len > core->blob_len - fofs)
-		return NULL;
 
 	ge = lws_malloc(sizeof(*ge) + len, __func__);
 	if (!ge)
@@ -573,15 +581,16 @@ mcuf_glyph(lws_dlo_text_t *text, lws_mcuf_core_t *core, const uint8_t *bf,
 	}
 	lws_dll2_add_tail(&ge->list, &core->glyphs);
 	core->glyph_bytes += sizeof(*ge) + len;
-	if (ff)
-		ff->rc_glyphs.resident = core->glyph_bytes;
+	if (core->rc_glyphs)
+		core->rc_glyphs->resident = core->rc_glyphs_base +
+					    core->glyph_bytes;
 
 hit:
 	/* most recently used */
 	lws_dll2_remove(&ge->list);
 	lws_dll2_add_tail(&ge->list, &core->glyphs);
-	if (ff)
-		lws_reclaimable_touch(&ff->rc_glyphs);
+	if (core->rc_glyphs)
+		lws_reclaimable_touch(core->rc_glyphs);
 
 	if (pin && ff) {
 		ge->pins++;

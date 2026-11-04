@@ -328,7 +328,12 @@ can't be had, eg, there's no memory for it, the closest size of that face
 which is resident is used before a built-in face is.
 
 This trades flash for heap and network: each page costs its size in heap
-while in use, and a fetch whenever it was evicted.
+while in use, and a fetch whenever it was evicted.  A page never needs a
+block of heap its own size: it is collected into, and kept in, pieces of
+`LWS_FONTS_PAGE_PIECE` (1KB), with a small core in one piece beside them,
+its header, dictionary and glyph offsets (a KB or two).  The glyphs are
+decoded from the pieces where they are; the few that span two pieces are
+copied out to be decoded.
 
 To see that the faces (and the other reclaimable tenants, like image
 payloads) renew themselves properly during the layout without depending on

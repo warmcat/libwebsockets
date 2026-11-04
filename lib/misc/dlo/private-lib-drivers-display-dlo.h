@@ -80,7 +80,10 @@ typedef struct mcuf_gent {
  * dictionary and its offsets, so the decoder's absolute offsets into the
  * blob stay valid), plus copies of the char range tables and each range's
  * glyph offset table.  The glyph strings are read from the rest of the blob
- * when they are needed, through read, and kept in the glyph cache.
+ * when they are needed, through read, and kept in the glyph cache.  If the
+ * rest of the blob is in memory, but in pieces, at gives a glyph string in
+ * place when it is all in one piece: only those that span two pieces are
+ * copied into the cache.
  */
 typedef struct lws_mcuf_core lws_mcuf_core_t;
 
@@ -88,8 +91,20 @@ typedef struct lws_mcuf_core lws_mcuf_core_t;
 typedef int (*lws_mcuf_core_read_t)(lws_mcuf_core_t *c, uint32_t ofs,
 				    uint8_t *buf, uint32_t len);
 
+/* the byte of the blob at ofs in memory, and how many follow it there */
+typedef const uint8_t *(*lws_mcuf_core_at_t)(lws_mcuf_core_t *c, uint32_t ofs,
+					     size_t *avail);
+
 struct lws_mcuf_core {
 	lws_mcuf_core_read_t	read;
+	lws_mcuf_core_at_t	at;		/* NULL: all glyphs are read */
+
+	/*
+	 * the heap occupant that the glyph cache is counted in, as
+	 * rc_glyphs_base and the glyph cache's bytes
+	 */
+	lws_reclaimable_t	*rc_glyphs;
+	size_t			rc_glyphs_base;
 
 	uint8_t			*prefix;
 	uint8_t			*ranges;	/* 16 * nranges */
@@ -130,15 +145,22 @@ typedef struct lws_mcufont_file {
  * page is a whole mcufont, sharing the face's height, baseline, line height
  * and kerning gap so text set from several pages lines up and kerns as one
  * face, and is a reclaimable heap occupant of its own.  A page that can be
- * evicted is fetched again when next needed.
+ * evicted is fetched again when next needed.  A page is never in one piece:
+ * it stays in the pieces it was collected in, with a core of its own, so it
+ * doesn't need a block of the heap its own size.
  */
 typedef struct lws_mcufont_page {
-	lws_reclaimable_t	rc;		/* the blob */
+	lws_reclaimable_t	rc;		/* bl, core and its glyph cache */
 	lws_dll2_t		list;		/* r->pages */
 	lws_dll2_t		queue;		/* fr->queue, waiting to fetch */
 	struct lws_mcufont_remote *r;
-	uint8_t			*blob;
-	size_t			len;
+	/*
+	 * The page's blob, held in the pieces it was collected in, after the
+	 * prefix the core has its own copy of: trimmed bytes from its start
+	 */
+	struct lws_buflist	*bl;
+	uint32_t		trimmed;
+	lws_mcuf_core_t		core;		/* .prefix set while resident */
 	lws_usec_t		holdoff_until;	/* refused or no memory: until */
 	uint16_t		page;
 	uint8_t			bad;		/* the server's copy is unusable */
@@ -273,7 +295,7 @@ lws_mcufont_remote_resident(lws_mcufont_remote_t *r, const char *utf8,
 
 const uint8_t *
 lws_mcufont_remote_blob(lws_mcufont_remote_t *r, uint32_t unicode,
-			size_t *len);
+			size_t *len, lws_mcuf_core_t **core);
 
 void
 lws_mcufont_remote_pin(lws_mcufont_remote_t *r, int pin);
