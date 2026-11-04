@@ -40,6 +40,7 @@
  */
 
 #include "main.h"
+#include <esp_wifi_types.h>
 #include "boot-ui.h"
 
 struct lws_context *cx;
@@ -96,7 +97,9 @@ static uint8_t flip;
 static struct lws_dlo_ui *sui;
 static char sui_aps;	/* the list is of the APs, not the boot stages */
 static char aps[AP_LIST_MAX][33];
+static char aps_open[AP_LIST_MAX];	/* needs no passphrase */
 static int ap_count;
+static char sui_ssid[33];	/* the AP picked, whose passphrase is typed */
 
 /* the generated page in the dlo filesystem that is being shown, if any */
 static char *page;
@@ -296,8 +299,10 @@ aps_update(void)
 			if (!strcmp(aps[n], ssid))
 				break;
 
-		if (n == ap_count)
+		if (n == ap_count) {
+			aps_open[ap_count] = w->authmode == WIFI_AUTH_OPEN;
 			memcpy(aps[ap_count++], ssid, sizeof(ssid));
+		}
 	} lws_end_foreach_dll(d);
 }
 
@@ -315,14 +320,66 @@ sui_row(void *opaque, int idx, lws_dlo_ui_row_t *row)
 	return 0;
 }
 
+static int
+boot_have_creds(void);
+static void
+boot_changed(void);
+
+/*
+ * Store the credentials for the AP that was picked.  The wifi netdev keeps
+ * scanning while it has none, and joins it when it next sees it
+ */
+
+static void
+sui_store(const char *passphrase)
+{
+	if (lws_netdev_credentials_add(lws_netdevs_from_ctx(cx), sui_ssid,
+				       passphrase)) {
+		lwsl_err("%s: unable to store credentials\n", __func__);
+		return;
+	}
+
+	lwsl_user("%s: stored credentials for %s\n", __func__, sui_ssid);
+
+	/* the boot overlay goes on to show it being joined */
+	lhp_boot_set(&boot, LHP_BOOT_SETUP, boot_have_creds());
+	boot_changed();
+}
+
 static void
 sui_pick(void *opaque, int idx)
 {
 	if (!sui_aps || idx < 0 || idx >= ap_count)
 		return;
 
-	/* asking for its passphrase is still to come */
-	lwsl_user("%s: picked AP %s\n", __func__, aps[idx]);
+	lws_strncpy(sui_ssid, aps[idx], sizeof(sui_ssid));
+
+	if (aps_open[idx]) {
+		sui_store("");
+		return;
+	}
+
+	/* WPA passphrases are up to 63 characters */
+	if (lws_dlo_ui_edit(sui, "Passphrase", 63, LWS_DLO_UI_EDIT_MASKED))
+		lwsl_err("%s: unable to edit passphrase\n", __func__);
+}
+
+/* the passphrase was typed, or text is NULL if it was abandoned */
+
+static int
+sui_done(void *opaque, const char *text)
+{
+	if (!text)
+		/* back to the list of APs */
+		return 0;
+
+	if (strlen(text) < 8)
+		/* WPA passphrases are at least 8 characters: keep typing */
+		return 1;
+
+	sui_store(text);
+
+	return 0;
 }
 
 static void
@@ -346,6 +403,9 @@ sui_show(void)
 		i.lds = &lds;
 		i.row = sui_row;
 		i.pick = sui_pick;
+		i.done = sui_done;
+		/* the title strip in the example's colours */
+		i.css = "#t { background-color: #1a5c3a } #tt { color: #ffe680 }";
 
 		sui = lws_dlo_ui_create(&i);
 		if (!sui) {
@@ -353,6 +413,9 @@ sui_show(void)
 			return;
 		}
 	}
+
+	/* showing something new wakes the display */
+	lws_display_state_active(&lds);
 
 	scan_sig_shown = scan_sig();
 	aps_update();
@@ -668,6 +731,8 @@ display_completion_cb(lws_display_state_t *lds, int a)
 
 	case 1: /* display initialization finished */
 		display_ready = 1;
+		/* the panel is ready: bring it up, rather than wait for a touch */
+		lws_display_state_active(lds);
 		break;
 
 	case 2: /* display update finished */

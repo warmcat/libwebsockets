@@ -39,8 +39,16 @@ list, eg, the 64px high heltec OLED, it scrolls as the boot moves on.
 If no wifi credentials are stored, once a scan has found some APs, the ui
 is titled "AP" instead and lists them, strongest first, one row per network.
 On a touch display, the list can be dragged to scroll it, and an AP picked by
-pressing it.  Asking for the passphrase of the AP picked is still to come:
-for now it is only logged.
+pressing it.  If the AP needs one, the ui then shows its edit page, titled
+"Passphrase", with its keyboard, to type it in: dragging the keyboard moves
+it around to reach the keys, and pressing the title goes back to the APs.
+When Done is pressed with at least the 8 characters WPA needs, the
+credentials are stored with `lws_netdev_credentials_add()`, the wifi netdev,
+which keeps scanning while it has none, joins the AP when it next sees it,
+and the ui is titled "Boot" again.
+
+The ui's title strip is given the example's own colours, by the css it
+passes the ui (`lws_dlo_ui_info_t .css`) to follow its default theme.
 
 On the round LCD of `esp32s3-waveshare-240-240-touch`, whose display says
 it's `.round`, everything is kept inside the circle that can be seen; it
@@ -138,9 +146,13 @@ chosen from the start.
 
 ## Setting up wifi
 
-Edit ./main/devices.c in your platform-specific subdir, enable this section
- and set your wifi SSID and passphrase in the `xxx` strings.  This will store
-the information on flash on the device.
+On boards with a touch panel, pick the AP and type its passphrase on the
+device, see "Boot overlay" above.
+
+Other boards can't do that yet.  Edit ./main/devices.c in your
+platform-specific subdir, enable this section and set your wifi SSID and
+passphrase in the `xxx` strings.  This will store the information on flash
+on the device.
 
 Boot once with that and then remove your information and disable the code
 section again and rebuild.
@@ -170,7 +182,6 @@ section again and rebuild.
 #endif
 ```
 
-Eventually there will be a better way to set this up.
 
 ## Building
 
