@@ -298,6 +298,26 @@ init_plat_devices(struct lws_context *cx)
 	return 0;
 }
 
+/*
+ * Undoes init_plat_devices(), in reverse, while the context still exists:
+ * the context doesn't own these and can't free them itself
+ */
+
+void
+deinit_plat_devices(struct lws_context *cx)
+{
+	lws_button_controller_destroy(bcs);
+	bcs = NULL;
+
+	lgc.led_ops.destroy(lls);
+	lls = NULL;
+
+	wifi_ops.destroy((struct lws_netdev_instance **)&wnd);
+
+	lws_netdevs_from_ctx(cx)->si = NULL;
+	lws_settings_deinit(&si);
+}
+
 void
 show_demo_phase(int phase)
 {

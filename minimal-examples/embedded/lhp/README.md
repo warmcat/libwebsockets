@@ -58,15 +58,22 @@ takes over the display instead, whatever is on it.
 
 The application is a placeholder for now: it visits each of a short list
 of pages using h2 and renders them on the device + display combination,
-10s apart.  When the last one is on the display it logs `Completed: PASS`,
-which is what Sai's `sai-expect` looks for when the demo runs as a CI test,
-and leaves it there.
+10s apart.  When the last one is on the display, it leaves it there and
+ends.
 
 An EPD keeps showing its image with no power, so whatever is left on it is
 what it shows in storage: it should be left white.  On boards whose display
 says it's `bistable` in its `lws_display_t`, as the EPD drivers do, the last
-page is shown for 5s, then a white page, and `Completed: PASS` is logged
-once that is on the display.
+page is shown for 5s, then a white page, and it ends once that is on the
+display.
+
+Ending tears everything down, the devices in `deinit_plat_devices()`, then
+the lws context, and logs the free heap from before the context was created
+and after it was destroyed, and the low water mark of the free heap.  If the
+heap came back, to within `HEAP_RETURN_MARGIN` for what the platform keeps
+once it has used it, it logs `Completed: PASS`, which is what Sai's
+`sai-expect` looks for when the demo runs as a CI test; otherwise
+`Completed: FAIL` with how much is missing, which means something leaked.
 
 ESP32 WROVER KIT, and ESP32S2 Kaluga boards and displays are
 supported, along with Waveshare ESP32 dev board and a variety of
@@ -76,7 +83,8 @@ a touch panel.
 ## Touch
 
 On boards with a touch panel (`esp32s3-waveshare-240-240-touch`), pressing
-a link on the displayed page follows it, and stops the carousel.
+a link on the displayed page follows it, and stops the carousel: the user is
+driving then, so it no longer ends by itself.
 
 The touch controller issues `{"type":"touch",...}` `LWSSMDCL_INTERACTION`
 events, see `lib/drivers/touch/README.md`.  A `press` is resolved to the

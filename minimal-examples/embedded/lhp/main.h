@@ -25,6 +25,8 @@ extern struct lws_context *cx;
 
 extern int
 init_plat_devices(struct lws_context *);
+extern void
+deinit_plat_devices(struct lws_context *);
 extern int
 display_completion_cb(lws_display_state_t *lds, int a);
 extern void

@@ -21,10 +21,14 @@
  *
  * The application is a placeholder for now: it visits each URL in the
  * board's carousel once, 10s apart, rendering it on the display via LHP; when
- * the last one is on the display it logs "Completed: PASS" for CI and leaves
- * it there.  An EPD keeps its image with no power, so it should be left white
- * for storage: there the last page is shown for 5s, then a white page, and
- * PASS is logged once that is on the display.
+ * the last one is on the display, it leaves it there and ends.  An EPD keeps its
+ * image with no power, so it should be left white for storage: there the last
+ * page is shown for 5s, then a white page, and it ends once that is on the
+ * display.
+ *
+ * Ending means everything is torn down: the devices, then the lws context.  The
+ * free heap should be back to what it was before the context was created; if
+ * it is, "Completed: PASS" is logged for CI, otherwise "Completed: FAIL".
  *
  * If an update is found, a modal update display with its progress is shown
  * whatever else was on the display.
@@ -51,6 +55,13 @@ static enum {
 #define CAROUSEL_BLANK_DELAY_US	(5 * LWS_US_PER_SEC)
 
 /*
+ * How much less free heap than before the context was created we accept after
+ * it was destroyed.  Some things the platform allocates on first use stay
+ * allocated, eg, in wifi, lwip and mbedtls: on 7col that's about 7KB.
+ */
+#define HEAP_RETURN_MARGIN	8192
+
+/*
  * The carousel runs once: browsing its last url, then that url displayed.  On
  * an EPD, it is displayed for a while, then a white page is shown for storage
  */
@@ -64,7 +75,7 @@ static enum {
 static int carousel, update_pc, update_pc_shown = -1;
 static lws_sorted_usec_list_t sul_app, sul_boot_timeout, sul_ui;
 static char display_ready, boot_dirty, boot_done, seen_operational,
-	    subsequent;
+	    subsequent, finished;
 static uint32_t scan_sig_rendered;
 static struct lws_plat_file_ops dlo_fops;
 static lws_display_render_state_t rs;
@@ -570,11 +581,11 @@ display_completion_cb(lws_display_state_t *lds, int a)
 		    carousel_phase == CAROUSEL_BLANKING) {
 			/*
 			 * The last page of the carousel is on the display, or
-			 * on an EPD, the white page after it: we are done.  In
-			 * CI, sai-expect looks for this string for success.
+			 * on an EPD, the white page after it: we are done, the
+			 * event loop ends and app_main() tears everything down
 			 */
 			carousel_phase = CAROUSEL_DONE;
-			lwsl_notice("Completed: PASS\n");
+			finished = 1;
 			break;
 		}
 
@@ -829,10 +840,51 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	return 0;
 }
 
+/*
+ * Undo everything app_main() did, while the context still exists, then destroy
+ * the context.  The free heap after should be what it was before the context
+ * was created, less whatever the platform keeps.
+ */
+
+static void
+teardown(uint32_t heap_before)
+{
+	uint32_t heap_after;
+
+	/* a touch board kept what it displayed to resolve presses against */
+	lws_display_list_destroy(cx, &rs.displaylist);
+	lws_display_render_free_ids(&rs);
+	page_drop();
+	lhp_boot_deinit(&boot);
+
+	lws_display_state_off(&lds);
+	deinit_plat_devices(cx);
+
+	lws_context_destroy(cx);
+	cx = NULL;
+
+	heap_after = (uint32_t)esp_get_free_heap_size();
+
+	lwsl_notice("%s: free heap %u before context, %u after destroy "
+		    "(%d), low water %u\n", __func__, (unsigned int)heap_before,
+		    (unsigned int)heap_after,
+		    (int)heap_after - (int)heap_before,
+		    (unsigned int)esp_get_minimum_free_heap_size());
+
+	/* In CI, sai-expect looks for this string for success */
+
+	if (heap_after + HEAP_RETURN_MARGIN >= heap_before)
+		lwsl_notice("Completed: PASS\n");
+	else
+		lwsl_err("Completed: FAIL: %u bytes of heap not returned\n",
+			 (unsigned int)(heap_before - heap_after));
+}
+
 void
 app_main(void)
 {
 	struct lws_context_creation_info *info;
+	uint32_t heap_before;
 	lws_state_notify_link_t notifier = { { NULL, NULL, NULL },
 					     system_notify_cb, "app" };
 	lws_state_notify_link_t *na[] = { &notifier, NULL };
@@ -841,6 +893,9 @@ app_main(void)
 
         lws_netdev_plat_init();
         lws_netdev_plat_wifi_init();
+
+	/* what we should come back to after the context is destroyed */
+	heap_before = (uint32_t)esp_get_free_heap_size();
 
         info = malloc(sizeof(*info));
         if (!info)
@@ -910,9 +965,11 @@ app_main(void)
 	do {
 		taskYIELD();
 		lws_service(cx, 0);
-	} while (1);
+	} while (!finished);
 
 	lwsl_notice("%s: exited event loop\n", __func__);
+
+	teardown(heap_before);
 
 
 spin:

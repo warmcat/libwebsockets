@@ -227,6 +227,7 @@ init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
 	 */
 	lws_sul_cancel(&sul_relayout);
 	lws_display_list_destroy(cx, &rs->displaylist);
+	lws_display_render_free_ids(rs);
 	rs->retained = !!tcs;
 
 	/*
