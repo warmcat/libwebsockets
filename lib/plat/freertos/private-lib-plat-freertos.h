@@ -62,6 +62,7 @@
  #include <semphr.h>
 #else
  #include "freertos/timers.h"
+ #include "freertos/semphr.h"
 #if defined(LWS_ESP_PLATFORM)
  #include <esp_attr.h>
 #if !defined(ETHER_ADDR_LEN)
@@ -142,7 +143,15 @@ delete_from_fd(const struct lws_context *context, int fd);
 #define LWS_PLAT_TIMER_CREATE(name, interval, repeat, opaque, cb) \
 	xTimerCreate(name, pdMS_TO_TICKS(interval) ? pdMS_TO_TICKS(interval) : 1, \
 			repeat ? pdTRUE : 0, opaque, cb)
-#define LWS_PLAT_TIMER_DELETE(ptr)	xTimerDelete(ptr, 0)
+/*
+ * Deleting a timer is only queued to the timer task, where its callbacks
+ * run: this waits until it has been deleted, so its callback can't run
+ * afterwards, eg, on what it was given, which may be freed next
+ */
+#define LWS_PLAT_TIMER_DELETE(ptr)	lws_plat_timer_delete_sync(ptr)
+
+void
+lws_plat_timer_delete_sync(TimerHandle_t t);
 #define LWS_PLAT_TIMER_START(ptr)	xTimerStart(ptr, 0)
 /*
  * The only way to start a timer from interrupt context, eg, a gpio ISR.  The
