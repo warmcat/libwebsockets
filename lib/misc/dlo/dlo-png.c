@@ -118,6 +118,31 @@ lws_display_dlo_png_reclaimable(lws_dlo_png_t *dlo_png)
 static lws_stateful_ret_t
 lws_display_render_png_pinned(struct lws_display_render_state *rs);
 
+/*
+ * The image row raster line wl of the dlo's box wants, through the vertical
+ * scale: the image is drawn scaled to its box (nearest neighbour), a box
+ * height of 0 meaning the image's own.  The walk enters renderers from a line
+ * above a fractional dlo top: a negative wl means "not reached the top row
+ * yet", and must clamp to 0 rather than wrap
+ */
+
+static uint32_t
+png_row_wanted(const lws_dlo_t *dlo, lws_dlo_png_t *dlo_png, int wl)
+{
+	int ih = (int)lws_upng_get_height(dlo_png->png),
+	    bh = dlo->box.h.whole > 0 ? dlo->box.h.whole : ih;
+	uint32_t wanted;
+
+	if (ih <= 0 || bh <= 0)
+		return 0;
+
+	wanted = wl > 0 ? (uint32_t)(((int64_t)wl * ih) / bh) : 0;
+	if (wanted >= (uint32_t)ih)
+		wanted = (uint32_t)ih - 1;
+
+	return wanted;
+}
+
 lws_stateful_ret_t
 lws_display_render_png(struct lws_display_render_state *rs)
 {
@@ -147,6 +172,21 @@ lws_display_render_png(struct lws_display_render_state *rs)
 
 	if (dlo_png->failed)
 		return LWS_SRET_OK;
+
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS) && \
+    defined(LWS_WITH_LHP)
+	if (dlo_png->emitted && !dlo_png->evicted && dlo_png->png &&
+	    png_row_wanted(dlo, dlo_png, wl) + 1 < dlo_png->emitted &&
+	    (!rs->cx || lws_dlo_ss_renew_image(rs->cx, dlo)))
+		/*
+		 * The raster is further up the image than its decoder got to,
+		 * eg, a retained display list rendered again at another pan,
+		 * and it couldn't be renewed from the asset cache.  The
+		 * decoder only goes forwards: start again from where it came
+		 * from
+		 */
+		lws_display_dlo_png_release(dlo_png);
+#endif
 
 	if (dlo_png->evicted) {
 		/*
@@ -259,9 +299,7 @@ lws_display_render_png_pinned(struct lws_display_render_state *rs)
 	 * yet", and must clamp to 0 rather than wrap
 	 */
 
-	wanted = wl > 0 ? (uint32_t)(((int64_t)wl * ih) / bh) : 0;
-	if (wanted >= (uint32_t)ih)
-		wanted = (uint32_t)ih - 1;
+	wanted = png_row_wanted(dlo, dlo_png, wl);
 
 	fmt = lws_upng_get_format(dlo_png->png);
 	bypp = lws_upng_get_pixelsize(dlo_png->png) / 8;

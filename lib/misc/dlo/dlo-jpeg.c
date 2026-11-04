@@ -108,6 +108,25 @@ lws_display_dlo_jpeg_reclaimable(lws_dlo_jpeg_t *dlo_jpeg)
 static lws_stateful_ret_t
 lws_display_render_jpeg_pinned(struct lws_display_render_state *rs);
 
+/* the image row raster line wl of the dlo's box wants, as the png's */
+
+static uint32_t
+jpeg_row_wanted(const lws_dlo_t *dlo, lws_dlo_jpeg_t *dlo_jpeg, int wl)
+{
+	int ih = (int)lws_jpeg_get_height(dlo_jpeg->j),
+	    bh = dlo->box.h.whole > 0 ? dlo->box.h.whole : ih;
+	uint32_t wanted;
+
+	if (ih <= 0 || bh <= 0)
+		return 0;
+
+	wanted = wl > 0 ? (uint32_t)(((int64_t)wl * ih) / bh) : 0;
+	if (wanted >= (uint32_t)ih)
+		wanted = (uint32_t)ih - 1;
+
+	return wanted;
+}
+
 lws_stateful_ret_t
 lws_display_render_jpeg(struct lws_display_render_state *rs)
 {
@@ -136,6 +155,15 @@ lws_display_render_jpeg(struct lws_display_render_state *rs)
 
 	if (dlo_jpeg->failed)
 		return LWS_SRET_OK;
+
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS) && \
+    defined(LWS_WITH_LHP)
+	if (dlo_jpeg->emitted && !dlo_jpeg->evicted && dlo_jpeg->j &&
+	    jpeg_row_wanted(dlo, dlo_jpeg, wl) + 1 < dlo_jpeg->emitted &&
+	    (!rs->cx || lws_dlo_ss_renew_image(rs->cx, dlo)))
+		/* as the png: the raster went back up it, start it again */
+		lws_display_dlo_jpeg_release(dlo_jpeg);
+#endif
 
 	if (dlo_jpeg->evicted) {
 		/* given back: bring it back first, as the png does */
@@ -236,9 +264,7 @@ lws_display_render_jpeg_pinned(struct lws_display_render_state *rs)
 	 * yet", and must clamp to 0 rather than wrap
 	 */
 
-	wanted = wl > 0 ? (uint32_t)(((int64_t)wl * ih) / bh) : 0;
-	if (wanted >= (uint32_t)ih)
-		wanted = (uint32_t)ih - 1;
+	wanted = jpeg_row_wanted(dlo, dlo_jpeg, wl);
 
 	if (dlo_jpeg->emitted && wanted < dlo_jpeg->emitted && dlo_jpeg->row) {
 		pix = dlo_jpeg->row;
