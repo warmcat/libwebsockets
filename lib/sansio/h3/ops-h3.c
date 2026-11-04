@@ -1172,7 +1172,13 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 			return -1;
 		}
 
-		ar = lws_header_table_attach(wsi, 0);
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SYS_FAULT_INJECTION)
+		/* the h3_rx_no_ah fault finds no ah for a response's headers */
+		if (lwsi_role_client(wsi) && lws_fi(&wsi->fic, "h3_rx_no_ah"))
+			ar = LWS_AH_ATTACH_WAITING;
+		else
+#endif
+			ar = lws_header_table_attach(wsi, 0);
 
 		if (ar == LWS_AH_ATTACH_WSI_GONE)
 			/*
@@ -1200,6 +1206,26 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 
 			return -1;
 		}
+
+#if defined(LWS_WITH_CLIENT)
+		if (ar != LWS_AH_ATTACH_OK && lwsi_role_client(wsi)) {
+			/*
+			 * No ah for a response's headers, because the heap
+			 * couldn't make one or the pool is in use: only this
+			 * stream fails, with H3_REQUEST_CANCELLED, and its
+			 * client sees it closed with no response, which it
+			 * may try again, as Secure Streams does.
+			 * The connection and its other streams go on, as for a
+			 * server refusing a request above.  Nor does it wait
+			 * for one: the response is arriving now.
+			 */
+			lwsl_wsi_warn(wsi, "no ah for response, cancelling it");
+			lws_header_table_detach(wsi, 0);
+			wsi->h3.ah_refused = 1;
+
+			return -1;
+		}
+#endif
 
 		if (ar != LWS_AH_ATTACH_OK) {
 			lwsl_wsi_err(wsi, "Failed to attach ah");
@@ -2639,9 +2665,15 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 
 						if (dr != LWS_QPACK_DEC_BLOCKED &&
 						    wsi->h3.ah_refused) {
-							/* only the stream is closed */
+							/*
+							 * only the stream is closed: a
+							 * server refused the request, a
+							 * client gave up on the response
+							 */
 							if (wsi->quic.qs)
 								wsi->quic.qs->close_app_err =
+									lwsi_role_client(wsi) ?
+									LWS_H3_REQUEST_CANCELLED :
 									LWS_H3_REQUEST_REJECTED;
 							return 1;
 						}

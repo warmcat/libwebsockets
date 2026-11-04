@@ -500,6 +500,13 @@ coming within `timeout_secs` per piece: a body falling behind is given up on
 as for a timeout.  A vhost whose clients may legitimately stream request
 bodies more slowly than that can set `LWS_HTTP_BODY_MIN_RATE_NONE`.
 
+On the client side, an h3 stream takes an ah for its response's headers when
+they arrive.  If there is none to be had then, because the heap can't make one
+or the pool is in use, only that stream fails: it is cancelled with
+`H3_REQUEST_CANCELLED`, and its client sees it closed with no response,
+`LWS_CALLBACK_CLOSED_CLIENT_HTTP`, which Secure Streams retries per the
+streamtype's retry policy.  The connection and its other streams go on.
+
 The streams of one h2 or h3 connection that end before they are answered are
 limited too, to `info.mux_reset_limit` (default 200) on average per
 `info.mux_reset_window_secs` (default 10s): the client resetting a stream it
