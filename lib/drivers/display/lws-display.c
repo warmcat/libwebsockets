@@ -129,8 +129,14 @@ lws_display_state_off(lws_display_state_t *lds)
 {
 	/* if no control over backlight, don't bother power down display
 	 * since it would continue to emit, just show all-white or whatever */
-	if (lds->bl_lcs)
+	if (lds->bl_lcs) {
+		/*
+		 * We may not have faded it out first, eg, if we are going
+		 * down: don't leave it emitting
+		 */
+		lws_display_state_set_brightness(lds, &lws_pwmseq_static_off);
 		lds->disp->power(lds, 0);
+	}
 	lws_sul_cancel(&lds->sul_autodim);
 	lds->state = LWSDISPS_OFF;
 }
