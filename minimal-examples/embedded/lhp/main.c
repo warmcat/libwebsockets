@@ -228,7 +228,7 @@ page_show(const char *name, char *html, int len)
 	page = html;
 	page_name = name;
 
-	lws_display_state_active(&lds);
+	/* the display is brought up when the page is on it */
 	lws_snprintf(url, sizeof(url), "file://dlofs/%s", name);
 	if (init_browse(cx, &rs, url)) {
 		lwsl_err("%s: init_browse %s failed\n", __func__, url);
@@ -451,9 +451,6 @@ sui_show(void)
 		}
 	}
 
-	/* showing something new wakes the display */
-	lws_display_state_active(&lds);
-
 	scan_sig_shown = scan_sig();
 	aps_update();
 
@@ -602,7 +599,7 @@ app_next(lws_sorted_usec_list_t *sul)
 	/* what holds the heap as the next page starts */
 	lws_footprint_dump(cx, 1);
 #endif
-	lws_display_state_active(&lds);
+	/* the display is brought up when the page is on it */
 	if (init_browse(cx, &rs, carousel_urls[carousel++])) {
 		lwsl_err("%s: init_browse failed\n", __func__);
 		lds.display_busy = 0;
@@ -764,13 +761,18 @@ display_completion_cb(lws_display_state_t *lds, int a)
 
 	case 1: /* display initialization finished */
 		display_ready = 1;
-		/* the panel is ready: bring it up, rather than wait for a touch */
-		lws_display_state_active(lds);
 		break;
 
 	case 2: /* display update finished */
 
 		lds->display_busy = 0;
+
+		/*
+		 * Something new is on the display: bring it up to show it.
+		 * Only now it's there, or it would show what was there before,
+		 * from cold, whatever the panel's memory came up with
+		 */
+		lws_display_state_active(lds);
 		show_demo_phase(LWS_LHPCD_PHASE_IDLE);
 		page_drop();
 
