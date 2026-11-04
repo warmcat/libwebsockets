@@ -86,6 +86,9 @@ typedef struct lws_display_gc9a01a_spi_state {
 
 	lws_sorted_usec_list_t			sul;
 	int					state;
+	int					band_end; /* one past the
+						* last line of the window being
+						* updated */
 } lws_display_gc9a01a_spi_state_t;
 
 #define lds_to_disp(_lds) (const lws_display_gc9a01a_t *)_lds->disp;
@@ -320,6 +323,12 @@ lws_display_gc9a01a_spi_blit(lws_display_state_t *lds, const uint8_t *src,
 
 	if (h > 1) {
 
+		/*
+		 * The update may be of a band of lines, not the whole panel:
+		 * its last line is where the data ends
+		 */
+		priv->band_end = box->y.whole + box->h.whole;
+
 		buf[4] = GC9A01A_CASET;
 		desc.data = (uint8_t *)&buf[0];
 		desc.flags = 0;
@@ -385,7 +394,7 @@ lws_display_gc9a01a_spi_blit(lws_display_state_t *lds, const uint8_t *src,
 
 go:
 		desc.flags = LWS_SPI_FLAG_DMA_BOUNCE_NOT_NEEDED;
-		if (y + 1 != ic->wh_px[1].whole)
+		if (y + 1 != priv->band_end)
 			desc.flags |= LWS_SPI_FLAG_DATA_CONTINUE;
 
 		desc.data = (uint8_t *)priv->line[box->y.whole & 1];
