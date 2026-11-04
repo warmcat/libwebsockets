@@ -128,6 +128,17 @@ render(lws_sorted_usec_list_t *sul)
 	lws_fx_set(box.x, 0, 0);
 	lws_fx_set(box.y, 0, 0);
 
+	/*
+	 * An image's payload arriving wakes the render, so it can carry on
+	 * with a line waiting for it, even while the page is still being laid
+	 * out.  The render can't begin until the layout is complete, which
+	 * schedules it again then: before that, the display list isn't
+	 * finished, and an update started on it ends at once, as if the page
+	 * was shown.
+	 */
+	if (rs->html == 1)
+		return;
+
 	if (!rs->line) {
 
 		if (redraw)
@@ -261,6 +272,16 @@ init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
 	    const char *url)
 {
         show_demo_phase(LWS_LHPCD_PHASE_FETCHING);
+
+	/*
+	 * The page before may still be on its way, eg, the carousel or a link
+	 * moved on from a big page before its layout finished.  It lays out
+	 * into this render state's display list, and its assets wake the
+	 * render on it: stop all of that before the display list goes.
+	 */
+	lws_lhp_ss_cancel(rs);
+	free(rs->line);
+	rs->line = NULL;
 
 	/*
 	 * Whatever was displayed is about to be overwritten.  With a touch
