@@ -62,24 +62,53 @@ enum {
 };
 
 /*
- * A glyph's compressed string, cached from a file-backed font.  Pinned while
- * a text dlo has it attached (its decoder keeps a pointer into data)
+ * A glyph's compressed string, cached from a blob that isn't in memory in one
+ * piece.  Pinned while a text dlo has it attached (its decoder keeps a pointer
+ * into data)
  */
 typedef struct mcuf_gent {
-	lws_dll2_t		list;	/* lws_mcufont_file_t.glyphs, MRU at tail */
-	uint32_t		fofs;	/* file offset: the cache key */
+	lws_dll2_t		list;	/* lws_mcuf_core_t.glyphs, MRU at tail */
+	uint32_t		fofs;	/* blob offset: the cache key */
 	uint16_t		len;
 	uint16_t		pins;
 	/* len bytes follow */
 } mcuf_gent_t;
 
 /*
+ * The part of an mcufont blob that every glyph decode needs, for a blob that
+ * isn't simply all in one piece in memory: the blob's prefix (header, names,
+ * dictionary and its offsets, so the decoder's absolute offsets into the
+ * blob stay valid), plus copies of the char range tables and each range's
+ * glyph offset table.  The glyph strings are read from the rest of the blob
+ * when they are needed, through read, and kept in the glyph cache.
+ */
+typedef struct lws_mcuf_core lws_mcuf_core_t;
+
+/* read len bytes of the blob at ofs into buf: nonzero if it can't */
+typedef int (*lws_mcuf_core_read_t)(lws_mcuf_core_t *c, uint32_t ofs,
+				    uint8_t *buf, uint32_t len);
+
+struct lws_mcuf_core {
+	lws_mcuf_core_read_t	read;
+
+	uint8_t			*prefix;
+	uint8_t			*ranges;	/* 16 * nranges */
+	uint16_t		*gofs[MCUFO_MAX_RANGES];
+	uint32_t		gend[MCUFO_MAX_RANGES]; /* end of each range's data */
+
+	lws_dll2_owner_t	glyphs;		/* mcuf_gent_t */
+	size_t			glyph_bytes;
+
+	size_t			core_bytes;	/* prefix and tables */
+	uint32_t		blob_len;
+	uint32_t		prefix_len;
+	uint16_t		nranges;
+};
+
+/*
  * The resident state of a file-backed mcufont, hung off lws_display_font_t
- * .priv.  The "core" is the part every glyph decode needs: the file's
- * prefix (header, names, dictionary and its offsets, so the decoder's
- * absolute offsets into the blob stay valid), plus copies of the char range
- * tables and each range's glyph offset table.  The glyph strings come and
- * go through the cache.  Both are reclaimable heap occupants.
+ * .priv.  The core and the glyph strings in its cache are both reclaimable
+ * heap occupants: the core comes and goes with the file open.
  */
 typedef struct lws_mcufont_file {
 	uint8_t			kind;		/* LWS_MCUF_KIND_FILE: first */
@@ -89,18 +118,9 @@ typedef struct lws_mcufont_file {
 	lws_display_font_t	*f;
 	char			*path;
 
-	uint8_t			*prefix;
-	uint8_t			*ranges;	/* 16 * nranges */
-	uint16_t		*gofs[MCUFO_MAX_RANGES];
-	uint32_t		gend[MCUFO_MAX_RANGES]; /* end of each range's data */
+	lws_mcuf_core_t		core;
 	lws_fop_fd_t		fd;		/* open while the core is */
 
-	lws_dll2_owner_t	glyphs;		/* mcuf_gent_t */
-	size_t			glyph_bytes;
-
-	uint32_t		file_len;
-	uint32_t		prefix_len;
-	uint16_t		nranges;
 	uint16_t		core_pins;
 } lws_mcufont_file_t;
 
@@ -302,6 +322,15 @@ lws_display_font_mcufont_check(const uint8_t *bf, size_t len);
 /* decode one codepoint, consuming its bytes; nonzero if they aren't utf8 */
 int
 lws_dlo_utf8_unicode(const char *utf8, size_t *utf8_len, uint32_t *unicode);
+
+int
+lws_mcuf_core_load(lws_mcuf_core_t *c, uint32_t blob_len);
+
+void
+lws_mcuf_core_free(lws_mcuf_core_t *c);
+
+size_t
+lws_mcuf_core_glyphs_free(lws_mcuf_core_t *c, int unpinned_only);
 
 int
 lws_display_font_mcufont_file_core(lws_display_font_t *f);

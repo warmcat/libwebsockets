@@ -619,13 +619,9 @@ lws_font_register_file(struct lws_context *cx, const char *path)
 		goto bail;
 	}
 
+	/* the core load checked the name is a string inside it */
 	bf = a->data;
 	o = lws_ser_ru32be(bf + MCUFO_FOFS_FULLNAME);
-	if (o >= ff->prefix_len ||
-	    !memchr(bf + o, '\0', ff->prefix_len - o)) {
-		lwsl_warn("%s: %s: bad font header\n", __func__, path);
-		goto bail;
-	}
 
 	/* the name has to outlive the core: a copy of our own */
 	name = lws_strdup((const char *)bf + o);
