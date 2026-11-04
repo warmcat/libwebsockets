@@ -116,7 +116,16 @@ lws_fragbuf_create_cap(size_t units, size_t unit_size, size_t cap)
 			 * usually was, and whatever a consumer hands out
 			 * before it wrote it must not be old heap
 			 */
-			q = lws_zalloc(take * unit_size, __func__);
+			/*
+			 * Asking for more than a unit is speculative, since
+			 * less will do: it uses what the heap has, without
+			 * evicting anybody or saying the heap ran out.  Only
+			 * when not even a unit can be had is it a real
+			 * shortage, and then reclaimable occupants are asked
+			 * to give some back.
+			 */
+			q = take > 1 ? lws_zalloc_try(take * unit_size, __func__) :
+				       lws_zalloc(unit_size, __func__);
 			if (q)
 				break;
 

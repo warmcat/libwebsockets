@@ -1567,6 +1567,15 @@ lws_realloc(void *ptr, size_t size, const char *reason);
 void * LWS_WARN_UNUSED_RESULT
 lws_zalloc(size_t size, const char *reason);
 
+/*
+ * lws_zalloc_try() - lws_zalloc() for a caller with a fallback, eg, asking for
+ * less: when the heap can't give it at once, it is NULL, without reclaimable
+ * occupants being asked to evict for it, nor the footprint saying the heap
+ * ran out.  With an allocator set by lws_set_allocator(), as lws_zalloc().
+ */
+void * LWS_WARN_UNUSED_RESULT
+lws_zalloc_try(size_t size, const char *reason);
+
 #ifdef LWS_PLAT_OPTEE
 void *lws_malloc(size_t size, const char *reason);
 void lws_free(void *p);

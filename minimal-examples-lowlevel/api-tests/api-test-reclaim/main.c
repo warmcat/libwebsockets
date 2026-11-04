@@ -12,7 +12,9 @@
  * retries; pinned occupants are left alone; when nothing more can be
  * reclaimed the allocation fails cleanly and the registry keeps working.
  * An append to an occupant's own buflist can evict that same occupant from
- * inside the append's allocation, and must still land on the list.
+ * inside the append's allocation, and must still land on the list.  And a
+ * fragbuf, which can do with less than it asks for first, takes what the heap
+ * has before anybody is evicted for it.
  *
  * The allocations are made through lws_buflist, a public core api whose
  * segments come from the lws allocator and so count against the simulated
@@ -22,6 +24,9 @@
 #include <libwebsockets.h>
 
 #define BLOCK	4096
+/* a fragbuf of two blocks */
+#define FB_UNITS	32
+#define FB_UNIT_SIZE	256
 
 static uint8_t payload[BLOCK];
 
@@ -87,6 +92,7 @@ main(int argc, const char **argv)
 	tenant_t a = { .name = "a" }, b = { .name = "b" }, c = { .name = "c" };
 	struct lws_buflist *p1 = NULL, *p2 = NULL, *p3 = NULL, *p4 = NULL,
 			   *p5 = NULL;
+	lws_fragbuf_t *fb;
 	size_t base;
 	int e = 0, n;
 
@@ -207,6 +213,30 @@ main(int argc, const char **argv)
 		e++;
 	}
 	block_free(&a.block);
+
+	/*
+	 * A fragbuf asks for all of itself first, but it can do with less:
+	 * that ask is speculative, and must not evict anybody.  With a
+	 * resident and room for half the fragbuf, it takes the half the heap
+	 * has, and only for the rest, that it can't get otherwise, is a asked
+	 * to go.  Evicting a for the first ask would have had it in one piece.
+	 */
+
+	if (tenant_load(&a)) {
+		lwsl_err("%s: 10: reload failed\n", __func__);
+		e++;
+	}
+	lws_heap_limit_set(lws_get_allocated_heap() + BLOCK + BLOCK / 2);
+	fb = lws_fragbuf_create(FB_UNITS, FB_UNIT_SIZE);
+	lws_heap_limit_set(0);
+	if (!fb || lws_fragbuf_pieces(fb) < 2 || a.evictions != 4 ||
+	    !lws_fragbuf_unit(fb, FB_UNITS - 1)) {
+		lwsl_err("%s: 10: fragbuf %p, %u pieces, a %d\n", __func__,
+			 (void *)fb, fb ? lws_fragbuf_pieces(fb) : 0,
+			 a.evictions);
+		e++;
+	}
+	lws_fragbuf_destroy(&fb);
 
 	block_free(&p1);
 	block_free(&p2);

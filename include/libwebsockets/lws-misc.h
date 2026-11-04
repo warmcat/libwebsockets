@@ -73,6 +73,11 @@ typedef struct lws_fragbuf lws_fragbuf_t;
  * \param units: how many units
  * \param unit_size: bytes per unit, the granularity kept contiguous
  *
+ * Asking for more than one unit at a time is speculative: it takes what the
+ * heap has without evicting reclaimable occupants (see lws_reclaim()), and
+ * without the footprint reporting the heap ran out.  Only when not even one
+ * unit can be had are they asked to give some back.
+ *
  * Returns NULL if even the fragmented allocation could not be satisfied.
  */
 LWS_VISIBLE LWS_EXTERN lws_fragbuf_t *

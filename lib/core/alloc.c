@@ -254,6 +254,11 @@ lws_alloc_sites_dump(struct lws_context *cx)
 
 static lws_dll2_owner_t reclaimables;
 static char in_reclaim;
+/*
+ * lws_zalloc_try() is asking: an allocation with a fallback.  Processwide
+ * like in_reclaim, since it only lasts for the one allocation.
+ */
+static char alloc_trying;
 
 void
 lws_reclaimable_add(lws_reclaimable_t *r)
@@ -518,9 +523,15 @@ _realloc(void *ptr, size_t size, const char *reason)
 			if (v)
 				break;
 
-			if (!lws_reclaim(size)) {
+			/*
+			 * An allocation with a fallback just fails: nobody is
+			 * asked to give anything back for it, and the heap
+			 * didn't run out for anybody
+			 */
+			if (alloc_trying || !lws_reclaim(size)) {
 #if defined(LWS_WITH_FOOTPRINT)
-				lws_footprint_alloc_failed(size, reason);
+				if (!alloc_trying)
+					lws_footprint_alloc_failed(size, reason);
 #endif
 #if defined(LWS_PLAT_ALLOC_SIZE)
 				/* the old block is still ours */
@@ -644,3 +655,15 @@ size_t lws_get_allocated_heap(void)
 #endif
 }
 #endif
+
+void *
+lws_zalloc_try(size_t size, const char *reason)
+{
+	void *v;
+
+	alloc_trying = 1;
+	v = lws_zalloc(size, reason);
+	alloc_trying = 0;
+
+	return v;
+}
