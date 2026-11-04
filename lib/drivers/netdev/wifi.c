@@ -122,17 +122,7 @@ lws_netdev_wifi_scan_select(lws_netdev_instance_wifi_t *wnd)
 	 * make sure we have our device's connection credentials at hand
 	 */
 
-	if (!netdevs->ac_creds &&
-	    lws_netdev_credentials_settings_get(netdevs)) {
-		/*
-		 * None are stored yet: keep scanning, so what is around stays
-		 * known, eg, for the user to pick one to store
-		 */
-		lws_sul_schedule(cx, 0, &wnd->sul_scan, lws_netdev_wifi_scan,
-				 3 * LWS_US_PER_SEC);
-		return 0;
-	}
-	netdevs->refcount_creds++;
+	lws_netdev_credentials_hold(netdevs);
 
 	/*
 	 * Let's go through each starting from the best RSSI seeing if we
@@ -180,15 +170,17 @@ lws_netdev_wifi_scan_select(lws_netdev_instance_wifi_t *wnd)
 		 * rescan in a bit
 		 */
 
+		/*
+		 * Including when none are stored yet: keep scanning, so what
+		 * is around stays known, eg, for the user to pick one to store
+		 */
+
 		lwsl_notice("%s: nothing usable in scan, redoing in 3s\n", __func__);
 		lws_sul_schedule(cx, 0, &wnd->sul_scan, lws_netdev_wifi_scan,
 				 3 * LWS_US_PER_SEC);
 	}
 
-	if (!--netdevs->refcount_creds) {
-		lws_dll2_owner_clear(&netdevs->owner_creds);
-		lwsac_free(&netdevs->ac_creds);
-	}
+	lws_netdev_credentials_release(netdevs);
 
 	return 0;
 }
@@ -203,7 +195,7 @@ lws_netdev_wifi_redo_last(lws_netdev_instance_wifi_t *wnd)
 {
 	lws_netdevs_t *netdevs = lws_netdevs_from_ndi(&wnd->inst);
 	uint8_t buf[256], bssid[LWS_ETH_ALEN];
-	const char *ssid, *pp = "", *pb;
+	const char *ssid, *pp, *pb;
 	char setname[16], ssid_copy[33];
 	size_t l = sizeof(buf), al;
 	lws_wifi_creds_t *cred;
@@ -245,24 +237,22 @@ lws_netdev_wifi_redo_last(lws_netdev_instance_wifi_t *wnd)
 	 * make sure we have our device's connection credentials at hand
 	 */
 
-	if (!netdevs->ac_creds &&
-	    lws_netdev_credentials_settings_get(netdevs))
-		return 1;
-	netdevs->refcount_creds++;
+	lws_netdev_credentials_hold(netdevs);
 
 	cred = lws_netdev_credentials_find(netdevs, ssid_copy, bssid);
-	if (cred)
-		pp = cred->passphrase;
+	if (!cred) {
+		/* we have nothing to join it with any more */
+		lws_netdev_credentials_release(netdevs);
+		return 1;
+	}
+	pp = cred->passphrase;
 
 	lws_strncpy(wnd->current_attempt_ssid, ssid_copy,
 		    sizeof(wnd->current_attempt_ssid));
 	memcpy(wnd->current_attempt_bssid, bssid, LWS_ETH_ALEN);
 	wnd->inst.ops->connect(&wnd->inst, ssid_copy, pp, bssid);
 
-	if (!--netdevs->refcount_creds) {
-		lws_dll2_owner_clear(&netdevs->owner_creds);
-		lwsac_free(&netdevs->ac_creds);
-	}
+	lws_netdev_credentials_release(netdevs);
 
 	return 0;
 }

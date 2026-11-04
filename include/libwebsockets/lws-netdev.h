@@ -250,14 +250,63 @@ lws_netdev_credentials_settings_get(lws_netdevs_t *nds);
  * \param passphrase: its passphrase, "" for an open AP
  *
  * Adds the credentials to those stored in the settings, replacing any for
- * the same SSID, and stores them all again.  The next scan that sees the AP
- * can join it, eg, after the wifi netdev's ops->scan() is called.
+ * the same SSID, and stores them all again.  Credentials for any number of
+ * APs can be stored: the wifi netdev joins the strongest AP it sees that it
+ * has credentials for, trying the others in turn if that fails.  It scans
+ * every few seconds while it is not joined, so it finds the AP by itself.
  *
  * Returns 0 if they were stored, else nonzero.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_netdev_credentials_add(lws_netdevs_t *nds, const char *ssid,
 			   const char *passphrase);
+
+/**
+ * lws_netdev_credentials_remove() - forget the credentials for an AP
+ *
+ * \param nds: the netdevs
+ * \param ssid: the AP's SSID
+ *
+ * Returns 0 if there were credentials for it, and the rest were stored
+ * again without them, else nonzero.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_netdev_credentials_remove(lws_netdevs_t *nds, const char *ssid);
+
+/**
+ * lws_netdev_credentials_has() - are credentials stored for an AP
+ *
+ * \param nds: the netdevs
+ * \param ssid: the AP's SSID
+ *
+ * Returns 1 if they are, else 0.  The passphrase isn't given out.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_netdev_credentials_has(lws_netdevs_t *nds, const char *ssid);
+
+/**
+ * lws_netdev_credentials_hold() - bring the stored credentials into memory
+ *
+ * \param nds: the netdevs
+ *
+ * Reads the credentials from the settings into nds->owner_creds, a list of
+ * lws_wifi_creds_t, if nothing is holding them already, and holds them
+ * until lws_netdev_credentials_release().  If none are stored, the list is
+ * empty.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_netdev_credentials_hold(lws_netdevs_t *nds);
+
+/**
+ * lws_netdev_credentials_release() - let go of the credentials
+ *
+ * \param nds: the netdevs
+ *
+ * When nothing else holds them, the passphrases are cleared and the
+ * credentials are freed.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_netdev_credentials_release(lws_netdevs_t *nds);
 
 LWS_VISIBLE LWS_EXTERN struct lws_netdev_instance *
 lws_netdev_wifi_create_plat(struct lws_context *ctx,

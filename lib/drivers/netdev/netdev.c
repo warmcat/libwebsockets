@@ -50,11 +50,19 @@ int
 lws_netdev_credentials_settings_set(lws_netdevs_t *nds)
 {
 	lws_struct_serialize_t *js;
-	size_t w = 0, max = 2048;
+	size_t w = 0, max;
 	int n, r = 1;
 	uint8_t *buf;
 
-	buf = lws_malloc(max, __func__); /* length should be computed */
+	/*
+	 * Each one, if every character of its ssid and passphrase had to be
+	 * escaped as \uXXXX, and its names, alg and bssid
+	 */
+	max = 64 + lws_dll2_count(&nds->owner_creds) *
+		(6 * (sizeof(((lws_wifi_creds_t *)0)->ssid) +
+		      sizeof(((lws_wifi_creds_t *)0)->passphrase)) + 96);
+
+	buf = lws_malloc(max, __func__);
 	if (!buf)
 		return 1;
 
@@ -93,6 +101,8 @@ lws_netdev_credentials_settings_set(lws_netdevs_t *nds)
 bail:
 	if (r)
 		lwsl_err("%s: failed\n", __func__);
+	/* it held the passphrases */
+	lws_explicit_bzero(buf, max);
 	lws_free(buf);
 
 	return r;
@@ -130,6 +140,7 @@ lws_netdev_credentials_settings_get(lws_netdevs_t *nds)
 
 	lws_struct_json_init_parse(&ctx, NULL, &a);
 	m = lejp_parse(&ctx, (uint8_t *)buf, (int)l);
+	lws_explicit_bzero(buf, l);
 	lws_free(buf);
 	if (m < 0 || !a.dest) {
 		lwsl_notice("%s: JSON decode failed '%s'\n",
@@ -172,11 +183,59 @@ bail1:
 	return 1;
 }
 
+void
+lws_netdev_credentials_hold(lws_netdevs_t *nds)
+{
+	/* none stored is not an error: there are just none in the list */
+	if (!nds->refcount_creds && !nds->ac_creds &&
+	    lws_netdev_credentials_settings_get(nds))
+		lws_dll2_owner_clear(&nds->owner_creds);
+
+	nds->refcount_creds++;
+}
+
+void
+lws_netdev_credentials_release(lws_netdevs_t *nds)
+{
+	if (!nds->refcount_creds || --nds->refcount_creds)
+		return;
+
+	/* the passphrases are secrets: don't leave them in the heap */
+
+	lws_start_foreach_dll(struct lws_dll2 *, p,
+			      lws_dll2_get_head(&nds->owner_creds)) {
+		lws_wifi_creds_t *w = lws_container_of(p, lws_wifi_creds_t,
+						       list);
+
+		lws_explicit_bzero(w->passphrase, sizeof(w->passphrase));
+	} lws_end_foreach_dll(p);
+
+	lws_dll2_owner_clear(&nds->owner_creds);
+	lwsac_free(&nds->ac_creds);
+}
+
+/* the held credentials for ssid, if any */
+
+static lws_wifi_creds_t *
+creds_by_ssid(lws_netdevs_t *nds, const char *ssid)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, p,
+			      lws_dll2_get_head(&nds->owner_creds)) {
+		lws_wifi_creds_t *w = lws_container_of(p, lws_wifi_creds_t,
+						       list);
+
+		if (!strcmp(w->ssid, ssid))
+			return w;
+	} lws_end_foreach_dll(p);
+
+	return NULL;
+}
+
 int
 lws_netdev_credentials_add(lws_netdevs_t *nds, const char *ssid,
 			   const char *passphrase)
 {
-	lws_wifi_creds_t *c = NULL;
+	lws_wifi_creds_t *c;
 	int r = 1;
 
 	if (!ssid || !*ssid || strlen(ssid) >= sizeof(c->ssid) || !passphrase ||
@@ -185,21 +244,9 @@ lws_netdev_credentials_add(lws_netdevs_t *nds, const char *ssid,
 
 	/* the ones already stored, if any, are kept alongside it */
 
-	if (!nds->ac_creds)
-		lws_netdev_credentials_settings_get(nds);
-	nds->refcount_creds++;
+	lws_netdev_credentials_hold(nds);
 
-	lws_start_foreach_dll(struct lws_dll2 *, p,
-			      lws_dll2_get_head(&nds->owner_creds)) {
-		lws_wifi_creds_t *w = lws_container_of(p, lws_wifi_creds_t,
-						       list);
-
-		if (!strcmp(w->ssid, ssid)) {
-			c = w;
-			break;
-		}
-	} lws_end_foreach_dll(p);
-
+	c = creds_by_ssid(nds, ssid);
 	if (!c) {
 		c = lwsac_use_zero(&nds->ac_creds, sizeof(*c), 512);
 		if (!c)
@@ -215,20 +262,46 @@ lws_netdev_credentials_add(lws_netdevs_t *nds, const char *ssid,
 	r = lws_netdev_credentials_settings_set(nds);
 
 bail:
-	if (!--nds->refcount_creds) {
-		/* the passphrases are secrets: don't leave them in the heap */
-		lws_start_foreach_dll(struct lws_dll2 *, p,
-				      lws_dll2_get_head(&nds->owner_creds)) {
-			lws_wifi_creds_t *w = lws_container_of(p,
-						lws_wifi_creds_t, list);
+	lws_netdev_credentials_release(nds);
 
-			lws_explicit_bzero(w->passphrase,
-					   sizeof(w->passphrase));
-		} lws_end_foreach_dll(p);
+	return r;
+}
 
-		lws_dll2_owner_clear(&nds->owner_creds);
-		lwsac_free(&nds->ac_creds);
+int
+lws_netdev_credentials_remove(lws_netdevs_t *nds, const char *ssid)
+{
+	lws_wifi_creds_t *c;
+	int r = 1;
+
+	if (!ssid)
+		return 1;
+
+	lws_netdev_credentials_hold(nds);
+
+	c = creds_by_ssid(nds, ssid);
+	if (c) {
+		/* its memory goes with the lwsac */
+		lws_explicit_bzero(c->passphrase, sizeof(c->passphrase));
+		lws_dll2_remove(&c->list);
+		r = lws_netdev_credentials_settings_set(nds);
 	}
+
+	lws_netdev_credentials_release(nds);
+
+	return r;
+}
+
+int
+lws_netdev_credentials_has(lws_netdevs_t *nds, const char *ssid)
+{
+	int r;
+
+	if (!ssid)
+		return 0;
+
+	lws_netdev_credentials_hold(nds);
+	r = !!creds_by_ssid(nds, ssid);
+	lws_netdev_credentials_release(nds);
 
 	return r;
 }
@@ -237,6 +310,8 @@ lws_wifi_creds_t *
 lws_netdev_credentials_find(lws_netdevs_t *netdevs, const char *ssid,
 			    const uint8_t *bssid)
 {
+	static const uint8_t any[LWS_ETH_ALEN];
+
 	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(
 	                                               &netdevs->owner_creds)) {
 		lws_wifi_creds_t *w = lws_container_of(p, lws_wifi_creds_t, list);
@@ -247,8 +322,10 @@ lws_netdev_credentials_find(lws_netdevs_t *netdevs, const char *ssid,
 		 * .ssid member
 		 */
 
+		/* credentials with no bssid are for any BSS of the SSID */
 		if (!strcmp(ssid, w->ssid) &&
-		    !memcmp(bssid, w->bssid, sizeof(w->bssid)))
+		    (!memcmp(bssid, w->bssid, sizeof(w->bssid)) ||
+		     !memcmp(any, w->bssid, sizeof(w->bssid))))
 			return w;
 
 	} lws_end_foreach_dll(p);
