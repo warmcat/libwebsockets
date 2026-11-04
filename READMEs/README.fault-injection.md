@@ -322,6 +322,7 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |cli wsi|`wsi`|`connfail`|Attempts to connect on the wsi socket fail|
 |cli wsi|`wsi`|`createfail`|Creating the client wsi itself fails|
 |cli wsi|`wsi`|`tls_alpn_unfiltered`|A tls client offers its alpn list as it was given, h3 included on tcp, as a client that is not lws might, so a server can be seen not to negotiate on a transport what it can't carry there|
+|cli wsi|`wsi`|`tls_client_bio_create`|A tls client's session can't be made, as when there is no heap for it.  For quic that is as its transport comes up, inside the connect call for a numeric address|
 |cli wsi|`wsi`|`tls_quic_cert_slow`|Not a failure: a QUIC client's processing of the server's Handshake level flight, with its cert chain, blocks the service thread for `tls_quic_cert_slow_ms` from a range, as verifying the chain does on a slow cpu, eg `tls_quic_cert_slow,tls_quic_cert_slow_ms(2500..2501)`.  Added from code as `LWSFI_DETERMINISTIC` with a count of 1, only the first of the flight is slow (LWS_ROLE_QUIC)|
 |cli wsi|`wsi`|`h3_body_with_headers`|An h3 client request with a body makes its first body write right after the HEADERS, so the server sees the request, its body and maybe the FIN all at once (LWS_ROLE_H3)|
 |srv vhost|`vh`|`wt_stream_without_session`|`lws_wt_create_stream()` opens a stream from a wsi that is no WebTransport session, as a peer opening a bidi stream on a plain h3 connection would (LWS_ROLE_WT)|

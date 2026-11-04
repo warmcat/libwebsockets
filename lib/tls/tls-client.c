@@ -403,7 +403,12 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 				return CCTLS_RETURN_ERROR;
 			}
 #endif
-			if (lws_ssl_client_bio_create(wsi) < 0) {
+			/*
+			 * The tls_client_bio_create fault fails it as running
+			 * out of heap for the session would
+			 */
+			if (lws_fi(&wsi->fic, "tls_client_bio_create") ||
+			    lws_ssl_client_bio_create(wsi) < 0) {
 				/*
 				 * It may have failed before there was any
 				 * session, eg, refusing a hostname it can't
