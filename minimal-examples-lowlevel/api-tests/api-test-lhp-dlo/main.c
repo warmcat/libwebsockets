@@ -723,9 +723,18 @@ render(lws_sorted_usec_list_t *sul)
 				/*
 				 * --starve-ms: as on a device whose heap is
 				 * all in use for a while, the faces can't be
-				 * fetched again until it is given back
+				 * fetched again until it is given back.
+				 *
+				 * Nothing at all can be had meanwhile, not
+				 * even what we free: capping the heap at what
+				 * is in use now would let the relayout, after
+				 * the display list it destroys, have back some
+				 * of what it gave up, and how much depends on
+				 * what was resident at this moment, ie, on the
+				 * timing: it may then lay out with some faces
+				 * and not others
 				 */
-				lws_heap_limit_set(lws_get_allocated_heap());
+				lws_heap_limit_set(1);
 				lws_sul_schedule(cx, 0, &sul_starve,
 						 starve_end,
 						 (lws_usec_t)starve_ms *
