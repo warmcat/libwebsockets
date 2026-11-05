@@ -842,9 +842,26 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    laid out.  An image whose fetch is given back must stay findable
    (`cx->released_images`), or it's fetched again, or duplicated.
 
- - lwsac takes its chunks with plain `malloc()`, not `lws_malloc()`, so
-   `lws_get_allocated_heap()` and `lws_heap_limit_set()` don't see them.
+ - lwsac chunks come from `lws_malloc()`, so `lws_get_allocated_heap()`
+   and `lws_heap_limit_set()` see them (before 4a6f808db they didn't).
    To measure an svg's cost, use `lws_svg_get_heap_peak()`.
+
+ - **lhp / dlo allocate in the bulk arena** (`lws_alloc_arena_set()`,
+   PSRAM on ESP32) because their SS callbacks, sul callbacks,
+   `lws_lhp_ss_browse_filter()` and `lws_display_list_render_line()` set
+   it around themselves.  A new entry point into lhp / dlo needs the same
+   wrapper, or what it allocates lands in the scarce internal RAM.  The
+   app's render callback is deliberately left out: it blits, and panel
+   drivers may allocate DMA buffers lazily.
+
+ - **A retained render skips subtrees by their noted extents**
+   (`dlo->ext[]`), noted afresh only by a scan from line 0, or when the
+   list's head has none yet.  A band scan lower down (dlo-ui) uses the old
+   ones, so a dlo moved between scans must be inside a clipping dlo (whose
+   children are never skipped).  Otherwise it's drawn where it was.  Red
+   check: api-test-dlo-ui's half-row keyboard drag fails if clipped
+   subtrees are pruned.  api-test-lhp-dlo-pan-extents-render compares a
+   pruned retained pan against the streaming render, which visits every dlo.
 
  - **Every loop over document css data counts in `ctx->cascade_ops`**,
    and the work and heap limits all end through `lhp_css_doc_spent()`
