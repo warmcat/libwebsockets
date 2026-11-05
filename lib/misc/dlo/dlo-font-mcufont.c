@@ -1261,6 +1261,7 @@ static lws_stateful_ret_t
 mcufont_render(struct lws_display_render_state *rs, lws_dlo_text_t *text,
 	       uint16_t gen);
 
+#if defined(LWS_DLO_REMOTE_FONTS)
 /*
  * How many times a render comes back for pages of a face from a server that
  * it can't have yet, and how long it gives them each time: enough to see out
@@ -1302,6 +1303,7 @@ mcufont_render_local(lws_dlo_text_t *text, lws_mcufont_remote_t *r)
 
 	return !!lws_display_dlo_text_refit(text);
 }
+#endif
 
 lws_stateful_ret_t
 lws_display_font_mcufont_render(struct lws_display_render_state *rs)
@@ -1316,6 +1318,7 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 		/* nothing of it is drawn */
 		return LWS_SRET_OK;
 
+#if defined(LWS_DLO_REMOTE_FONTS)
 	if (r) {
 		/*
 		 * Pages of a face from a server may have been evicted since
@@ -1367,6 +1370,7 @@ lws_display_font_mcufont_render(struct lws_display_render_state *rs)
 			break;
 		}
 	}
+#endif
 
 	bf = mcuf_bf(text);
 	if (!bf)
