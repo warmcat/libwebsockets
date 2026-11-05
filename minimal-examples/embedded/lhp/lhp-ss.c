@@ -36,6 +36,18 @@ static int32_t relayout_pan_x, relayout_pan_y;
 /* render() is drawing a page laid out before again, eg, panned */
 static char redraw;
 
+/*
+ * Where the time of a display update went, logged when it ends: what isn't
+ * spent drawing lines or sending them to the display was spent waiting, eg,
+ * for an image's data, or to be scheduled again
+ */
+static struct {
+	lws_usec_t	start;
+	lws_usec_t	lines;
+	lws_usec_t	blit;
+	int		wakes;
+} upd;
+
 static void
 render(lws_sorted_usec_list_t *sul);
 
@@ -122,6 +134,7 @@ render(lws_sorted_usec_list_t *sul)
 	lws_display_render_state_t *rs = lws_container_of(sul,
 					lws_display_render_state_t, sul);
 	lws_stateful_ret_t r;
+	lws_usec_t t0, t1;
 	lws_box_t box;
 	int budget = 10;
 
@@ -185,6 +198,8 @@ render(lws_sorted_usec_list_t *sul)
 		}
 
 		rs->curr = 0;
+		memset(&upd, 0, sizeof(upd));
+		upd.start = lws_now_usecs();
 
 		/*
 		 * Initialize the blitter with the dimensions of the data we
@@ -207,6 +222,7 @@ render(lws_sorted_usec_list_t *sul)
 
 	box.w = rs->ic->wh_px[0];
 	box.h.whole = 1;
+	upd.wakes++;
 
 	while (rs->curr != rs->lowest_id_y) {
 
@@ -216,7 +232,10 @@ render(lws_sorted_usec_list_t *sul)
 			return;
 		}
 
+		t0 = lws_now_usecs();
 		r = lws_display_list_render_line(rs);
+		t1 = lws_now_usecs();
+		upd.lines += t1 - t0;
 		if ((r & LWS_SRET_FATAL) && rs->relayout) {
 			relayout(rs);
 			return;
@@ -242,12 +261,17 @@ render(lws_sorted_usec_list_t *sul)
 		 */
 
 		rs->lds->disp->blit(rs->lds, (uint8_t *)rs->line, &box, &rs->ids);
+		upd.blit += lws_now_usecs() - t1;
 
 		rs->curr++;
 	}
 
 	lws_sul_cancel(sul);
-	lwsl_notice("%s: zero-height blit for end\n", __func__);
+	lwsl_notice("%s: %d lines in %dms: drawing %dms, blitting %dms, "
+		    "%d wakes\n", __func__, (int)rs->curr,
+		    (int)((lws_now_usecs() - upd.start) / LWS_US_PER_MS),
+		    (int)(upd.lines / LWS_US_PER_MS),
+		    (int)(upd.blit / LWS_US_PER_MS), upd.wakes);
 	/* zero-height blit indicates update finished */
 	box.h.whole = 0;
 	rs->lds->disp->blit(rs->lds, (uint8_t *)rs->line, &box, &rs->ids);
