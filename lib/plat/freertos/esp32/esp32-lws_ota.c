@@ -114,7 +114,19 @@ ota_task(void *_g)
 				break;
 			}
 
-			e = esp_ota_begin(pop.ep, g->expected_size, &pop.ota);
+			/*
+			 * Erasing the whole image's space first takes
+			 * seconds, while nothing is fetched.  Have it erased
+			 * a sector at a time as the writes reach it instead,
+			 * meanwhile lws fetches the next part.
+			 */
+			e = esp_ota_begin(pop.ep,
+#if defined(OTA_WITH_SEQUENTIAL_WRITES)
+					  OTA_WITH_SEQUENTIAL_WRITES,
+#else
+					  g->expected_size,
+#endif
+					  &pop.ota);
 			if (e == ESP_OK) {
 				pop.begun = 1;
 				g->async_r = LWSOTARET_OK;
