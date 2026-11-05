@@ -22,6 +22,22 @@ if (ESP_PLATFORM)
 	set(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY OFF)
 	option(LWS_WITH_TLS_JIT_TRUST "With JIT Trust" ON)
 	set(LWS_WITH_TLS_JIT_TRUST ON)
+
+	#
+	# h1, h2 and h3.  The SS policy in ../policy.h prefers h2, and a
+	# server that says by Alt-Svc it has h3 is raced over QUIC as well.
+	#
+	# h3 on an esp32 needs the IDF mbedtls to have the lws QUIC transport
+	# ops patches (see ../README.md, the lws build stops with a FATAL_ERROR
+	# saying so if not), and CONFIG_MBEDTLS_SSL_PROTO_TLS1_3=y, which this
+	# example's sdkconfig sets, since QUIC only exists on TLS1.3
+	#
+	option(LWS_WITH_HTTP2 "With http/2" ON)
+	set(LWS_WITH_HTTP2 ON)
+	option(LWS_WITH_HTTP3 "With http/3" ON)
+	set(LWS_WITH_HTTP3 ON)
+	option(LWS_WITH_UDP "With UDP (needed by QUIC)" ON)
+	set(LWS_WITH_UDP ON)
         option(LWS_WITH_COMPRESSED_BACKTRACES "Build with support for compressed backtraces" ON)
         set(LWS_WITH_COMPRESSED_BACKTRACES ON)
         set(LWS_COMPRESSED_BACKTRACES_SNIP_PRE 2 CACHE STRING "Amount of callstack to snip from top" FORCE)
