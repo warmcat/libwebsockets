@@ -33,6 +33,10 @@ if (requirements)
 	# the far end of the helper's stdin going away while we're not writing
 	# on it, so lws must not depend on that to know the helper has gone.
 	#
+	# The event lib plugins are found on LD_LIBRARY_PATH; the one ctest is
+	# run with may be relative to somewhere else than our working dir, so
+	# point it at the build tree's plugins ourselves.
+	#
 	foreach(evl uv:LIBUV event:LIBEVENT ev:LIBEV glib:GLIB sd:SDEVENT
 		    uloop:ULOOP)
 		string(REPLACE ":" ";" evl ${evl})
@@ -45,7 +49,7 @@ if (requirements)
 			set_tests_properties(api-test-spawn-resources-${evl_name}
 				PROPERTIES
 				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-spawn-resources
-				ENVIRONMENT "LWS_EVLIB=${evl_name}"
+				ENVIRONMENT "LWS_EVLIB=${evl_name};LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib"
 				TIMEOUT 120)
 		endif()
 	endforeach()
