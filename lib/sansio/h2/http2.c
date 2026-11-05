@@ -3718,13 +3718,16 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				 */
 				if (h2n->swsi->client_mux_substream &&
 				    !h2n->swsi->h23_stream_carries_ws) {
+					uint32_t rest;
+
+					h2n->swsi->txc.peer_tx_cr_est -= n;
+					wsi->txc.peer_tx_cr_est -= n;
+
 					if (!h2n->swsi->a.protocol) {
 						lwsl_err("%s: %p doesn't have protocol\n",
 							 __func__, lws_wsi_tag(h2n->swsi));
 						m = 1;
 					} else {
-						h2n->swsi->txc.peer_tx_cr_est -= n;
-						wsi->txc.peer_tx_cr_est -= n;
 						lws_wsi_txc_describe(&h2n->swsi->txc,
 							__func__,
 							h2n->swsi->mux.my_sid);
@@ -3740,13 +3743,49 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 					h2n->inside += (unsigned int)n;
 					h2n->count += (unsigned int)n - 1;
 
-					if (m) {
-						lwsl_info("RECEIVE_CLIENT_HTTP "
-							  "closed it\n");
-						goto close_swsi_and_return;
-					}
+					if (!m)
+						goto do_windows;
 
-					goto do_windows;
+					lwsl_info("RECEIVE_CLIENT_HTTP closed it\n");
+
+					/*
+					 * The stream is going away, but the
+					 * frame we were reading for it may go
+					 * on past what we hold, eg, the rest of
+					 * a big DATA frame, or its padding.
+					 * Starting on a frame header now would
+					 * parse the rest of its body as frames,
+					 * losing sync on the connection, which
+					 * then stalls every stream on it.  So
+					 * the rest of the frame is ignored as
+					 * it arrives, the same as when a server
+					 * stream gives up mid-frame.
+					 *
+					 * Both this chunk and the rest of the
+					 * frame used connection window, that
+					 * the stream that's going won't give
+					 * back: do it here, or enough streams
+					 * closing like this leave the peer
+					 * unable to send on any stream.
+					 */
+
+					rest = h2n->length - h2n->count;
+					wsi->txc.peer_tx_cr_est -= (int32_t)rest;
+					if (lws_h2_update_conn_txcredit(wsi,
+							n + (int)rest))
+						goto fail;
+
+					if (!rest)
+						goto close_swsi_and_return;
+
+					lws_close_free_wsi(h2n->swsi, 0,
+							   "close_swsi_midframe");
+					h2n->swsi = NULL;
+					h2n->type = LWS_H2_FRAME_TYPE_COUNT;
+					*inused = (lws_filepos_t)
+						lws_ptr_diff_size_t(in, oldin);
+
+					return 2;
 				}
 #endif
 				if (lwsi_state(h2n->swsi) == LRS_DEFERRING_ACTION) {
