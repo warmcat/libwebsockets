@@ -664,6 +664,12 @@ a log is evidence that something was or was not emitted.
    JSON policy: its test needs
    `require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 ...)`,
    or Sai's ss-variants builds fail it with "ss create failed".
+ - `LWS_WITH_NETLINK` defaults ON on Linux even with
+   `LWS_WITH_NETWORK=0`, so a test asking only for netlink is built on
+   Sai's nonetwork builds and fails to compile there: ask for
+   `LWS_WITH_NETWORK 1` too.  Library code in features that build without
+   network (eg dlo) can't call `lws_sul_schedule()` outside a
+   network-only guard, or libwebsockets.so fails to link on nonetwork.
  - Raw-socket wsi skip the close shutdown (close.c, role_ops_raw_skt): an
    lws raw client that sets SO_LINGER 0 and returns -1 sends a
    deterministic RST, an easy way to test a server seeing a peer reset.
