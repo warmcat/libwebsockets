@@ -47,6 +47,12 @@
  *    nothing may come between the frames of a header block, not even a
  *    PING, so a stream left to time out there would race its connection's
  *    own rx timeout, which is as long, and the connection may go first
+ *  - a GET answered 200 with a DATA frame that arrives in two parts, the
+ *    client closing the stream from its RECEIVE_CLIENT_HTTP_READ on the
+ *    first: the rest of the frame must be skipped, and the connection stay
+ *    in step for the PING after it.  The rest of the frame was once parsed
+ *    as frame headers, losing sync on the connection, and with it every
+ *    other stream it carried
  *
  * A case that does not reach its expected end inside CASE_WATCHDOG_S fails.
  */
@@ -60,6 +66,8 @@
 #define ABANDON_MS		300	/* the client gives up, inside the block */
 #define STALL_MS		1000	/* > ABANDON_MS: the CONTINUATION's wait */
 #define SETTLE_MS		500	/* then, for the client to answer */
+#define SPLIT_MS		200	/* HCP_DATA_SPLIT: the rest of its DATA */
+#define SPLIT_LEN		200	/* ... the DATA frame's length */
 #define MAX_SEEN		4
 
 /* h2 frame types and flags the fixture deals in */
@@ -91,6 +99,7 @@ enum {
 	HCP_DATA_FIRST,		/* DATA, then the HEADERS */
 	HCP_IDLE_PING,		/* 200, then a PING after IDLE_MS */
 	HCP_HDRS_STALL,		/* HEADERS, the CONTINUATION after STALL_MS */
+	HCP_DATA_SPLIT,		/* 200, half a DATA, its rest after SPLIT_MS */
 };
 
 static const struct hcp_case {
@@ -117,6 +126,8 @@ static const struct hcp_case {
 	  1, "GET", "/one", 200, -1 },
 	{ "a CONTINUATION after its stream closed keeps the connection",
 	  "GET", HCP_HDRS_STALL, 1, "GET", "/one", 0, -1 },
+	{ "a stream closed inside a DATA frame keeps the connection in step",
+	  "GET", HCP_DATA_SPLIT, 1, "GET", "/one", 0, -1 },
 };
 
 /* a request the fixture saw */
@@ -136,6 +147,7 @@ struct fx_pss {
 	size_t		txlen;
 	int		conn;		/* 1-based, in this case */
 	uint32_t	stall_sid;	/* HCP_HDRS_STALL: its CONTINUATION's */
+	size_t		split_left;	/* HCP_DATA_SPLIT: the DATA still to go */
 	lws_sorted_usec_list_t	sul_later;	/* the case's next frame */
 	lws_sorted_usec_list_t	sul_settle;
 	uint8_t		preface_done;
@@ -201,6 +213,23 @@ fx_tx_frame(struct fx_pss *p, uint8_t type, uint8_t flags, uint32_t sid,
 	if (len)
 		memcpy(h + 9, pl, len);
 	p->txlen += 9 + len;
+
+	lws_callback_on_writable(p->wsi);
+}
+
+/* bytes that are not a whole frame, eg, the rest of one sent earlier */
+static void
+fx_tx_raw(struct fx_pss *p, const void *b, size_t len)
+{
+	size_t room = sizeof(p->tx) - LWS_PRE;
+
+	if (len > room || p->txlen > room - len) {
+		lwsl_err("%s: fixture tx overflow\n", __func__);
+		return;
+	}
+
+	memcpy(p->tx + LWS_PRE + p->txlen, b, len);
+	p->txlen += len;
 
 	lws_callback_on_writable(p->wsi);
 }
@@ -319,6 +348,24 @@ fx_cont_cb(lws_sorted_usec_list_t *sul)
 	lwsl_user("%s: fixture: the CONTINUATION, after the stall\n",
 		  __func__);
 	fx_last_frame(p, H2_CONTINUATION, H2F_END_HEADERS, p->stall_sid, b, n);
+}
+
+/*
+ * HCP_DATA_SPLIT: the rest of the DATA frame, then a PING the client must
+ * answer.  The rest is bytes that, taken as frame headers, are not anything
+ * the client could ignore: a frame bigger than the client allows.
+ */
+static void
+fx_split_rest_cb(lws_sorted_usec_list_t *sul)
+{
+	struct fx_pss *p = lws_container_of(sul, struct fx_pss, sul_later);
+	uint8_t b[SPLIT_LEN];
+
+	lwsl_user("%s: fixture: the rest of the DATA, then a PING\n",
+		  __func__);
+	memset(b, 'x', p->split_left);
+	fx_tx_raw(p, b, p->split_left);
+	fx_last_frame(p, H2_PING, 0, 0, FX_PING_DATA, 8);
 }
 
 /*
@@ -454,6 +501,29 @@ fx_request(struct fx_pss *p, uint8_t flags, uint32_t sid, const uint8_t *pl,
 				 ABANDON_MS * LWS_US_PER_MS);
 		lws_sul_schedule(context, 0, &p->sul_later, fx_cont_cb,
 				 STALL_MS * LWS_US_PER_MS);
+		break;
+	}
+
+	case HCP_DATA_SPLIT: {
+		uint8_t b[9 + SPLIT_LEN / 2];
+		size_t n = fx_hp_field_short(b, sizeof(b), HP_STATUS, "200");
+
+		/* a response with a body of unknown length */
+		fx_tx_frame(p, H2_HEADERS, H2F_END_HEADERS, sid, b, n);
+
+		/* the DATA frame's header, and the first half of its body */
+		b[0] = (uint8_t)(SPLIT_LEN >> 16);
+		b[1] = (uint8_t)(SPLIT_LEN >> 8);
+		b[2] = (uint8_t)SPLIT_LEN;
+		b[3] = H2_DATA;
+		b[4] = 0;
+		lws_ser_wu32be(&b[5], sid);
+		memset(b + 9, 'd', SPLIT_LEN / 2);
+		fx_tx_raw(p, b, sizeof(b));
+
+		p->split_left = SPLIT_LEN - SPLIT_LEN / 2;
+		lws_sul_schedule(context, 0, &p->sul_later, fx_split_rest_cb,
+				 SPLIT_MS * LWS_US_PER_MS);
 		break;
 	}
 	}
@@ -674,8 +744,9 @@ case_evaluate(void)
 		fail = 1;
 	}
 
-	if (c->action == HCP_IDLE_PING && !srv.ping_acked) {
-		lwsl_err("%s: the idle connection didn't ACK the PING\n",
+	if ((c->action == HCP_IDLE_PING || c->action == HCP_DATA_SPLIT) &&
+	    !srv.ping_acked) {
+		lwsl_err("%s: the connection didn't ACK the PING\n",
 			 __func__);
 		fail = 1;
 	}
@@ -688,7 +759,16 @@ case_evaluate(void)
 		fail = 1;
 	}
 
-	if (!c->want_status && (cli.completed || cli.body)) {
+	if (c->action == HCP_DATA_SPLIT &&
+	    (cli.completed || cli.body != SPLIT_LEN / 2)) {
+		lwsl_err("%s: client completed %d, with %u body bytes, wanted "
+			 "the first %u only\n", __func__, cli.completed,
+			 (unsigned int)cli.body, SPLIT_LEN / 2);
+		fail = 1;
+	}
+
+	if (!c->want_status && c->action != HCP_DATA_SPLIT &&
+	    (cli.completed || cli.body)) {
 		lwsl_err("%s: client completed %d, with %u body bytes, from a "
 			 "response it must refuse\n", __func__, cli.completed,
 			 (unsigned int)cli.body);
@@ -758,7 +838,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		cli.body += len;
-		return 0;
+		/* HCP_DATA_SPLIT: give the stream up inside its DATA frame */
+		return cases[cur].action == HCP_DATA_SPLIT ? -1 : 0;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_user("%s: completed\n", __func__);
@@ -813,7 +894,8 @@ next_case(lws_sorted_usec_list_t *sul)
 	i.opaque_user_data = (void *)&cases[cur];
 	/* the connection is to outlive the case's stream */
 	if (cases[cur].action == HCP_IDLE_PING ||
-	    cases[cur].action == HCP_HDRS_STALL)
+	    cases[cur].action == HCP_HDRS_STALL ||
+	    cases[cur].action == HCP_DATA_SPLIT)
 		i.keep_warm_secs = 5;
 	i.ssl_connection = LCCSCF_H2_PRIOR_KNOWLEDGE;
 

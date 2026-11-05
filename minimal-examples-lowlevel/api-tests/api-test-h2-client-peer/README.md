@@ -26,6 +26,11 @@ was composed from.
    inside a header block races the connection's own rx timeout: nothing,
    not even a PING, may come between the frames of a header block to keep
    the connection fresh.
+ - A GET answered 200 with a DATA frame that arrives in two parts, the client
+   closing the stream from its `RECEIVE_CLIENT_HTTP_READ` on the first: the
+   rest of the frame must be skipped, and the connection stay in step for the
+   PING after it.  The rest of the frame was once parsed as frame headers,
+   losing sync on the connection, and with it every other stream it carried.
 
 The server is a raw socket in the same process speaking just enough h2 by
 hand, so it can answer exactly as each case needs, and see exactly the
