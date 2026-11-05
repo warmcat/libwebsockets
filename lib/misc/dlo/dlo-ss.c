@@ -165,7 +165,7 @@ dloss_arm_reclaim(dloss_t *m)
  */
 
 static void
-dloss_release_until_raster_cb(lws_sorted_usec_list_t *sul)
+_dloss_release_until_raster_cb(lws_sorted_usec_list_t *sul)
 {
 	dloss_t *m = lws_container_of(sul, dloss_t, sul);
 	struct lws_context *cx = m->cx;
@@ -207,12 +207,21 @@ dloss_release_until_raster_cb(lws_sorted_usec_list_t *sul)
 	lws_dll2_add_tail(&rf->released, &cx->released_images);
 }
 
+static void
+dloss_release_until_raster_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+
+	_dloss_release_until_raster_cb(sul);
+	lws_alloc_arena_set(a);
+}
+
 /*
  * dlo images call back here when they have their dimensions (or have failed)
  */
 
-void
-lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
+static void
+_lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 {
 	dloss_t *m = lws_container_of(sul, dloss_t, sul);
 	lws_display_render_state_t *rs;
@@ -294,6 +303,15 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 	if (m->type == LWSDLOSS_TYPE_PNG || m->type == LWSDLOSS_TYPE_JPEG)
 		lws_sul_schedule(m->cx, 0, &m->sul,
 				 dloss_release_until_raster_cb, 1);
+}
+
+void
+lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+
+	_lws_lhp_image_dimensions_cb(sul);
+	lws_alloc_arena_set(a);
 }
 
 #if defined(LWS_WITH_SECURE_STREAMS)
@@ -425,7 +443,7 @@ dloss_css_given_up(dloss_t *m)
  */
 
 static void
-dloss_css_connect_cb(lws_sorted_usec_list_t *sul)
+_dloss_css_connect_cb(lws_sorted_usec_list_t *sul)
 {
 	dloss_t *m = lws_container_of(sul, dloss_t, sul);
 	struct lws_ss_handle *h = m->ss;
@@ -440,6 +458,15 @@ dloss_css_connect_cb(lws_sorted_usec_list_t *sul)
 	/* destroying it passes through DESTROYING, which re-kicks */
 	lws_dll2_remove(&m->active_asset_list);
 	lws_ss_destroy(&h);
+}
+
+static void
+dloss_css_connect_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+
+	_dloss_css_connect_cb(sul);
+	lws_alloc_arena_set(a);
 }
 
 /*
@@ -514,12 +541,21 @@ static void
 dlo_assets_kick(struct lws_context *cx);
 
 static void
-dlo_assets_kick_cb(lws_sorted_usec_list_t *sul)
+_dlo_assets_kick_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_context *cx = lws_container_of(sul, struct lws_context,
 						  sul_assets_kick);
 
 	dlo_assets_kick(cx);
+}
+
+static void
+dlo_assets_kick_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+
+	_dlo_assets_kick_cb(sul);
+	lws_alloc_arena_set(a);
 }
 
 /*
@@ -848,7 +884,7 @@ static lws_ss_state_return_t
 dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags);
 
 static void
-dloss_css_cache_feed_cb(lws_sorted_usec_list_t *sul)
+_dloss_css_cache_feed_cb(lws_sorted_usec_list_t *sul)
 {
 	dloss_t *m = lws_container_of(sul, dloss_t, sul);
 	struct lws_ss_handle *h = m->ss;
@@ -862,10 +898,19 @@ dloss_css_cache_feed_cb(lws_sorted_usec_list_t *sul)
 
 	lws_ss_destroy(&h);
 }
+
+static void
+dloss_css_cache_feed_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+
+	_dloss_css_cache_feed_cb(sul);
+	lws_alloc_arena_set(a);
+}
 #endif
 
 static lws_ss_state_return_t
-dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
+_dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 	dloss_t *m = (dloss_t *)userobj;
 	lws_stateful_ret_t r;
@@ -1085,8 +1130,19 @@ okie:
 }
 
 static lws_ss_state_return_t
-dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
-	    lws_ss_tx_ordinal_t ack)
+dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+	lws_ss_state_return_t r = _dloss_rx(userobj, buf, len, flags);
+
+	lws_alloc_arena_set(a);
+
+	return r;
+}
+
+static lws_ss_state_return_t
+_dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
+	     lws_ss_tx_ordinal_t ack)
 {
 	dloss_t *m = (dloss_t *)userobj;
 
@@ -1200,6 +1256,18 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	}
 
 	return LWSSSSRET_OK;
+}
+
+static lws_ss_state_return_t
+dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
+	    lws_ss_tx_ordinal_t ack)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+	lws_ss_state_return_t r = _dloss_state(userobj, sh, state, ack);
+
+	lws_alloc_arena_set(a);
+
+	return r;
 }
 
 static LWS_SS_INFO("__default", dloss_t)

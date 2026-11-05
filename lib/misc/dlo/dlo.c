@@ -810,8 +810,8 @@ lws_display_get_ids_boxes(lws_display_render_state_t *rs)
 	return LWS_SRET_OK;
 }
 
-lws_stateful_ret_t
-lws_display_list_render_line(lws_display_render_state_t *rs)
+static lws_stateful_ret_t
+_lws_display_list_render_line(lws_display_render_state_t *rs)
 {
 	lws_dll2_t *d;
 
@@ -936,6 +936,17 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 	}
 
 	return LWS_SRET_OK;
+}
+
+lws_stateful_ret_t
+lws_display_list_render_line(lws_display_render_state_t *rs)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+	lws_stateful_ret_t r = _lws_display_list_render_line(rs);
+
+	lws_alloc_arena_set(a);
+
+	return r;
 }
 
 /*

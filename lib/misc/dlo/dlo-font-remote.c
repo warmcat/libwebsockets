@@ -708,7 +708,10 @@ lws_fonts_manifest_apply(lws_fonts_remote_t *fr, lws_fonts_manifest_t *man)
 }
 
 static void
-lws_fonts_manifest_retry_cb(lws_sorted_usec_list_t *sul)
+lws_fonts_manifest_retry_cb(lws_sorted_usec_list_t *sul);
+
+static void
+_lws_fonts_manifest_retry_cb(lws_sorted_usec_list_t *sul)
 {
 	lws_fonts_remote_t *fr = lws_container_of(sul, lws_fonts_remote_t,
 						  sul_retry);
@@ -724,6 +727,15 @@ lws_fonts_manifest_retry_cb(lws_sorted_usec_list_t *sul)
 	lws_sul_schedule(fr->cx, 0, &fr->sul_retry,
 			 lws_fonts_manifest_retry_cb,
 			 LWS_FONTS_REMOTE_HOLDOFF_S * LWS_US_PER_SEC);
+}
+
+static void
+lws_fonts_manifest_retry_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+
+	_lws_fonts_manifest_retry_cb(sul);
+	lws_alloc_arena_set(a);
 }
 
 /* the first time the manifest is wanted: when we're OPERATIONAL, or a page
@@ -818,7 +830,7 @@ fontss_piece_done(fontss_t *m)
 }
 
 static lws_ss_state_return_t
-fontss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
+_fontss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 	fontss_t *m = (fontss_t *)userobj;
 	int n;
@@ -921,6 +933,17 @@ nomem:
 	return LWSSSSRET_DESTROY_ME;
 }
 
+static lws_ss_state_return_t
+fontss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+	lws_ss_state_return_t r = _fontss_rx(userobj, buf, len, flags);
+
+	lws_alloc_arena_set(a);
+
+	return r;
+}
+
 /* the stream is over: use what it brought, or note why it didn't */
 
 static void
@@ -1003,8 +1026,8 @@ fontss_finished(fontss_t *m)
 }
 
 static lws_ss_state_return_t
-fontss_state(void *userobj, void *sh, lws_ss_constate_t state,
-	     lws_ss_tx_ordinal_t ack)
+_fontss_state(void *userobj, void *sh, lws_ss_constate_t state,
+	      lws_ss_tx_ordinal_t ack)
 {
 	fontss_t *m = (fontss_t *)userobj;
 	lws_fonts_remote_t *fr = m->fr;
@@ -1049,6 +1072,18 @@ fontss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	}
 
 	return LWSSSSRET_OK;
+}
+
+static lws_ss_state_return_t
+fontss_state(void *userobj, void *sh, lws_ss_constate_t state,
+	     lws_ss_tx_ordinal_t ack)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+	lws_ss_state_return_t r = _fontss_state(userobj, sh, state, ack);
+
+	lws_alloc_arena_set(a);
+
+	return r;
 }
 static int
 lws_fonts_remote_notify(struct lws_state_manager *mgr,

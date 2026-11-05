@@ -64,11 +64,20 @@ LWS_SS_USER_TYPEDEF
  */
 
 static void
-htmlss_done(lws_sorted_usec_list_t *sul)
+_htmlss_done(lws_sorted_usec_list_t *sul)
 {
 	htmlss_t *m = lws_container_of(sul, htmlss_t, sul);
 
 	lws_ss_destroy(&m->ss);
+}
+
+static void
+htmlss_done(lws_sorted_usec_list_t *sul)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+
+	_htmlss_done(sul);
+	lws_alloc_arena_set(a);
 }
 
 static void
@@ -241,9 +250,18 @@ cache_done:
 }
 
 static void
-lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
+_lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
 {
 	htmlss_parse(lws_container_of(sul, htmlss_t, sul));
+}
+
+static void
+lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+
+	_lws_lhp_ss_html_parse(sul);
+	lws_alloc_arena_set(a);
 }
 
 void
@@ -255,7 +273,7 @@ lws_lhp_ss_html_parse_from_lhp(lhp_ctx_t *lhp)
 /* secure streams payload interface */
 
 static lws_ss_state_return_t
-htmlss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
+_htmlss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 	htmlss_t *m = (htmlss_t *)userobj;
 	lws_ss_state_return_t r = LWSSSSRET_OK;
@@ -332,8 +350,19 @@ htmlss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 }
 
 static lws_ss_state_return_t
-htmlss_state(void *userobj, void *sh, lws_ss_constate_t state,
-	     lws_ss_tx_ordinal_t ack)
+htmlss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+	lws_ss_state_return_t r = _htmlss_rx(userobj, buf, len, flags);
+
+	lws_alloc_arena_set(a);
+
+	return r;
+}
+
+static lws_ss_state_return_t
+_htmlss_state(void *userobj, void *sh, lws_ss_constate_t state,
+	      lws_ss_tx_ordinal_t ack)
 {
 	htmlss_t *m = (htmlss_t *)userobj;
 
@@ -385,6 +414,18 @@ htmlss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	return LWSSSSRET_OK;
 }
 
+static lws_ss_state_return_t
+htmlss_state(void *userobj, void *sh, lws_ss_constate_t state,
+	     lws_ss_tx_ordinal_t ack)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+	lws_ss_state_return_t r = _htmlss_state(userobj, sh, state, ack);
+
+	lws_alloc_arena_set(a);
+
+	return r;
+}
+
 static LWS_SS_INFO("__default", htmlss_t)
 	.rx				= htmlss_rx,
 	.state				= htmlss_state,
@@ -422,10 +463,10 @@ static const lws_footprint_ops_t htmlss_fp_ops = {
 
 /* prep rs->displaylist, rs->ic */
 
-int
-lws_lhp_ss_browse_filter(struct lws_context *cx,
-			 lws_display_render_state_t *rs, const char *url,
-			 sul_cb_t render, const lws_lhp_filter_t *filter)
+static int
+_lws_lhp_ss_browse_filter(struct lws_context *cx,
+			  lws_display_render_state_t *rs, const char *url,
+			  sul_cb_t render, const lws_lhp_filter_t *filter)
 {
 	struct lws_ss_handle *h = NULL;
 	lws_surface_info_t lic;
@@ -600,6 +641,19 @@ bail1:
 	lws_ss_destroy(&h);
 
 	return 1;
+}
+
+int
+lws_lhp_ss_browse_filter(struct lws_context *cx,
+			 lws_display_render_state_t *rs, const char *url,
+			 sul_cb_t render, const lws_lhp_filter_t *filter)
+{
+	lws_alloc_arena_t a = lws_alloc_arena_set(LWS_ALLOC_ARENA_BULK);
+	int r = _lws_lhp_ss_browse_filter(cx, rs, url, render, filter);
+
+	lws_alloc_arena_set(a);
+
+	return r;
 }
 
 int
