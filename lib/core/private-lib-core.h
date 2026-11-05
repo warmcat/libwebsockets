@@ -1579,6 +1579,30 @@ lws_zalloc(size_t size, const char *reason);
 void * LWS_WARN_UNUSED_RESULT
 lws_zalloc_try(size_t size, const char *reason);
 
+/*
+ * Which heap new allocations should come from, where the platform has more
+ * than one.  The bulk arena is for the many, but slower to use, objects of a
+ * document, its layout and the images in it, eg, PSRAM on an ESP32, keeping
+ * the internal RAM free for what can only use that, eg, the wifi driver,
+ * lwip and DMA.  Elsewhere, both are the one heap.
+ */
+typedef enum {
+	LWS_ALLOC_ARENA_DEFAULT,
+	LWS_ALLOC_ARENA_BULK,
+} lws_alloc_arena_t;
+
+/*
+ * lws_alloc_arena_set() - choose the arena for new allocations from now
+ *
+ * Returns the arena that was set, for the caller to set back when it is done.
+ * Like lws_zalloc_try(), it's processwide: something on another thread that
+ * allocates meanwhile gets its memory from the same arena, which only changes
+ * where it lands.  A realloc keeps the block in the arena it is in.  With an
+ * allocator set by lws_set_allocator(), it does nothing.
+ */
+lws_alloc_arena_t
+lws_alloc_arena_set(lws_alloc_arena_t arena);
+
 #ifdef LWS_PLAT_OPTEE
 void *lws_malloc(size_t size, const char *reason);
 void lws_free(void *p);

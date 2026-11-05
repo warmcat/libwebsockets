@@ -90,6 +90,10 @@
 #define LWS_PLAT_HEAP_INTERNAL
 #define lws_plat_heap_free_internal() \
 		heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+/* the bulk arena (lws_alloc_arena_set()) is PSRAM, if there is any */
+#define LWS_PLAT_REALLOC_ARENA
+void *
+lws_plat_realloc_arena(void *ptr, size_t size, int arena);
 #endif
 
 #if defined(LWS_WITH_ESP32)

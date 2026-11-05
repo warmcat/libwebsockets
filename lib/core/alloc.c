@@ -259,6 +259,18 @@ static char in_reclaim;
  * like in_reclaim, since it only lasts for the one allocation.
  */
 static char alloc_trying;
+/* lws_alloc_arena_set(): processwide too, see there */
+static lws_alloc_arena_t alloc_arena;
+
+lws_alloc_arena_t
+lws_alloc_arena_set(lws_alloc_arena_t arena)
+{
+	lws_alloc_arena_t was = alloc_arena;
+
+	alloc_arena = arena;
+
+	return was;
+}
 
 void
 lws_reclaimable_add(lws_reclaimable_t *r)
@@ -517,6 +529,9 @@ _realloc(void *ptr, size_t size, const char *reason)
 #endif
 #if defined(LWS_PLAT_OPTEE)
 				v = (void *)TEE_Realloc(ptr, size);
+#elif defined(LWS_PLAT_REALLOC_ARENA)
+				v = lws_plat_realloc_arena(ptr, size,
+							   (int)alloc_arena);
 #else
 				v = (void *)realloc(ptr, size);
 #endif

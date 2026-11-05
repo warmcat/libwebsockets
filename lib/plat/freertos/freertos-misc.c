@@ -24,6 +24,44 @@
 
 #include "private-lib-core.h"
 
+#if defined(LWS_ESP_PLATFORM)
+#include <esp_memory_utils.h>
+
+/*
+ * New allocations in the bulk arena come from PSRAM, and others are left to
+ * IDF's malloc() policy, ie, internal RAM below
+ * CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL.  A block that's moved stays in the heap
+ * it is in, since IDF's realloc() would apply its policy to it again.  If the
+ * heap a block should come from can't give it, eg, there is no PSRAM, it
+ * comes from wherever malloc() can find it.
+ */
+
+void *
+lws_plat_realloc_arena(void *ptr, size_t size, int arena)
+{
+	void *v;
+
+	if (ptr) {
+		if (esp_ptr_external_ram(ptr)) {
+			v = heap_caps_realloc(ptr, size,
+					      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+			if (v)
+				return v;
+		}
+
+		return realloc(ptr, size);
+	}
+
+	if (arena == LWS_ALLOC_ARENA_BULK) {
+		v = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+		if (v)
+			return v;
+	}
+
+	return malloc(size);
+}
+#endif
+
 /* the sockets use it too, so it can't live in the LWS_WITH_FILE_OPS file */
 int lws_plat_apply_FD_CLOEXEC(int n)
 {
