@@ -5810,20 +5810,37 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 				continue;
 			}
 
-			int32_t usable_credit = w->txc.tx_cr;
+			int32_t usable_credit = w->txc.tx_cr, conn_cr;
 			if (lws_rops_fidx(w->role_ops, LWS_ROPS_tx_credit)) {
 				usable_credit = lws_rops_func_fidx(w->role_ops, LWS_ROPS_tx_credit).
 							tx_credit(w, LWSTXCR_US_TO_PEER, 0);
 			}
 
-			/* Check for actual flow control exhaustion */
-			if (lws_wsi_txc_check_skint(&w->txc, w->txc.tx_cr)) {
+			/*
+			 * The stream's own credit is spent, or what is left of it
+			 * is less than the framing of any payload, eg, the 2 bytes
+			 * an h3 DATA frame's type and length take: the stream
+			 * waits for the peer's MAX_STREAM_DATA, which asks for its
+			 * writeable again.  It's only the stream that waits: the
+			 * pass goes on to the others, or ones behind it holding
+			 * credit wait for it, which may be forever, eg, an image
+			 * fetch only given more as its decoder reaches it, ahead
+			 * of the fetch of the image the decoder is on
+			 */
+			conn_cr = wsi->txc.tx_cr;
+			if (nwsi && nwsi->txc.tx_cr < conn_cr)
+				conn_cr = nwsi->txc.tx_cr;
+
+			if (lws_wsi_txc_check_skint(&w->txc, w->txc.tx_cr) ||
+			    (usable_credit <= 0 && w->txc.tx_cr < conn_cr)) {
 				if (!w->quic.tx_blocked_sent) {
 					struct lws_quic_tx_frame *f_sdb = lws_zalloc(sizeof(*f_sdb), "quic sdb");
 					if (f_sdb) {
 						f_sdb->type = LWS_QUIC_FT_STREAM_DATA_BLOCKED;
 						f_sdb->stream_id = w->mux.my_sid;
-						f_sdb->limit = w->quic.qs ? w->quic.qs->tx_offset : 0;
+						/* the limit we are blocked at */
+						f_sdb->limit = (w->quic.qs ? w->quic.qs->tx_offset : 0) +
+							(uint64_t)(w->txc.tx_cr > 0 ? w->txc.tx_cr : 0);
 						lws_quic_dbg_1rtt_account(qn, f_sdb, "stream-data-blocked-fairshare");
 						lws_dll2_add_head(&f_sdb->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 					}
@@ -5836,7 +5853,10 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 				}
 			}
 
-			/* Check for local throttling (e.g., pending_tx queue full) */
+			/*
+			 * The connection's credit is what is short: no stream can
+			 * write until the peer's MAX_DATA
+			 */
 			if (usable_credit <= 0 && !lwsi_flushing_to_close(w)) {
 				w->mux.requested_POLLOUT = 1;
 				break;
