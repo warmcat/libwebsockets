@@ -66,6 +66,13 @@ static enum {
 
 /* how long each page of the carousel is shown, once it is on the display */
 #define CAROUSEL_PAGE_US	(10 * LWS_US_PER_SEC)
+/*
+ * The page's images are drawn again each time it's panned, after the render
+ * let go of them; this much heap keeps the small ones that came, so they
+ * needn't be fetched again each time.  It's kept small, to leave the heap
+ * for whatever else the device is doing
+ */
+#define ASSET_CACHE_BYTES	(128 * 1024)
 
 /*
  * How much less free heap than before the context was created we accept after
@@ -1265,6 +1272,9 @@ app_main(void)
 	info->smd_ttl_us		= 20 * LWS_USEC_PER_SEC; /* we can spend a long time in display */
 	info->system_ops		= &system_ops;
 	info->register_notifier_list	= na;
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
+	info->dlo_asset_cache_max_footprint = ASSET_CACHE_BYTES;
+#endif
 
 	cx = lws_create_context(info);
 	if (!cx) {

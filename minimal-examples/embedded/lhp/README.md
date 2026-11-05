@@ -95,6 +95,12 @@ of pages using h2 and renders them on the device + display combination,
 showing each for 10s once it is on the display, the last one too, then it
 ends.
 
+The page's images are given back once the render has drawn past them, and
+on a touch display, each pan draws the page again.  So they would be fetched
+again for every pan: instead, a 128KB in-memory asset cache keeps the ones
+that are small enough, so a pan redraws them from there.  It's kept small to
+leave the heap for whatever else the device is for.
+
 An EPD keeps showing its image with no power, so whatever is left on it is
 what it shows in storage: it should be left white.  On boards whose display
 says it's `bistable` in its `lws_display_t`, as the EPD drivers do, a white
