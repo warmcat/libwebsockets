@@ -7017,9 +7017,31 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 }
 
 static int
+rops_close_via_role_protocol_quic(struct lws *wsi, enum lws_close_status reason);
+
+static int
 rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 {
 	struct lws_quic_netconn *qn = wsi->quic.qn;
+	struct lws *sow;
+
+	/*
+	 * The close flow skips telling the peer at context destroy.  A tcp
+	 * connection's peer still hears of it, from the kernel's FIN, but
+	 * a quic connection has no transport close: the peer would hold it
+	 * until it idles out, and take any packet of ours still on the way
+	 * from an address it sees changed (eg, a NAT rebinding) as the
+	 * start of a migration, probing a path nobody will answer.  So say
+	 * CONNECTION_CLOSE now, the once, while the socket we send by is
+	 * still open (a server connection's is its listener's, which closes
+	 * its connections before itself).
+	 */
+	if (reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
+	    qn && qn->nwsi == wsi && !lwsi_skt_unusable(wsi)) {
+		sow = lws_wsi_socket_owner(wsi);
+		if (sow && !lwsi_skt_unusable(sow))
+			rops_close_via_role_protocol_quic(wsi, reason);
+	}
 
 	/* a listener's replies not yet sent */
 	lws_quic_replies_destroy(wsi);
@@ -7112,7 +7134,7 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
  * A connection the peer closed (draining, RFC 9000 10.2.2: nothing may be
  * sent) or one already closing after an error has nothing to add.  The
  * close flow does not come here for a socket already unusable, nor at
- * context destroy.
+ * context destroy: rops_close_kill_connection_quic() calls it then.
  */
 static int
 rops_close_via_role_protocol_quic(struct lws *wsi, enum lws_close_status reason)
