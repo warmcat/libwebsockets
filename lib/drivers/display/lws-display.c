@@ -355,6 +355,14 @@ yuv_to_rgb(uint8_t *rgb, const uint8_t *_yuv)
 }
 #endif
 
+uint16_t
+lws_display_565(lws_display_colour_t c)
+{
+	return (uint16_t)(((gamma2_2[LWSDC_R(c)] >> 3) << 11) |
+			  ((gamma2_2[LWSDC_G(c)] >> 2) << 5) |
+			   (gamma2_2[LWSDC_B(c)] >> 3));
+}
+
 lws_display_palette_idx_t
 lws_display_palettize_col(const lws_surface_info_t *ic,
 			  const lws_display_colour_t *palette, size_t pdepth,
@@ -397,6 +405,7 @@ lws_display_palettize_col(const lws_surface_info_t *ic,
 		ya[2] = (uint8_t)(d.rgb[2] >> 3);
 		ectx->rgb[2] = (int16_t)((int)da.rgb[2] - (ya[2] << 3));
 
+		/* the same as lws_display_565(c): the error isn't in it */
 		return (lws_display_palette_idx_t)((ya[0] << 11) | (ya[1] << 5) | (ya[2]));
 	}
 

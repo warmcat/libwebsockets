@@ -118,6 +118,18 @@ lws_display_palettize_col(const lws_surface_info_t *ic,
 			  const lws_display_colour_t *palette, size_t pdepth,
 			  lws_display_colour_t c, lws_colour_error_t *ectx);
 
+/**
+ * lws_display_565() - the RGB565 pixel for a colour
+ *
+ * \param c: the colour
+ *
+ * The pixel lws_display_palettize_col() gives for an LWSSURF_565 surface, the
+ * gamma-corrected colour truncated to 565, without its error diffusion:
+ * that doesn't change the pixel, so drivers for 565 surfaces needn't do it.
+ */
+LWS_VISIBLE LWS_EXTERN uint16_t
+lws_display_565(lws_display_colour_t c);
+
 /*
  * This is embedded in the actual display implementation object at the top,
  * so a pointer to this can be cast to a pointer to the implementation object

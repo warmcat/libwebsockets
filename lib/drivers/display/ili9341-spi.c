@@ -329,6 +329,17 @@ lws_display_ili9341_spi_blit(lws_display_state_t *lds, const uint8_t *src,
 							      gedl_this, gedl_next);
 				pc++;
 			}
+		else if (ic->type == LWSSURF_565)
+			/* there's no palette to choose from, or error to diffuse */
+			for (n = 0; n < ic->wh_px[0].whole; n++) {
+				/* htons() may be a macro using it twice */
+				uint16_t px = lws_display_565(
+					(lws_display_colour_t)((pc[2] << 16) |
+							(pc[1] << 8) | pc[0]));
+
+				pack_native_pixel(lo, n, px);
+				pc += 3;
+			}
 		else
 			for (n = 0; n < ic->wh_px[0].whole; n++) {
 				c = (lws_display_colour_t)((pc[2] << 16) | (pc[1] << 8) | pc[0]);
