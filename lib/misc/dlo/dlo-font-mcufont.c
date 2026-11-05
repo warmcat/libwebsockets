@@ -261,8 +261,10 @@ lws_mcuf_core_glyphs_free(lws_mcuf_core_t *c, int unpinned_only)
 /*
  * Bring in the core of the blob_len bytes of blob c->read reads from,
  * checking as it goes that it is a font we can use and the core we take
- * from it is inside it.  Nonzero if it can't (no memory, bad font), when
- * nothing of it is left allocated.
+ * from it is inside it.  1 if it isn't a font we can use, -1 if there's no
+ * memory for its core just now, when nothing of it is left allocated.  The
+ * caller of a font that's fine but finds no memory may want it again later,
+ * eg, once something gives back its heap.
  */
 
 int
@@ -294,7 +296,7 @@ lws_mcuf_core_load(lws_mcuf_core_t *c, uint32_t blob_len)
 	c->prefix = lws_malloc(plen, __func__);
 	c->ranges = lws_malloc(nr * 16, __func__);
 	if (!c->prefix || !c->ranges)
-		goto bail;
+		goto nomem;
 	if (c->read(c, 0, c->prefix, plen) ||
 	    c->read(c, rt, c->ranges, nr * 16) ||
 	    lws_display_font_mcufont_check(c->prefix, plen))
@@ -325,8 +327,9 @@ lws_mcuf_core_load(lws_mcuf_core_t *c, uint32_t blob_len)
 			goto bail;
 
 		c->gofs[m] = lws_malloc(cnt * 2, __func__);
-		if (!c->gofs[m] ||
-		    c->read(c, ot, (uint8_t *)c->gofs[m], cnt * 2))
+		if (!c->gofs[m])
+			goto nomem;
+		if (c->read(c, ot, (uint8_t *)c->gofs[m], cnt * 2))
 			goto bail;
 		c->core_bytes += cnt * 2;
 
@@ -341,6 +344,11 @@ lws_mcuf_core_load(lws_mcuf_core_t *c, uint32_t blob_len)
 	}
 
 	return 0;
+
+nomem:
+	lws_mcuf_core_free(c);
+
+	return -1;
 
 bail:
 	lws_mcuf_core_free(c);

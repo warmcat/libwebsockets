@@ -431,7 +431,10 @@ lws_mcufont_page_available(const lws_mcufont_remote_t *r,
  * of the face the manifest promised, and safe for the decoder, it becomes
  * resident.  The first page to arrive sets the face's header, that the others
  * must match: only the width and the baseline's x may differ, since each page
- * is only as wide as its own glyphs need
+ * is only as wide as its own glyphs need.
+ *
+ * 1 if it isn't such a page, -1 if it may be but there's no memory for its
+ * core just now: that's not the page's fault, it may be wanted again later.
  */
 
 static const uint8_t lws_mcufont_face_hdr[] = {
@@ -448,10 +451,16 @@ lws_mcufont_page_arrived(lws_mcufont_page_t *p, size_t len)
 	lws_display_font_t *f = r->f;
 	const uint8_t *pf;
 	size_t n, left;
+	int ret;
 
 	p->trimmed = 0;
-	if (len > LWS_FONTS_PAGE_MAX_LEN ||
-	    lws_mcuf_core_load(&p->core, (uint32_t)len))
+	if (len > LWS_FONTS_PAGE_MAX_LEN)
+		goto bad;
+
+	ret = lws_mcuf_core_load(&p->core, (uint32_t)len);
+	if (ret < 0)
+		return -1;
+	if (ret)
 		goto bad;
 
 	pf = p->core.prefix;
@@ -1019,9 +1028,17 @@ fontss_finished(fontss_t *m)
 	p->bl = m->bl;
 	m->bl = NULL;
 
-	if (lws_mcufont_page_arrived(p, m->pos)) {
+	switch (lws_mcufont_page_arrived(p, m->pos)) {
+	case 0:
+		break;
+	case -1:
+		lws_mcufont_page_free(p);
+		lws_fonts_page_nomem(p);
+		break;
+	default:
 		lws_mcufont_page_free(p);
 		p->bad = 1;
+		break;
 	}
 }
 
