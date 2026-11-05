@@ -19,6 +19,8 @@ require_lws_config(LWS_WITH_SVG 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_FILE_OPS 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS 1 requirements)
+# lhp fetches its assets through a secure stream from the JSON policy
+require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
