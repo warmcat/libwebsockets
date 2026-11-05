@@ -618,6 +618,12 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    pending), only a packet's first ACK frame is acted on, in-flight is
    capped at `LWS_QUIC_IN_FLIGHT_MAX`, only the last PATH_CHALLENGE is
    answered, and an owed ACK never lets other frames past cwnd/pacing.
+ - The close flow (sansio/close.c) skips `close_via_role_protocol` at
+   `LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY`.  QUIC has no transport
+   close, so `rops_close_kill_connection_quic()` sends the one
+   CONNECTION_CLOSE itself then (a55fa7510); without it, a peer whose
+   last packet from us crossed a NAT rebinding probed a dead path, and
+   qir's rebind-port failed with "PATH_CHALLENGE without a PATH_RESPONSE".
  - When a QUIC connection moves to a new wsi on ALPN negotiation (h3,
    lws-quic), only what `lws_io_udp_transfer_socket()` copies explicitly
    moves: any new per-connection io state (peer stack, relay port, relay
