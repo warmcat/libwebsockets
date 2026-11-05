@@ -132,6 +132,18 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 				if (us && us < timeout_us)
 					timeout_us = us;
 
+				/*
+				 * lwip's select() makes any wait that isn't
+				 * zero at least 1ms, and waits for that in
+				 * whole ticks, plus one: a sul due in a few us,
+				 * eg, one rescheduled at once by a long job
+				 * done in chunks, is held up for two ticks,
+				 * 20ms at 100Hz.  We can't wait for less than
+				 * a tick anyway: poll instead.
+				 */
+				if (timeout_us < LWS_FREERTOS_TICK_US)
+					timeout_us = 0;
+
 				lws_pt_unlock(pt);
 				lws_context_unlock(pt->context);
 			}
