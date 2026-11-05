@@ -192,7 +192,7 @@ _lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size, char backfill)
 		alloc = al + hp;
 
 //	lwsl_debug("%s: alloc %d for %d\n", __func__, (int)alloc, (int)ensure);
-	bf = malloc(alloc);
+	bf = lws_malloc(alloc, __func__);
 	if (!bf) {
 		lwsl_err("%s: OOM trying to alloc %llud\n", __func__,
 				(unsigned long long)alloc);
@@ -338,7 +338,7 @@ lwsac_free(struct lwsac **head)
 	while (it) {
 		struct lwsac *tmp = lwsac_next_chunk(it);
 
-		free(it);
+		lws_free(it);
 		it = tmp;
 	}
 }
