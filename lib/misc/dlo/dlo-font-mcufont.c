@@ -1115,6 +1115,7 @@ mcufont_row(lws_dlo_text_t *text, int yo, char draw)
 {
 	mcu_glyph_t *g;
 	uint8_t c, el;
+	int w, n;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&text->glyphs)) {
@@ -1122,9 +1123,10 @@ mcufont_row(lws_dlo_text_t *text, int yo, char draw)
 
 		g = (mcu_glyph_t *)fg;
 		fg->x = 0;
+		/* this is tested for every px of the row, it's worth keeping */
+		w = lws_ser_ru16be(g->bf + MCUFO16_WIDTH);
 
-		while (yo < (int)fg->height.whole &&
-		       fg->x < lws_ser_ru16be(g->bf + MCUFO16_WIDTH)) {
+		while (yo < (int)fg->height.whole && fg->x < w) {
 			switch (g->runstate) {
 			case RS_IDLE:
 				switch (g->st[(int)g->sp].state) {
@@ -1229,8 +1231,21 @@ mcufont_row(lws_dlo_text_t *text, int yo, char draw)
 				}
 				break;
 			case RS_SKIP_PX:
-				fg->x++;
-				if (--g->runlen)
+			case RS_ALLZERO:
+				/*
+				 * Nothing is drawn for these: go to the end of
+				 * the run in one, or the end of the row if the
+				 * run goes on into the next one
+				 */
+				n = 1;
+				if (g->runlen > 1) {
+					n = w - fg->x;
+					if (n > g->runlen)
+						n = (int)g->runlen;
+				}
+				fg->x = (int8_t)(fg->x + n);
+				g->runlen -= n;
+				if (g->runlen)
 					break;
 				g->runstate = RS_IDLE;
 				break;
@@ -1239,13 +1254,6 @@ mcufont_row(lws_dlo_text_t *text, int yo, char draw)
 				if (g->alpha && draw)
 					draw_px(text, g);
 				g->fg.x++;
-				if (--g->runlen)
-					break;
-				g->runstate = RS_IDLE;
-				break;
-
-			case RS_ALLZERO:
-				fg->x++;
 				if (--g->runlen)
 					break;
 				g->runstate = RS_IDLE;
