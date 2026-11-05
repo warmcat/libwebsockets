@@ -105,6 +105,8 @@ lws_display_dl_init(lws_displaylist_t *dl, lws_display_state_t *ds)
 {
 	lws_dll2_owner_clear(&dl->dl);
 	dl->ds = ds;
+	/* the lhp that lays out into it sets this if it wants it */
+	dl->hold_fonts = 0;
 
 #if defined(LWS_WITH_FOOTPRINT)
 	/*

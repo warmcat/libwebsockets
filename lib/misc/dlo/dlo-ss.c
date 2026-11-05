@@ -1506,19 +1506,22 @@ dloss_start(const lws_dlo_ss_create_info_t *i, const char *url, uint8_t type,
 	/*
 	 * How many chars of the url are its scheme://host[:port], for the
 	 * per-server fetch ceiling.  file:///... has an empty host and is
-	 * exempt
+	 * exempt.  It's measured on our copy, since hl is used to compare
+	 * against other assets' copies, and must fit in the uint8_t
 	 */
 
 	dloss->hl = 0;
-	q = strchr(url, '/');
-	if (q && q > url && q[-1] == ':' && q[1] == '/') {
+	q = strchr(dloss->url, '/');
+	if (q && q > dloss->url && q[-1] == ':' && q[1] == '/') {
 		const char *he = strchr(q + 2, '/');
+		size_t hl;
 
 		if (!he)
-			he = url + strlen(url);
+			he = dloss->url + strlen(dloss->url);
 
-		if (he > q + 2 && lws_ptr_diff(he, url) < 256)
-			dloss->hl = (uint8_t)lws_ptr_diff(he, url);
+		hl = lws_ptr_diff_size_t(he, dloss->url);
+		if (he > q + 2 && hl <= 0xff)
+			dloss->hl = (uint8_t)hl;
 	}
 
 	switch (type) {
