@@ -154,11 +154,7 @@ render(lws_sorted_usec_list_t *sul)
 
 	if (!rs->line) {
 
-		if (redraw)
-			/* all of the display, wherever the page is on it */
-			rs->lowest_id_y = (lws_display_scalar)
-						rs->ic->wh_px[1].whole;
-		else {
+		if (!redraw) {
 			/*
 			 * We must finalize the ids list with the accurate dlo
 			 * box info before starting the render, since some EPD
@@ -184,6 +180,13 @@ render(lws_sorted_usec_list_t *sul)
 					       relayout_pan_y);
 			relayout_pan_x = relayout_pan_y = 0;
 		}
+
+		/*
+		 * The update is of all of the display, so all of its lines are
+		 * drawn, below the end of a short page too: what the display
+		 * showed before stays on the lines that aren't
+		 */
+		rs->lowest_id_y = (lws_display_scalar)rs->ic->wh_px[1].whole;
 
 		rs->sp = 0;
 		rs->st[0].dlo = NULL;
