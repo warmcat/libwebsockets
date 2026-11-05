@@ -127,7 +127,12 @@ static const lws_led_gpio_controller_t lgc = {
 static const lws_bb_spi_t lbspi = {
 		.bb_ops = {
 			lws_esp32_spi_ops,
-			.spi_clk_hz = 40000000,
+			/*
+			 * Write-only (SPI_DEVICE_NO_DUMMY), so it can go this
+			 * fast through the GPIO matrix, and the flex to the
+			 * panel is only a couple of cm
+			 */
+			.spi_clk_hz = 80000000,
 			.bus_mode = LWS_SPI_BUSMODE_CLK_IDLE_LOW_SAMP_RISING
 		},
 		.gpio		= &lws_gpio_plat,
