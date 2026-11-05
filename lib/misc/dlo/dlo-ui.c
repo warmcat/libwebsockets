@@ -635,7 +635,8 @@ static int
 ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 {
 	int lh = ui->h - ui->title_h, tl = (ui->fs_title * 6) / 5,
-	    rl = (ui->fs_row * 6) / 5, x0, x1, y0, n, first, last, ry;
+	    rl = (ui->fs_row * 6) / 5, x0, x1, y0, n, first, last, ry, ix0,
+	    ix1, round = ui->i.lds->disp->ic.round;
 	lws_dlo_ui_row_t row;
 	ui_w_t w;
 
@@ -668,8 +669,16 @@ ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 	/*
 	 * Only the rows that can be seen are in the html, each positioned
 	 * where it is in the strip as scrolled, and kept to the columns that
-	 * can be seen across its line of text, which is in its middle
+	 * can be seen across its line of text, which is in its middle.
+	 *
+	 * On a round display, a row's icon and text start at the left edge of
+	 * the circle instead of being centred, from where all of its icon can
+	 * be seen: the icons follow the circle round, and the rows away from
+	 * the middle, where it's narrow, show less of their text
 	 */
+
+	if (round)
+		ui_printf(&w, ".r { justify-content: flex-start }");
 
 	first = ui->top / ui->row_h;
 	last = (ui->top + lh + ui->row_h - 1) / ui->row_h;
@@ -681,6 +690,14 @@ ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 		y0 = ui->title_h + ry + (ui->row_h - rl) / 2;
 		ui_span(ui, y0 < ui->title_h ? ui->title_h : y0, y0 + rl,
 			&x0, &x1);
+
+		if (round) {
+			y0 = ui->title_h + ry + ui->pad;
+			ui_span(ui, y0 < ui->title_h ? ui->title_h : y0,
+				y0 + ui->icon, &ix0, &ix1);
+			if (ix1 > ix0 && ix0 + ui->pad < x1)
+				x0 = ix0 + ui->pad;
+		}
 
 		ui_printf(&w, "#r%d { left: %dpx; top: %dpx; width: %dpx;"
 			      " height: %dpx; font-size: %dpx }", n, x0, ry,
