@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><style>
+* { margin: 0; padding: 0 }
+body { margin: 0; background-color: #ffffff }
+.blk { height: 40px; background-color: #e0e0ff; border-bottom: 2px solid #000080 }
+.short { height: 10px; background-color: #ffe0e0 }
+.down { position: relative; top: 90px; width: 60px; height: 14px; background-color: #00a000 }
+.leaf { position: relative; top: 70px; left: 70px; width: 30px; height: 10px; background-color: #0000ff }
+.clip { overflow: hidden; height: 20px; background-color: #ffffc0 }
+.tall { height: 200px; width: 50px; background-color: #ff00ff }
+.zero { height: 0 }
+</style></head>
+<body>
+<div class="blk">Above the view, a line of text</div>
+<div class="short"><div class="down">Moved</div></div>
+<div class="short"><div class="leaf"></div></div>
+<div class="zero"><div>Text in a zero-height box</div></div>
+<div class="clip"><div class="tall">Clipped</div></div>
+<p>Some lines of text that the top of the panned view cuts through,
+long enough to wrap onto several lines at this width.</p>
+<img src="exclaim.png" style="width:32px;height:32px">
+<div class="blk">Below</div>
+<p>The end of the page, after the images.</p>
+<img src="bluecat.jpg" style="width:80px;height:60px">
+</body></html>

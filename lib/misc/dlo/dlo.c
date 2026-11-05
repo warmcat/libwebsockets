@@ -332,6 +332,87 @@ dl_extent(lws_displaylist_t *dl, int32_t *ew, int32_t *eh)
 	}
 }
 
+/*
+ * A retained render scans the whole display list for every line, so for each
+ * dlo, note the lines of the surface that it and its children can draw on:
+ * the raster can skip the subtree on all the others.  A dlo draws inside its
+ * box, like its children unless they're positioned outside it, and if it
+ * clips them, they can't draw outside it either.  A line either side
+ * allows for the fractions and for the walk entering a dlo from the line
+ * above its box.
+ */
+
+static void
+dl_subtree_extents(lws_displaylist_t *dl)
+{
+	struct {
+		lws_dlo_t	*dlo;
+		lws_dlo_t	*parent; /* whose children this level is */
+		lws_fx_t	y;	 /* the parent's origin */
+	} st[LWS_DLO_STACK_DEPTH];
+	lws_dll2_t *d = lws_dll2_get_head(&dl->dl);
+	lws_dlo_t *p;
+	int sp = 0;
+	lws_fx_t y, t;
+
+	if (!d)
+		return;
+
+	memset(st, 0, sizeof(st));
+	st[0].dlo = lws_container_of(d, lws_dlo_t, list);
+
+	while (sp >= 0) {
+		lws_dlo_t *dlo = st[sp].dlo;
+
+		if (!dlo) {
+			/* the children of this level's parent are all in it */
+			p = st[sp--].parent;
+			if (sp >= 0 && st[sp].parent && p) {
+				if (p->ext[0] < st[sp].parent->ext[0])
+					st[sp].parent->ext[0] = p->ext[0];
+				if (p->ext[1] > st[sp].parent->ext[1])
+					st[sp].parent->ext[1] = p->ext[1];
+			}
+			continue;
+		}
+
+		d = lws_dll2_get_next(&dlo->list);
+		st[sp].dlo = d ? lws_container_of(d, lws_dlo_t, list) : NULL;
+
+		lws_fx_add(&y, &st[sp].y, &dlo->box.y);
+		lws_fx_add(&t, &y, &dlo->box.h);
+
+		dlo->ext[0] = y.whole - 1;
+		dlo->ext[1] = lws_fx_roundup(&t) + 1;
+		dlo->flag_ext = 1;
+
+		d = lws_dll2_get_head(&dlo->children);
+		if (d && !dlo->flag_clip) {
+			if (sp + 1 == (int)LWS_ARRAY_SIZE(st)) {
+				/* too deep to follow: never skip it */
+				dlo->ext[0] = INT32_MIN;
+				dlo->ext[1] = INT32_MAX;
+			} else {
+				sp++;
+				st[sp].dlo = lws_container_of(d, lws_dlo_t,
+							      list);
+				st[sp].parent = dlo;
+				st[sp].y = y;
+				continue;
+			}
+		}
+
+		/* nothing below it to wait for, it's complete */
+		p = st[sp].parent;
+		if (p) {
+			if (dlo->ext[0] < p->ext[0])
+				p->ext[0] = dlo->ext[0];
+			if (dlo->ext[1] > p->ext[1])
+				p->ext[1] = dlo->ext[1];
+		}
+	}
+}
+
 int
 lws_display_render_pan(lws_display_render_state_t *rs, int dx, int dy)
 {
@@ -830,6 +911,20 @@ _lws_display_list_render_line(lws_display_render_state_t *rs)
 			return LWS_SRET_OK;
 
 		/*
+		 * Each scan of a retained display list from the top notes the
+		 * extents of its subtrees afresh, and a display list that
+		 * hasn't had them yet gets them whichever line it starts on.
+		 * A scan of a band lower down uses the extents from before, so
+		 * dlos moved since then must be inside one that clips them,
+		 * whose children are never skipped, like the keyboard dlo-ui
+		 * drags around inside its strip
+		 */
+		if (rs->retained &&
+		    (!rs->curr || !lws_container_of(d, lws_dlo_t,
+						    list)->flag_ext))
+			dl_subtree_extents(&rs->displaylist);
+
+		/*
 		 * Laid out on the surface, the display list covers the whole
 		 * of every line itself.  Panned, the view may show beyond it,
 		 * which starts out white like paper
@@ -861,6 +956,16 @@ _lws_display_list_render_line(lws_display_render_state_t *rs)
 				rs->sp--;
 			else
 				break;
+			continue;
+		}
+
+		if (rs->retained && dlo->flag_ext &&
+		    (rs->curr + rs->pan_y < dlo->ext[0] ||
+		     rs->curr + rs->pan_y > dlo->ext[1])) {
+			/* nothing in this subtree draws on this line */
+			d = lws_dll2_get_next(&dlo->list);
+			rs->st[rs->sp].dlo = d ? lws_container_of(d, lws_dlo_t,
+							  list) : NULL;
 			continue;
 		}
 

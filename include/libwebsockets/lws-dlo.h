@@ -180,6 +180,13 @@ typedef struct lws_dlo {
 						 * and our children are composed
 						 * with: 0, the default, is
 						 * opaque */
+	uint8_t				flag_ext:1; /* ext[] is valid */
+
+	int32_t				ext[2]; /* the surface lines we and
+						 * our children may draw on, top
+						 * and bottom inclusive, for a
+						 * retained render to skip us
+						 * on the others */
 
 	/* render-specific members ... */
 } lws_dlo_t;

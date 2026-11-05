@@ -87,7 +87,8 @@ static lws_display_state_t lds;
 static struct lws_dlo_ui *ui;
 static lws_sorted_usec_list_t sul_step, sul_timeout;
 static int step, fail, picked = -1, updates, upd_y0, upd_y1, win_y0, win_y1,
-	   lines, pass, seen_updates, done_calls, done_keep, kbx, titled;
+	   lines, pass, seen_updates, done_calls, done_keep, kbx, kby,
+	   titled;
 static char done_text[LWS_DLO_UI_EDIT_MAX];
 static char done_null, in_edit;
 static size_t heap_before;
@@ -291,13 +292,36 @@ drag(int x, int y, int dx, int dy)
 	touch("up", x + dx, y + dy, 0, 0);
 }
 
+/*
+ * The keys moved with the keyboard, backgrounds and all, where it was dragged
+ * to: the top of the g key in its second row, between its rounded corners and
+ * above its letter, is key coloured, and the gap before it isn't
+ */
+
+static int
+keys_at_kb(void)
+{
+	int left = kbx + ROW_H / 2 + 4 * ROW_H, top = KB_Y0 + kby + ROW_H;
+
+	if (colour_in(left + 6, top + 3, left + ROW_H - 6, top + 6,
+		      0xdd, 0xdd, 0xdd) != (ROW_H - 12) * 3 ||
+	    colour_in(left - 1, top + 8, left + 1, top + 12,
+		      0xdd, 0xdd, 0xdd)) {
+		lwsl_err("keys not where the keyboard was dragged\n");
+
+		return 0;
+	}
+
+	return 1;
+}
+
 /* press the key in half key hx of keyboard row r, as the keyboard is now */
 
 static void
 key(int r, int hx)
 {
 	touch("press", kbx + (hx * ROW_H) / 2 + ROW_H / 4,
-	      KB_Y0 + r * ROW_H + ROW_H / 2, 0, 0);
+	      KB_Y0 + kby + r * ROW_H + ROW_H / 2, 0, 0);
 }
 
 /* there was one more update, of lines y0 to y1 */
@@ -473,6 +497,7 @@ next_step(lws_sorted_usec_list_t *sul)
 		/* the edit page replaces the whole list page */
 
 		kbx = KB_X0;
+		kby = 0;
 		in_edit = 1;
 		if (lws_dlo_ui_edit(ui, "Passphrase", 63,
 				    LWS_DLO_UI_EDIT_MASKED)) {
@@ -509,14 +534,25 @@ next_step(lws_sorted_usec_list_t *sul)
 			return;
 		}
 
-		/* Shift is off the left: drag the keyboard right to it */
+		/*
+		 * Shift is off the left: drag the keyboard right to it, and up
+		 * half a row, into the top of its strip.  The page is as it was
+		 * laid out, so just the keyboard's dlo is moved, and only the
+		 * lines of its strip are drawn again
+		 */
 
-		drag(W / 2, KB_Y0 + 2 * ROW_H, -KB_X0, 0);
+		drag(W / 2, KB_Y0 + 2 * ROW_H, -KB_X0, -ROW_H / 2);
 		kbx = 0;
+		kby = -ROW_H / 2;
 		break;
 
 	case 6:
 		if (!updated("keyboard dragged", KB_Y0, H)) {
+			finish(0);
+			return;
+		}
+
+		if (!keys_at_kb()) {
 			finish(0);
 			return;
 		}
@@ -547,19 +583,7 @@ next_step(lws_sorted_usec_list_t *sul)
 			return;
 		}
 
-		/*
-		 * The drag only moved the keyboard as it was laid out, after
-		 * it was drawn there: the keys moved with it, backgrounds and
-		 * all.  The top of the t key, between its rounded corners and
-		 * above its letter, is key coloured, and the gap before it
-		 * isn't
-		 */
-		top = kbx + 4 * ROW_H;
-		if (colour_in(top + 6, KB_Y0 + 3, top + ROW_H - 6, KB_Y0 + 6,
-			      0xdd, 0xdd, 0xdd) != (ROW_H - 12) * 3 ||
-		    colour_in(top - 1, KB_Y0 + 8, top + 1, KB_Y0 + 12,
-			      0xdd, 0xdd, 0xdd)) {
-			lwsl_err("keys not where the keyboard was dragged\n");
+		if (!keys_at_kb()) {
 			finish(0);
 			return;
 		}
@@ -600,6 +624,7 @@ next_step(lws_sorted_usec_list_t *sul)
 
 		lws_dlo_ui_edit(ui, "Passphrase", 63, LWS_DLO_UI_EDIT_MASKED);
 		kbx = KB_X0;
+		kby = 0;
 		in_edit = 1;
 		break;
 

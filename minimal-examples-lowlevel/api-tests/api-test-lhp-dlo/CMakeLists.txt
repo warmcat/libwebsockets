@@ -451,6 +451,24 @@ if (requirements)
 				-DW=100 -DH=40
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 
+		# a retained display list scanned again panned down skips the
+		# subtrees with nothing on each line, but still finds what is
+		# positioned outside its parent's box, overflowing a zero height
+		# box, or cut by the top of the view, and comes out as the same
+		# view rendered streaming, which visits everything
+		if (LWS_WITH_JPEG)
+		add_test(NAME api-test-lhp-dlo-pan-extents-render
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/pan-extents.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/pan-extents
+				-DW=120 -DH=100
+				"-DCOMMON=--layout-h;600"
+				"-DFLAGS_A=--retained;--pan;0,0:0,47"
+				"-DFLAGS_B=--pan;0,47"
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+		endif()
+
 		# css opacity on a block reaches the pixels of everything inside
 		# it: the same as the opacity given to each of its children
 		if (LWS_WITH_SVG)
