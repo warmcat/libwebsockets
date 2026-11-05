@@ -653,6 +653,17 @@ a log is evidence that something was or was not emitted.
  - Any minimal example runs on libuv with `--uv` when `LD_LIBRARY_PATH`
    includes the build tree's `lib/` (where the evlib plugin is built): a
    quick way to fault-inject the evlib-plugin paths.
+ - Sai runs ctest with a *relative* `LD_LIBRARY_PATH`
+   (`../destdir/usr/local/lib`, and Fedora installs into `lib64`), so it
+   points at nothing from a test's own working directory.  A ctest that
+   picks an event lib (`LWS_EVLIB`, `--uv`...) must set
+   `LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib` in its own `ENVIRONMENT`,
+   or it fails at once on Sai with "failed to load evlib_xxx" while
+   passing locally.
+ - Anything browsing with lhp fetches through a secure stream from the
+   JSON policy: its test needs
+   `require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 ...)`,
+   or Sai's ss-variants builds fail it with "ss create failed".
  - Raw-socket wsi skip the close shutdown (close.c, role_ops_raw_skt): an
    lws raw client that sets SO_LINGER 0 and returns -1 sends a
    deterministic RST, an easy way to test a server seeing a peer reset.
