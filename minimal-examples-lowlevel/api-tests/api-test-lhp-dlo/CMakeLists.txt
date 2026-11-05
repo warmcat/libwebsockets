@@ -229,9 +229,12 @@ if (requirements)
 		endif()
 
 		# captured real-world pages, with their network assets made
-		# unreachable so the layout is the same every run; slashdot's
-		# golden includes its svg and gif assets
-		set(LHP_VECTORS lobsters-1/lobsters)
+		# unreachable so the layout is the same every run; lobsters'
+		# golden includes its svg asset, slashdot's its svg and gif ones
+		set(LHP_VECTORS)
+		if (LWS_WITH_SVG)
+			list(APPEND LHP_VECTORS lobsters-1/lobsters)
+		endif()
 		if (LWS_WITH_SVG AND LWS_WITH_GIF)
 			list(APPEND LHP_VECTORS slashdot-1/slashdot-1)
 		endif()
