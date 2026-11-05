@@ -46,12 +46,18 @@
 #include "main.h"
 #include <esp_wifi_types.h>
 #include "boot-ui.h"
+#include "update-ui.h"
 
 struct lws_context *cx;
 struct lws_touch_state *tcs;
 
 /* how long we wait after OPERATIONAL for the first update check to end */
 #define BOOT_OTA_WAIT_US	(90 * LWS_US_PER_SEC)
+/*
+ * How often the update display shows the progress: drawing it takes time
+ * from fetching and flashing the update
+ */
+#define UPDATE_SHOW_US		(3 * LWS_US_PER_SEC)
 
 static enum {
 	UI_BOOT,	/* the boot overlay */
@@ -81,6 +87,8 @@ static enum {
 } carousel_phase;
 static int carousel, update_pc, update_pc_shown = -1;
 static lws_sorted_usec_list_t sul_app, sul_boot_timeout, sul_ui;
+/* when the update display was last shown */
+static lws_usec_t update_shown_us;
 static char display_ready, boot_dirty, boot_done, seen_operational,
 	    finished;
 static uint32_t scan_sig_shown;
@@ -140,11 +148,7 @@ static const lws_dlo_filesystem_t fs_update_icon = {
 };
 
 static const char * const ui_css =
-	"body { font-family: sun; font-size: 12pt; background-color: #fff; }"
-	"h1 { font-family: sans; font-size: 32px; text-align: center; margin-bottom: 12px; color:#000; }"
-	".vari { font-family: sans; font-size: 20px; text-align: center; margin-bottom: 4px; color:#00f; }"
-	".icon { display: block; width: 96px; height: 96px; color: #000; margin-left: auto; margin-right:auto; margin-bottom: 10px }"
-	".bar { display: inline; width: 260px; height: 30px; color: #fff; background-color: #000; margin-left: auto; margin-right:auto; padding-left:4px; padding-right:4px; padding-top:4px; padding-bottom: 4px; margin-bottom: 48px }";
+	"body { font-family: sun; font-size: 12pt; background-color: #fff; }";
 
 static lws_dlo_filesystem_t fs_ui_css = {
 	.name			= "ui.css",
@@ -453,7 +457,8 @@ sui_show(void)
 		i.title = sui_title;
 		i.done = sui_done;
 		/* the title strip in the example's colours */
-		i.css = "#t { background-color: #1a5c3a } #tt { color: #ffe680 }";
+		i.css = "#t { background-color: " LHP_UI_STRIP_BG " }"
+			"#tt { color: " LHP_UI_STRIP_FG " }";
 
 		sui = lws_dlo_ui_create(&i);
 		if (!sui) {
@@ -551,7 +556,7 @@ boot_have_creds(void)
 static void
 update_show(void)
 {
-	char *html = malloc(1024);
+	char *html = malloc(2048);
 	int len;
 
 	if (!html)
@@ -560,24 +565,21 @@ update_show(void)
 	/* stop the application meanwhile */
 	lws_sul_cancel(&sul_app);
 
-	len = lws_snprintf(html, 1024,
-		"<!doctype html><html>"
-		"<head><meta charset=\"utf-8\" /><link rel=\"stylesheet\" href=\"ui.css\">"
-		"<style>.done { background-color: #fff; color: #000; width: %dpx; height: 20px; padding-top: 1px; font-size: 20pt; text-align: center }</style>"
-		"</head><body><h1>UPDATING</h1>"
-		"<div class=\"vari\">%s</div><br>"
-		"<div class=\"bar\" id=\"progress\"><div class=\"done\">%d%%</div></div>"
-		"<div class=\"icon\"><img src=\"file://dlofs/update-icon.png\"></div><br>"
-		"</body></html>",
-		update_pc *  3,
+	len = lhp_update_html(html, 2048, &lds.disp->ic,
 #if defined(LWS_WITH_OTA)
-		lws_ota_variant_name(),
+			      lws_ota_variant_name(),
 #else
-		"(ota disabled)",
+			      NULL,
 #endif
-		update_pc);
+			      update_pc);
+	if (len < 0) {
+		lwsl_err("%s: update page too big\n", __func__);
+		free(html);
+		return;
+	}
 
 	update_pc_shown = update_pc;
+	update_shown_us = lws_now_usecs();
 	page_show("update.html", html, len);
 }
 
@@ -687,8 +689,25 @@ ui_kick_cb(lws_sorted_usec_list_t *sul)
 	    st == LWS_SYSTATE_MODAL_UPDATING) {
 		/* the update display takes over, whatever else is going on */
 		sui_drop();
-		if (update_pc_shown != update_pc)
-			update_show();
+		if (update_pc_shown == update_pc)
+			return;
+
+		/*
+		 * The first is shown at once, then no more often than
+		 * UPDATE_SHOW_US, showing the progress by then
+		 */
+		if (update_pc_shown >= 0) {
+			lws_usec_t due = update_shown_us + UPDATE_SHOW_US,
+				   now = lws_now_usecs();
+
+			if (now < due) {
+				lws_sul_schedule(cx, 0, &sul_ui, ui_kick_cb,
+						 due - now);
+				return;
+			}
+		}
+
+		update_show();
 		return;
 	}
 

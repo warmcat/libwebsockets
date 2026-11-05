@@ -77,6 +77,17 @@ html is shown.  If the update check doesn't end in 90s, we carry on
 anyway.  If an update is found, a modal update display with its progress
 takes over the display instead, whatever is on it.
 
+The update display, made by `update-ui.c`, which also has nothing
+platform-specific in it, follows the overlay's look: the same title strip
+saying "Updating", in the same colours, then what is being updated and a
+bar filling up as it arrives, with the percentage.  Everything on it is
+placed for the display: on a round one, the bar is across the middle where
+the circle is widest and all of it is inside the circle; on a rectangular
+one, it goes in the middle of the space below the strip, with the update
+icon as big as there is room for.  Drawing it takes time from fetching
+and flashing the update, so after the first, it is only redrawn every 3s,
+showing the progress by then.
+
 ## Application
 
 The application is a placeholder for now: it visits each of a short list
