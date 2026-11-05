@@ -432,17 +432,16 @@ lws_display_render_pan(lws_display_render_state_t *rs, int dx, int dy)
 	return rs->pan_x != ox || rs->pan_y != oy;
 }
 
-void
-lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
-		   const lws_display_colour_t *c)
+/* x is known to be on the surface */
+
+static inline void
+surface_px(const lws_surface_info_t *ic, uint8_t *line, int x,
+	   const lws_display_colour_t *c)
 {
 	unsigned int alpha, ialpha;
 	lws_display_colour_t oc;
 	lws_display_colour_t y;
 	uint8_t rgb[3];
-
-	if (x < 0 || x >= ic->wh_px[0].whole)
-		return;
 
 	/*
 	 * All alpha composition takes place at 8bpp grey or 24bpp
@@ -483,6 +482,16 @@ lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
 
 	if (ic->render_to_rgba)
 		*line = 0xff;
+}
+
+void
+lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
+		   const lws_display_colour_t *c)
+{
+	if (x < 0 || x >= ic->wh_px[0].whole)
+		return;
+
+	surface_px(ic, line, x, c);
 }
 
 /*
@@ -736,6 +745,50 @@ lws_display_render_set_px(lws_display_render_state_t *rs, int x,
 		((LWSDC_ALPHA(*c) * rs->opacity + 127) / 255) << 24);
 
 	lws_surface_set_px(rs->ic, rs->line, x, &oc);
+}
+
+void
+lws_display_render_fill_span(lws_display_render_state_t *rs, int x0, int x1,
+			     const lws_display_colour_t *c)
+{
+	const lws_surface_info_t *ic = rs->ic;
+	lws_display_colour_t oc = *c;
+	int bpp = ic->greyscale ? 1 : (ic->render_to_rgba ? 4 : 3);
+	uint8_t *p;
+
+	if (x0 < rs->clip_x0)
+		x0 = rs->clip_x0;
+	if (x1 > rs->clip_x1)
+		x1 = rs->clip_x1;
+	if (x0 < 0)
+		x0 = 0;
+	if (x1 > ic->wh_px[0].whole)
+		x1 = ic->wh_px[0].whole;
+	if (x0 >= x1)
+		return;
+
+	if (rs->opacity != 255)
+		oc = (*c & 0xffffffu) | ((lws_display_colour_t)
+			((LWSDC_ALPHA(*c) * rs->opacity + 127) / 255) << 24);
+
+	if (LWSDC_ALPHA(oc) != 255 || ic->greyscale) {
+		/* it's composed with what's there, a pixel at a time */
+		while (x0 < x1)
+			surface_px(ic, rs->line, x0++, &oc);
+
+		return;
+	}
+
+	/* opaque, it just replaces what's there */
+
+	p = rs->line + bpp * x0;
+	while (x0++ < x1) {
+		*p++ = (uint8_t)LWSDC_R(oc);
+		*p++ = (uint8_t)LWSDC_G(oc);
+		*p++ = (uint8_t)LWSDC_B(oc);
+		if (bpp == 4)
+			*p++ = 0xff;
+	}
 }
 
 /*

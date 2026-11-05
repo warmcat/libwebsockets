@@ -77,7 +77,7 @@ lws_display_render_rect(struct lws_display_render_state *rs)
 	lws_fx_t cf, y, w, trim, s, e, t2, sfy, top, bot, cov, ox, oy;
 	lws_display_colour_t dc;
 	unsigned int row_alpha;
-	int n, le, os;
+	int n, le, os, pa, pb;
 
 	if (!LWSDC_ALPHA(dlo->dc))
 		return LWS_SRET_OK;
@@ -234,8 +234,36 @@ lws_display_render_rect(struct lws_display_render_state *rs)
 	s.frac = 0;
 	le = e.whole;
 
+	/*
+	 * Between the corners, and the first and last pixels that may be only
+	 * partly covered, all of the row is the rect's colour at row_alpha:
+	 * pa .. pb are the pixels where none of the per-pixel adjustments
+	 * below can apply, which are filled in one go
+	 */
+
+	pa = sfy.frac ? os + 1 : os;
+	pb = le - 1;
+	if (rs->curr <= r->c[0].ory.whole - 1 && pa <= r->c[0].orx.whole)
+		pa = r->c[0].orx.whole + 1;
+	if (rs->curr >= r->c[2].ory.whole + 1 &&
+	    pa < lws_fx_roundup(&r->c[2].orx))
+		pa = lws_fx_roundup(&r->c[2].orx);
+	if (rs->curr <= r->c[1].ory.whole - 1 && pb >= r->c[1].orx.whole)
+		pb = r->c[1].orx.whole - 1;
+	if (rs->curr >= r->c[3].ory.whole + 1 &&
+	    pb >= lws_fx_roundup(&r->c[3].orx))
+		pb = lws_fx_roundup(&r->c[3].orx) - 1;
+
 	while (s.whole <= le) {
 		unsigned int alpha = row_alpha;
+
+		if (s.whole == pa && pa <= pb) {
+			dc = (lws_display_colour_t)(((dlo->dc & 0xffffff) |
+					(uint32_t)(row_alpha << 24)));
+			lws_display_render_fill_span(rs, pa, pb + 1, &dc);
+			s.whole = pb + 1;
+			continue;
+		}
 
 		if (rs->curr <= r->c[0].ory.whole - 1 && s.whole >= r->db.x.whole &&
 		    lws_fx_comp(&s, &r->c[0].orx) <= 0) {

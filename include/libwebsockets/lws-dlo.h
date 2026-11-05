@@ -774,6 +774,22 @@ LWS_VISIBLE LWS_EXTERN void
 lws_display_render_set_px(lws_display_render_state_t *rs, int x,
 			  const lws_display_colour_t *c);
 
+/*
+ * lws_display_render_fill_span() - compose a run of pixels of one colour
+ *
+ * \param rs: render state, during the dlo's render callback
+ * \param x0: surface x of the first pixel on the current line
+ * \param x1: surface x of the pixel after the last
+ * \param c: the colour, with its alpha
+ *
+ * The same as lws_display_render_set_px() for each pixel from x0 up to x1,
+ * but the clipping and opacity are dealt with once for the run, eg, for the
+ * part of a line a box fills
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_display_render_fill_span(lws_display_render_state_t *rs, int x0, int x1,
+			     const lws_display_colour_t *c);
+
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lws_display_get_ids_boxes(lws_display_render_state_t *rs);
 
