@@ -61,7 +61,7 @@ LWS_SS_USER_TYPEDEF
 						   * hold a flow: it only asks
 						   * for more credit with it */
 	lws_dll2_t			active_asset_list; /*cx->active_assets*/
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 	struct lws_buflist		*cache_bl; /* whole-payload mirror for
 						 * the asset cache */
 	uint8_t				*cache_hit; /* deferred css feed */
@@ -662,16 +662,11 @@ dloss_rx_stash(dloss_t *m, const uint8_t *buf, size_t len)
 	if (!len)
 		return 0;
 
-#if defined(LWS_WITH_CACHE_BLOB)
-	if (!m->no_cache && m->type != LWSDLOSS_TYPE_GIF &&
-	    lws_ss_get_context(m->ss)->dlo_asset_l1 && m->hl) {
-		if (lws_buflist_append_segment(&m->cache_bl, buf, len) < 0) {
-			/* we can't make a complete copy: don't cache a
-			 * partial payload */
-			lws_buflist_destroy_all_segments(&m->cache_bl);
-			m->no_cache = 1;
-		}
-	}
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
+	if (!m->no_cache && m->type != LWSDLOSS_TYPE_GIF && m->hl &&
+	    lws_dlo_asset_cache_mirror(lws_ss_get_context(m->ss),
+				       &m->cache_bl, buf, len))
+		m->no_cache = 1;
 #endif
 
 #if defined(LWS_WITH_GIF)
@@ -726,7 +721,28 @@ dloss_magic_fixup(dloss_t *m)
 	return 0;
 }
 
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
+
+int
+lws_dlo_asset_cache_mirror(struct lws_context *cx, struct lws_buflist **bl,
+			   const uint8_t *buf, size_t len)
+{
+	if (!cx->dlo_asset_l1)
+		return 1;
+
+	/*
+	 * Too big for the cache to take: don't hold a copy of it until it's
+	 * all here only to find that out.  Nor can a partial copy be cached.
+	 */
+
+	if (lws_buflist_total_len(bl) + len > cx->dlo_asset_max_payload ||
+	    lws_buflist_append_segment(bl, buf, len) < 0) {
+		lws_buflist_destroy_all_segments(bl);
+		return 1;
+	}
+
+	return 0;
+}
 
 /*
  * The asset payload has all arrived: write it through to the context asset
@@ -751,7 +767,7 @@ dloss_cache_write(dloss_t *m, struct lws_context *cx)
 
 		lws_dlo_gif_t *dg = m->u.u.dlo_gif;
 
-		if (dg->whole_len)
+		if (dg->whole_len && dg->whole_len <= cx->dlo_asset_max_payload)
 			if (lws_cache_write_through(cx->dlo_asset_l1, m->url,
 						    dg->whole, dg->whole_len,
 						    expiry, NULL))
@@ -872,7 +888,7 @@ dloss_head_more(lws_flow_t *flow)
 					  LWS_DLO_IMAGE_HEAD_CREDIT - est);
 }
 
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 /*
  * A cached stylesheet's payload is fed through the css rx path from the
  * event loop, not from inside lws_dlo_ss_create: create happens in the
@@ -936,17 +952,14 @@ _dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		awaited = m->lhp->await_css_done &&
 			  !strcmp(m->url, m->lhp->await_css_url);
 
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 		/* mirror the stylesheet payload for the cache write-through
 		 * at EOM, like image rx chunks are */
 
-		if (len && !m->no_cache &&
-		    lws_ss_get_context(m->ss)->dlo_asset_l1 && m->hl) {
-			if (lws_buflist_append_segment(&m->cache_bl, buf, len) < 0) {
-				lws_buflist_destroy_all_segments(&m->cache_bl);
-				m->no_cache = 1;
-			}
-		}
+		if (len && !m->no_cache && m->hl &&
+		    lws_dlo_asset_cache_mirror(lws_ss_get_context(m->ss),
+					       &m->cache_bl, buf, len))
+			m->no_cache = 1;
 #endif
 
 		/*
@@ -986,7 +999,7 @@ _dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 			dlo_assets_kick(lws_ss_get_context(m->ss));
 			dlo_assets_maybe_drained(lws_ss_get_context(m->ss), m->lhp);
 
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 			/* the stylesheet payload is all here: cache it */
 
 			dloss_cache_write(m, lws_ss_get_context(m->ss));
@@ -1082,7 +1095,7 @@ _dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		dlo_assets_kick(lws_ss_get_context(m->ss));
 		dlo_assets_maybe_drained(lws_ss_get_context(m->ss), m->lhp);
 
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 		/* the payload is all here: it can go into the asset cache */
 
 		dloss_cache_write(m, lws_ss_get_context(m->ss));
@@ -1163,7 +1176,7 @@ _dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	case LWSSSCS_DESTROYING:
 		lws_sul_cancel(&m->sul);
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 		lws_buflist_destroy_all_segments(&m->cache_bl);
 #endif
 		/* it may be on either the active or the queued list */
@@ -1379,7 +1392,7 @@ dloss_fp_heap(dloss_t *m)
 {
 	size_t b = sizeof(*m);
 
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 	b += lws_buflist_total_len(&m->cache_bl) +
 	     lws_fp_heap(m->cache_hit, m->cache_hit_len);
 #endif
@@ -1560,7 +1573,7 @@ dloss_start(const lws_dlo_ss_create_info_t *i, const char *url, uint8_t type,
 		goto fail;
 	}
 
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 	/*
 	 * If the cache has a still-valid copy of this asset, there is no need
 	 * for the network at all.  Images are fed to the dlo the same way a
@@ -1960,7 +1973,7 @@ bail:
 	return 1;
 }
 
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 /*
  * Drop a flow's stashed payload and forget where the decoder had got to
  * in it.  The cursor (data / len / blseglen) refers to the segment being
@@ -2046,7 +2059,7 @@ dloss_renew(dloss_t *ds, const void *data, size_t size)
 	}
 }
 
-#endif /* LWS_WITH_CACHE_BLOB */
+#endif /* LWS_WITH_DLO_ASSET_CACHE */
 
 /*
  * One image, evicted to make room, is about to be rendered: its payload
@@ -2058,7 +2071,7 @@ dloss_renew(dloss_t *ds, const void *data, size_t size)
 LWS_VISIBLE int
 lws_dlo_ss_renew_image(struct lws_context *cx, lws_dlo_t *dlo)
 {
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 	if (!cx->dlo_asset_l1)
 		return 1;
 
@@ -2097,7 +2110,7 @@ lws_dlo_ss_renew_image(struct lws_context *cx, lws_dlo_t *dlo)
 LWS_VISIBLE void
 lws_dlo_ss_renew_images(struct lws_context *cx)
 {
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 	if (!cx->dlo_asset_l1)
 		return;
 

@@ -1068,9 +1068,13 @@ lws_dlo_ss_renew_image(struct lws_context *cx, lws_dlo_t *dlo);
 
 
 /*
- * The context dlo asset cache (see the dlo_asset_cache_dir member of
- * lws_context_creation_info) stores fetched image assets in a self-maintaining
- * file-backed cache, so still-valid assets are reused instead of refetched.
+ * The context dlo asset cache stores fetched assets, so still-valid ones are
+ * reused instead of fetched again, eg, an image a retained display list is
+ * redrawn over at another pan.  Given the dlo_asset_cache_dir member of
+ * lws_context_creation_info, it's an in-memory level over a self-maintaining
+ * file-backed one (with LWS_WITH_CACHE_BLOB, on posix); given only
+ * dlo_asset_cache_max_footprint, it's the in-memory level alone, of that
+ * size, eg, for a device with no filesystem.
  */
 
 #if !defined(LWS_DLO_ASSET_BLOB_DEFAULT_MAX_FOOTPRINT)
@@ -1086,7 +1090,14 @@ lws_dlo_ss_renew_image(struct lws_context *cx, lws_dlo_t *dlo);
 
 #if !defined(LWS_DLO_ASSET_L1_MAX_FOOTPRINT)
 #define LWS_DLO_ASSET_L1_MAX_FOOTPRINT		(8 * 1024 * 1024)
-/**< max heap bytes for the in-memory level of the asset cache */
+/**< max heap bytes for the in-memory level of the asset cache, when it is
+ * over the file-backed level */
+#endif
+
+#if !defined(LWS_DLO_ASSET_HEAP_PAYLOAD_DIV)
+#define LWS_DLO_ASSET_HEAP_PAYLOAD_DIV		4
+/**< an in-memory only asset cache doesn't take assets larger than this
+ * fraction of its footprint, so one big one can't push out all the rest */
 #endif
 
 #if !defined(LWS_DLO_ASSET_L1_MAX_ITEMS)
@@ -1105,7 +1116,7 @@ lws_dlo_ss_renew_image(struct lws_context *cx, lws_dlo_t *dlo);
  *
  * \param cx: the lws_context
  *
- * Returns NULL if the context was created without dlo_asset_cache_dir, else
+ * Returns NULL if the context was created without an asset cache, else
  * the L1 cache handle of the context asset cache, for inspection or manual
  * invalidation using the lws_cache_ttl apis.  The cache belongs to the
  * context and is destroyed with it.

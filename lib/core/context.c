@@ -648,7 +648,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	uint8_t *u;
 	uint16_t us_wait_resolution = 0;
 #if (defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)) || \
-    defined(LWS_WITH_CACHE_BLOB)
+    defined(LWS_WITH_DLO_ASSET_CACHE)
 	struct lws_cache_creation_info ci;
 #endif
 
@@ -2089,6 +2089,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 #endif
 
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 #if defined(LWS_WITH_CACHE_BLOB)
 	if (info->dlo_asset_cache_dir) {
 		memset(&ci, 0, sizeof(ci));
@@ -2121,6 +2122,33 @@ lws_create_context(const struct lws_context_creation_info *info)
 			lwsl_cx_err(context, "Failed to init asset L1");
 			goto bail;
 		}
+		context->dlo_asset_max_payload = LWS_DLO_ASSET_BLOB_MAX_PAYLOAD;
+	} else
+#endif
+	if (info->dlo_asset_cache_max_footprint) {
+
+		/*
+		 * The in-memory level alone, eg, with no filesystem to put the
+		 * outer level in.  It's sized to leave the heap for whatever
+		 * lws is serving, so it only takes assets that are a fraction
+		 * of it: one big one would push out all the small ones
+		 */
+
+		memset(&ci, 0, sizeof(ci));
+		ci.cx			  = context;
+		ci.ops			  = &lws_cache_ops_heap;
+		ci.name			  = "ASSET_L1";
+		ci.max_footprint	  = info->dlo_asset_cache_max_footprint;
+		ci.max_items		  = LWS_DLO_ASSET_L1_MAX_ITEMS;
+
+		context->dlo_asset_l1 = lws_cache_create(&ci);
+		if (!context->dlo_asset_l1) {
+			lwsl_cx_err(context, "Failed to init asset L1");
+			goto bail;
+		}
+		context->dlo_asset_max_payload =
+				info->dlo_asset_cache_max_footprint /
+					LWS_DLO_ASSET_HEAP_PAYLOAD_DIV;
 	}
 #endif
 
@@ -3183,8 +3211,10 @@ next_l:
     defined(LWS_WITH_FOOTPRINT)
 		lws_footprint_unregister(&context->fp_dlo_assets);
 #endif
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 		lws_cache_destroy(&context->dlo_asset_l1);
+#endif
+#if defined(LWS_WITH_CACHE_BLOB)
 		lws_cache_destroy(&context->dlo_asset_cache_blob);
 #endif
 

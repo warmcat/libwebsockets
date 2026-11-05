@@ -1458,7 +1458,7 @@ const struct lws_plat_file_ops lws_dlo_fops = {
 
 #endif
 
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 struct lws_cache_ttl_lru *
 lws_dlo_asset_cache(struct lws_context *cx)
 {

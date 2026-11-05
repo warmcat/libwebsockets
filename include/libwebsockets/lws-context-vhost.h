@@ -1234,15 +1234,19 @@ struct lws_context_creation_info {
 
 #if defined(LWS_WITH_CACHE_BLOB)
 	const char				*dlo_asset_cache_dir;
-	/**< CONTEXT: NULL for no document asset cache, else the directory to
-	 * use for a file-backed cache of assets fetched for html documents
-	 * (images).  Still-valid cached copies are used instead of fetching
-	 * again; fetched assets are written through to the cache.  The cache
-	 * maintains itself under its size limit in the background. */
+	/**< CONTEXT: NULL for no file-backed document asset cache, else the
+	 * directory to use for a file-backed cache of assets fetched for html
+	 * documents (images).  Still-valid cached copies are used instead of
+	 * fetching again; fetched assets are written through to the cache.
+	 * The cache maintains itself under its size limit in the background. */
+#endif
 
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 	size_t					dlo_asset_cache_max_footprint;
-	/**< CONTEXT: 0 for a default limit, else the max bytes the document
-	 * asset cache may use on disk */
+	/**< CONTEXT: with dlo_asset_cache_dir, 0 for a default limit, else the
+	 * max bytes the document asset cache may use on disk.  Without it, 0
+	 * for no document asset cache, else the max bytes of heap for an
+	 * in-memory only one, eg, for a device with no filesystem */
 #endif
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)

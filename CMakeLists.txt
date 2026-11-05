@@ -494,6 +494,7 @@ else()
 	option(LWS_WITH_CACHE_NSCOOKIEJAR "Build file-backed lws-cache-ttl that uses netscape cookie jar format (linux-only)" OFF)
 endif()
 
+option(LWS_WITH_DLO_ASSET_CACHE "Document asset cache for lhp, so fetched images and css are reused rather than fetched again: in memory, and over LWS_WITH_CACHE_BLOB where it builds (implied by LWS_WITH_LHP)" ON)
 option(LWS_WITH_CACHE_BLOB "Build file-backed lws-cache-ttl blob level over the hashed diskcache layout, for the document asset cache (posix, implied by LWS_WITH_LHP where it can build)" ON)
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")

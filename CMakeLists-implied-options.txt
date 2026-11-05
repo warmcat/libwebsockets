@@ -582,11 +582,10 @@ if (LWS_WITH_LHP)
 	# the font manifest, see lws_fonts_register_manifest()
 	set(LWS_WITH_STRUCT_JSON 1)
 
-	# lhp's document asset cache comes along where the file-backed blob
-	# cache level can build
-	if (UNIX AND LWS_WITH_DIR AND LWS_WITH_NETWORK)
-		set(LWS_WITH_CACHE_BLOB 1)
-	endif()
+	# lhp's document asset cache is over the file-backed blob cache level
+	# where that can build, LWS_WITH_CACHE_BLOB being on by default... but
+	# it can be turned off, eg, to build as a device with no filesystem
+	# does, with the in-memory level alone
 endif()
 
 # the file-backed blob cache level is built on the diskcache dir machinery
@@ -594,6 +593,14 @@ endif()
 
 if (LWS_WITH_CACHE_BLOB AND NOT (UNIX AND LWS_WITH_DIR AND LWS_WITH_NETWORK))
 	set(LWS_WITH_CACHE_BLOB 0)
+endif()
+
+# lhp's document asset cache is an lws-cache-ttl heap level, optionally over
+# the blob level, for documents fetched by secure streams
+
+if (NOT (LWS_WITH_LHP AND LWS_WITH_NETWORK AND LWS_WITH_SECURE_STREAMS AND
+	 LWS_WITH_CLIENT))
+	set(LWS_WITH_DLO_ASSET_CACHE 0)
 endif()
 
 if (LWS_WITH_AUTHORITATIVE_DNS)

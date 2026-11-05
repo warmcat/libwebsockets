@@ -766,7 +766,11 @@ struct lws_context {
 #endif
 
 #if defined(LWS_WITH_CACHE_BLOB)
-	struct lws_cache_ttl_lru *dlo_asset_cache_blob, *dlo_asset_l1;
+	struct lws_cache_ttl_lru *dlo_asset_cache_blob;
+#endif
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
+	struct lws_cache_ttl_lru *dlo_asset_l1;
+	size_t			dlo_asset_max_payload; /* bigger isn't cached */
 #endif
 
 #if defined(LWS_WITH_CLIENT)
@@ -1656,6 +1660,18 @@ void
 lws_plat_context_early_destroy(struct lws_context *context);
 void
 lws_plat_context_late_destroy(struct lws_context *context);
+
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
+/*
+ * Keep a copy of an asset's payload as it arrives, for writing it through to
+ * the context asset cache once it's all there.  Nonzero if it can't be cached
+ * after all, eg, it's grown bigger than the cache takes, and the copy so far
+ * is dropped.
+ */
+int
+lws_dlo_asset_cache_mirror(struct lws_context *cx, struct lws_buflist **bl,
+			   const uint8_t *buf, size_t len);
+#endif
 
 int
 lws_plat_init(struct lws_context *context,

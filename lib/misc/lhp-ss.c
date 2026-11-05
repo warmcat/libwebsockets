@@ -36,7 +36,7 @@ LWS_SS_USER_TYPEDEF
 	lws_dl_rend_t			drt;
 	lws_display_render_state_t	*rs;
 	struct lws_context		*cx;
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 	struct lws_buflist		*cache_bl; /* whole-doc mirror for the
 						 * asset cache */
 	char				url[LHP_URL_LEN]; /* cache key */
@@ -172,7 +172,7 @@ htmlss_parse(htmlss_t *m)
 		}
 	} while (1);
 
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 	/*
 	 * The document payload is all here: it can go into the asset cache,
 	 * so the next browse of the same url does not need the network
@@ -300,29 +300,24 @@ _htmlss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		 */
 		lwsl_warn("%s: OOM taking %u of the document\n", __func__,
 			  (unsigned int)len);
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 		m->no_cache = 1;
 #endif
 		return LWSSSSRET_DISCONNECT_ME;
 	}
 
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 	/*
 	 * When the document asset cache is active, keep a copy of the
 	 * document payload for the write-through at document end: the parse
 	 * consumes the flow buflist as it goes
 	 */
 
-	if (len && !m->no_cache && !m->from_cache &&
-	    lws_ss_get_context(m->ss)->dlo_asset_l1 && *m->url &&
-	    strncmp(m->url, "file://", 7)) {
-		if (lws_buflist_append_segment(&m->cache_bl, buf, len) < 0) {
-			/* we can't make a complete copy: don't cache a
-			 * partial document */
-			lws_buflist_destroy_all_segments(&m->cache_bl);
-			m->no_cache = 1;
-		}
-	}
+	if (len && !m->no_cache && !m->from_cache && *m->url &&
+	    strncmp(m->url, "file://", 7) &&
+	    lws_dlo_asset_cache_mirror(lws_ss_get_context(m->ss),
+				       &m->cache_bl, buf, len))
+		m->no_cache = 1;
 #endif
 
 	lwsl_notice("%s: buflen size %d\n", __func__,
@@ -386,7 +381,7 @@ _htmlss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		 * context's sul owner list pointing into freed memory
 		 */
 		lws_sul_cancel(&m->sul);
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 		lws_buflist_destroy_all_segments(&m->cache_bl);
 #endif
 		if (m->rs)
@@ -445,7 +440,7 @@ htmlss_fp_report(lws_footprint_t *fp, lws_footprint_report_t *r)
 	size_t b = sizeof(*m) + lws_lhp_heap(&m->lhp) +
 		   lws_buflist_total_len(&m->flow.bl);
 
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 	b += lws_buflist_total_len(&m->cache_bl);
 #endif
 	r->count	= 1;
@@ -591,7 +586,7 @@ _lws_lhp_ss_browse_filter(struct lws_context *cx,
 		goto bail2;
 	}
 
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 	/*
 	 * If the cache still has a copy of this document, it can be fed to
 	 * the parser through the same path the network rx uses, and the

@@ -484,6 +484,39 @@ if (requirements)
 				"-DFLAGS_B=--pan;0,2100"
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 
+		if (LWS_WITH_DLO_ASSET_CACHE)
+			# an in-memory only asset cache, as on a device with no
+			# filesystem, sized as a device can spare: the cached
+			# image is laid out with its real dimensions, the same
+			# as from the file-backed cache
+			add_test(NAME api-test-lhp-dlo-14-asset-cache-heap
+				 COMMAND ${CMAKE_COMMAND}
+					-DTOOL=$<TARGET_FILE:${SAMP}>
+					-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/14-asset-cache.html
+					-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/cases/14-asset-cache.dlo
+					-DOUT=${CMAKE_CURRENT_BINARY_DIR}/14-asset-cache-heap.dlo
+					-DASSET_CACHE_HEAP=131072
+					-DPRESEED=https://missing.invalid/bluecat.jpg=${CMAKE_CURRENT_SOURCE_DIR}/bluecat.jpg
+					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+
+			# panning a retained display list draws an image again
+			# at each pan, after the raster let it go: it must come
+			# back from the in-memory cache, since where it came from
+			# can't be reached, and the last view is the same as the
+			# view rendered streaming
+			add_test(NAME api-test-lhp-dlo-pan-cache-heap
+				 COMMAND ${CMAKE_COMMAND}
+					-DTOOL=$<TARGET_FILE:${SAMP}>
+					-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/pan-cache.html
+					-DOUT=${CMAKE_CURRENT_BINARY_DIR}/pan-cache-heap
+					-DW=120 -DH=60
+					-DASSET_CACHE_HEAP=131072
+					"-DCOMMON=--layout-h;400;--preseed;https://missing.invalid/exclaim.png=${CMAKE_CURRENT_SOURCE_DIR}/exclaim.png"
+					"-DFLAGS_A=--retained;--pan;0,0:0,10:0,20:0,25"
+					"-DFLAGS_B=--pan;0,25"
+					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+		endif()
+
 		# css opacity on a block reaches the pixels of everything inside
 		# it: the same as the opacity given to each of its children
 		if (LWS_WITH_SVG)

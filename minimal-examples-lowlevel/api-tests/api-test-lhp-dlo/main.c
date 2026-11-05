@@ -18,6 +18,7 @@ enum {
 		LWS_SW_CSS_FILTER,
 		LWS_SW_BLOCK_LIST,
 		LWS_SW_ASSET_CACHE,
+		LWS_SW_ASSET_CACHE_HEAP,
 		LWS_SW_PRESEED,
 		LWS_SW_FONTS,
 		LWS_SW_FONT_MANIFEST,
@@ -45,6 +46,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_CSS_FILTER]= { "--css-filter", "Filter css from file hides junk elements, eg .ad { display: none !important; }" },
 	[LWS_SW_BLOCK_LIST]= { "--block-list", "URL block rules from file: ||host.tld or substring per line" },
 	[LWS_SW_ASSET_CACHE]= { "--asset-cache", "Directory for the document asset cache, enables it" },
+	[LWS_SW_ASSET_CACHE_HEAP]= { "--asset-cache-heap", "Without --asset-cache, enables an in-memory only document asset cache of this many bytes, as a device without a filesystem has" },
 	[LWS_SW_PRESEED]	= { "--preseed",    "Preseed the asset cache with url=file" },
 	[LWS_SW_FONTS]	= { "--fonts",         "Register the .mcufont files in this directory as file-backed faces, instead of the built-in ones" },
 	[LWS_SW_FONT_MANIFEST] = { "--font-manifest", "Use the faces this font manifest url lists, fetched when needed, with only one built-in face as the fallback" },
@@ -863,7 +865,7 @@ sigint_handler(int sig)
  * Read a whole file into a NUL-terminated heap buffer, or return NULL.  The
  * caller frees it with free().
  */
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 static uint8_t *
 read_raw_file(const char *path, size_t *len)
 {
@@ -981,6 +983,11 @@ main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv,
 				     switches[LWS_SW_ASSET_CACHE].sw)))
 		info.dlo_asset_cache_dir = p;
+#endif
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
+	if ((p = lws_cmdline_option(argc, argv,
+				     switches[LWS_SW_ASSET_CACHE_HEAP].sw)))
+		info.dlo_asset_cache_max_footprint = (size_t)atol(p);
 #endif
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_BMP].sw))) {
@@ -1172,14 +1179,14 @@ main(int argc, const char **argv)
 
 	drs.ic = &ic;
 
-#if defined(LWS_WITH_CACHE_BLOB)
+#if defined(LWS_WITH_DLO_ASSET_CACHE)
 	/*
 	 * Optionally preseed the asset cache with a file payload under an
 	 * arbitrary url (--preseed url=file), so cache hits can be tested
 	 * without any network
 	 */
 
-	if (info.dlo_asset_cache_dir) {
+	{
 		struct lws_cache_ttl_lru *cache = lws_dlo_asset_cache(cx);
 		const char *ps = lws_cmdline_option(argc, argv,
 						switches[LWS_SW_PRESEED].sw);
