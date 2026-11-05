@@ -317,6 +317,9 @@ typedef struct lws_dlo_text {
 	/* referred to by glyphs */
 	struct lws_display_render_state	*rs; /* during render only */
 	struct lwsac			*ac_glyphs;
+	lws_dll2_t			glyphed; /* on the display list's
+						  * .glyphed while it has
+						  * glyphs attached */
 	uint16_t			curr;
 	uint16_t			glyph_row; /* rows the glyph run decoders
 						    * have produced since attach */
@@ -483,6 +486,8 @@ typedef struct {
 
 typedef struct lws_displaylist {
 	lws_dll2_owner_t		dl;
+	lws_dll2_owner_t		glyphed; /* text dlos with glyphs
+						  * attached for rendering */
 	struct lws_display_state 	*ds;
 	char				hold_fonts; /* the text keeps the
 						* pages of the faces from a

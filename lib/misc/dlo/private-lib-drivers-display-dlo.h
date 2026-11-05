@@ -369,6 +369,9 @@ lws_display_font_mcufont_file_destroy(lws_display_font_t *f);
 void
 lws_display_font_mcufont_release_glyphs(lws_dlo_text_t *text);
 
+void
+lws_display_dlo_text_detach_glyphs(lws_dlo_text_t *text);
+
 int
 lws_display_dlo_text_refit(lws_dlo_text_t *text);
 

@@ -104,6 +104,7 @@ void
 lws_display_dl_init(lws_displaylist_t *dl, lws_display_state_t *ds)
 {
 	lws_dll2_owner_clear(&dl->dl);
+	lws_dll2_owner_clear(&dl->glyphed);
 	dl->ds = ds;
 	/* the lhp that lays out into it sets this if it wants it */
 	dl->hold_fonts = 0;
@@ -978,6 +979,21 @@ _lws_display_list_render_line(lws_display_render_state_t *rs)
 		    (!rs->curr || !lws_container_of(d, lws_dlo_t,
 						    list)->flag_ext))
 			dl_subtree_extents(&rs->displaylist);
+
+		/*
+		 * Text keeps the glyphs it was drawn with until it's drawn
+		 * again, when they are attached afresh.  Text the display
+		 * won't show on this scan, eg, panned out of view, would keep
+		 * them, and what they pin, for good: so they all go when a
+		 * retained scan starts from the top
+		 */
+		if (rs->retained && !rs->curr)
+			lws_start_foreach_dll_safe(struct lws_dll2 *, g, g1,
+				lws_dll2_get_head(&rs->displaylist.glyphed)) {
+				lws_display_dlo_text_detach_glyphs(
+					lws_container_of(g, lws_dlo_text_t,
+							 glyphed));
+			} lws_end_foreach_dll_safe(g, g1);
 
 		/*
 		 * Laid out on the surface, the display list covers the whole

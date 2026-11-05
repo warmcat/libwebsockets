@@ -469,6 +469,21 @@ if (requirements)
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 		endif()
 
+		# panning a retained display list over more and more of a long
+		# page holds no more heap: what the text was drawn with is let
+		# go when it can't be seen.  The last view is the same as the
+		# view rendered streaming
+		add_test(NAME api-test-lhp-dlo-pan-heap
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/pan-heap.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/pan-heap
+				-DW=120 -DH=100
+				"-DCOMMON=--layout-h;4000"
+				"-DFLAGS_A=--retained;--pan;0,0:0,300:0,600:0,900:0,1200:0,1500:0,1800:0,2100;--pan-heap-max;8192"
+				"-DFLAGS_B=--pan;0,2100"
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+
 		# css opacity on a block reaches the pixels of everything inside
 		# it: the same as the opacity given to each of its children
 		if (LWS_WITH_SVG)

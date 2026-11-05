@@ -1445,13 +1445,19 @@ mcufont_render(struct lws_display_render_state *rs, lws_dlo_text_t *text,
 
 	if (!text->glyphs.count || yo < (int)text->glyph_row ||
 	    gen != text->font_gen) {
-		lws_display_font_mcufont_release_glyphs(text);
-		lwsac_free(&text->ac_glyphs);
-		memset(&text->glyphs, 0, sizeof(text->glyphs));
-		text->glyph_row = 0;
+		lws_display_dlo_text_detach_glyphs(text);
 		text->font_gen = gen;
 
 		lws_display_dlo_text_attach_glyphs(text);
+
+		/*
+		 * A retained display list keeps the text after it's drawn: the
+		 * display list lets the glyphs go when it's next scanned from
+		 * the top, so they are only held for what is on the display
+		 */
+		if (text->glyphs.count)
+			lws_dll2_add_tail(&text->glyphed,
+					  &rs->displaylist.glyphed);
 
 		t3.frac = 0;
 		lws_start_foreach_dll(struct lws_dll2 *, d,

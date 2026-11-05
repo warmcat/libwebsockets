@@ -82,6 +82,7 @@ lws_display_dlo_text_destroy(struct lws_dlo *dlo)
 
 	lws_display_font_mcufont_release_glyphs(text);
 	lwsac_free(&text->ac_glyphs);
+	lws_dll2_remove(&text->glyphed);
 
 	if (text->font_held)
 		lws_font_unpin(text->font_held);
@@ -194,12 +195,13 @@ dlo_text_fit(lws_dlo_text_t *text, const char *utf8, size_t text_len,
 
 /* the glyphs attached to the text are let go, to be attached again later */
 
-static void
-dlo_text_detach_glyphs(lws_dlo_text_t *text)
+void
+lws_display_dlo_text_detach_glyphs(lws_dlo_text_t *text)
 {
 	lws_display_font_mcufont_release_glyphs(text);
 	lws_dll2_owner_clear(&text->glyphs);
 	lwsac_free(&text->ac_glyphs);
+	lws_dll2_remove(&text->glyphed);
 	text->glyph_row = 0;
 }
 
@@ -222,7 +224,7 @@ lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 	if (text->text)
 		lws_free_set_NULL(text->text);
 
-	dlo_text_detach_glyphs(text);
+	lws_display_dlo_text_detach_glyphs(text);
 
 	text->indent = indent;
 	text->dlo.dc = dc;
@@ -257,7 +259,7 @@ lws_display_dlo_text_refit(lws_dlo_text_t *text)
 	lws_fx_t eff;
 	size_t n;
 
-	dlo_text_detach_glyphs(text);
+	lws_display_dlo_text_detach_glyphs(text);
 
 	/* the face's metrics are taken afresh from the face it has now */
 	text->font_height = 0;

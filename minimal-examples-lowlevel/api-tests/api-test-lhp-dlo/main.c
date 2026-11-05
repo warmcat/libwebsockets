@@ -32,6 +32,7 @@ enum {
 		LWS_SW_SVG_LIVE_MAX,
 		LWS_SW_LAYOUT_H,
 		LWS_SW_PAN,
+		LWS_SW_PAN_HEAP_MAX,
 		LWS_SW_HELP,
 };
 
@@ -58,6 +59,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_SVG_LIVE_MAX] = { "--svg-live-max", "Fail if more than this many svg images were held at once" },
 	[LWS_SW_LAYOUT_H] = { "--layout-h",    "Lay the page out this tall in px, taller than --h, so it can be panned down (rs.layout_h)" },
 	[LWS_SW_PAN]	= { "--pan",           "x,y[:x,y...]: render the display list panned to x,y with lws_display_render_pan(), kept to what is laid out.  With --retained, more are rendered one after the other from the same display list, as a touch display redraws a page dragged around, and the last goes in the bmp" },
+	[LWS_SW_PAN_HEAP_MAX] = { "--pan-heap-max", "With --retained and more than one --pan, fail if the heap in use after the last pan is more than this many bytes over what it was after the first" },
 	[LWS_SW_HELP]	= { "--help",          "Show this help information" },
 };
 
@@ -202,7 +204,9 @@ static const char *dump_path;
 static struct {
 	int x, y;
 } pans[PAN_MAX];
-static int pan_count, pan_step;
+static int pan_count, pan_step, pan_heap_max = -1;
+/* the heap in use after the first --pan was rendered */
+static size_t pan_heap_first;
 static int reclaim_lines, reclaimed_line = -1, svg_live_max = -1, starve_ms;
 static size_t heap_limit;
 static lws_sorted_usec_list_t sul_starve;
@@ -795,6 +799,26 @@ render(lws_sorted_usec_list_t *sul)
 	free(rs->line);
 	rs->line = NULL;
 
+	if (pan_count) {
+		/*
+		 * Panning over more of the page mustn't hold more heap: what
+		 * is kept for what was drawn is only for what can be seen
+		 */
+		size_t hu = lws_get_allocated_heap();
+
+		lwsl_user("%s: pan %d: heap %u\n", __func__, pan_step,
+			  (unsigned int)hu);
+		if (pan_step == 1)
+			pan_heap_first = hu;
+		if (pan_step == pan_count && pan_heap_max >= 0 &&
+		    hu > pan_heap_first + (size_t)pan_heap_max) {
+			lwsl_err("%s: heap grew by %u over the pans, max %d\n",
+				 __func__, (unsigned int)(hu - pan_heap_first),
+				 pan_heap_max);
+			result = 1;
+		}
+	}
+
 	if (pan_step < pan_count) {
 		/* --pan: render the display list again from the top, panned */
 		memset(rs->st, 0, sizeof(rs->st));
@@ -1130,6 +1154,10 @@ main(int argc, const char **argv)
 			return 1;
 		}
 	}
+
+	if ((p = lws_cmdline_option(argc, argv,
+				    switches[LWS_SW_PAN_HEAP_MAX].sw)))
+		pan_heap_max = atoi(p);
 
 	/*
 	 * If the render can't have a face from the server some text was laid
