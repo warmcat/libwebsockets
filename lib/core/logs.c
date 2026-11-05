@@ -285,7 +285,21 @@ lwsl_timestamp(int level, char *p, size_t len)
 					(unsigned long long) now / 10000,
 					(int)(now % 10000), log_level_names[n]);
 
-#if defined(LWS_PLAT_FREERTOS)
+#if defined(LWS_PLAT_HEAP_INTERNAL)
+		{
+			/* internal free / all free, if they differ */
+			size_t fi = lws_plat_heap_free_internal(),
+			       ft = esp_get_free_heap_size();
+
+			if (fi != ft)
+				n += lws_snprintf(p + n, len - n, "%6u/%7u: ",
+						  (unsigned int)fi,
+						  (unsigned int)ft);
+			else
+				n += lws_snprintf(p + n, len - n, "%6u: ",
+						  (unsigned int)ft);
+		}
+#elif defined(LWS_PLAT_FREERTOS)
 		n += lws_snprintf(p + n, len - n, "%6u: ",
 #if defined(LWS_AMAZON_RTOS)
 				  (unsigned int)xPortGetFreeHeapSize());

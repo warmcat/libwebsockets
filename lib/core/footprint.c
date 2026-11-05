@@ -224,6 +224,15 @@ lws_footprint_dump(struct lws_context *cx, int items)
 		lwsl_cx_notice(cx, "fp: largest free block %u, in %u free blocks",
 			       (unsigned int)mhi.largest_free_block,
 			       (unsigned int)mhi.free_blocks);
+#if defined(LWS_PLAT_HEAP_INTERNAL)
+		/* ... and of it, the internal RAM only some things can use */
+		heap_caps_get_info(&mhi, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+		lwsl_cx_notice(cx, "fp: internal free %u, largest block %u, "
+			       "in %u free blocks",
+			       (unsigned int)mhi.total_free_bytes,
+			       (unsigned int)mhi.largest_free_block,
+			       (unsigned int)mhi.free_blocks);
+#endif
 	}
 #endif
 #endif

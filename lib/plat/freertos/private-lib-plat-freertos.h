@@ -82,6 +82,14 @@
 /* lws_plat_callers() can say who called, by walking the register windows */
 #define LWS_PLAT_CALLERS
 #endif
+/*
+ * With PSRAM, the free heap is internal RAM and PSRAM together, but some
+ * things can only have internal RAM, eg, the wifi driver, lwip and DMA: it's
+ * running out of that which fails, however much PSRAM is free
+ */
+#define LWS_PLAT_HEAP_INTERNAL
+#define lws_plat_heap_free_internal() \
+		heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
 #endif
 
 #if defined(LWS_WITH_ESP32)
