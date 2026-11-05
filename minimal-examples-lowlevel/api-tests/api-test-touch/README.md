@@ -12,7 +12,9 @@ Tests the touch controller class without hardware.
    coordinates one to one, the other is turned on its side over a display
    of half the resolution.  The simulated chip goes to sleep and NAKs its
    address, which must be understood as the finger lifting, and reports
-   coordinates off the panel, which must be clamped.
+   coordinates off the panel, which must be clamped.  When it says no
+   finger is on it, what its coordinate registers hold must not be taken for
+   where the finger lifted, or a drag ends with a scroll to there.
 
 Requires `LWS_WITH_DRIVERS` and `LWS_WITH_SYS_SMD`.
 

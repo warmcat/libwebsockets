@@ -29,6 +29,13 @@
  * controller, classifies, and issues lws_smd events, which is the one thing
  * it may do with lws from outside the lws thread.  A second OS timer issues
  * a long press for controllers that say nothing while a finger is held still.
+ *
+ * While a finger is down, a third OS timer reads the controller again every
+ * LWS_TOUCH_POLL_MS whatever its IRQ says.  An interrupt for the lift can be
+ * missed, eg, coming while the bottom half for the last movement is still
+ * pending, and if the chip then goes to sleep, nothing more is heard from it
+ * until the next touch.  That then looked like the finger had slid there
+ * from where the last drag ended, and the page jumped by the difference.
  */
 
 #include <private-lib-core.h>
@@ -40,6 +47,8 @@ typedef enum {
 	LTCS_LONG,		/* down, long press issued */
 	LTCS_SCROLL,		/* down, it has moved: only scrolls from now */
 } lws_touch_classify_states_t;
+
+#define LWS_TOUCH_POLL_MS		50
 
 static const lws_touch_regime_t default_regime = {
 	.ms_longpress			= 500,
@@ -264,16 +273,27 @@ lws_touch_service(struct lws_touch_state *ts)
 	 */
 
 	dl = lws_touch_classify_deadline(&ts->cls);
-	if (!!dl == ts->lp_armed)
-		return;
-
-	ts->lp_armed = !!dl;
+	if (!!dl != ts->lp_armed) {
+		ts->lp_armed = !!dl;
 #if defined(LWS_PLAT_TIMER_START)
-	if (dl)
-		LWS_PLAT_TIMER_START(ts->timer_lp);
-	else
-		LWS_PLAT_TIMER_STOP(ts->timer_lp);
+		if (dl)
+			LWS_PLAT_TIMER_START(ts->timer_lp);
+		else
+			LWS_PLAT_TIMER_STOP(ts->timer_lp);
 #endif
+	}
+
+	/* while a finger is down, look again even if we're not told to */
+
+	if ((ts->cls.state != LTCS_IDLE) != ts->poll_armed) {
+		ts->poll_armed = ts->cls.state != LTCS_IDLE;
+#if defined(LWS_PLAT_TIMER_START)
+		if (ts->poll_armed)
+			LWS_PLAT_TIMER_START(ts->timer_poll);
+		else
+			LWS_PLAT_TIMER_STOP(ts->timer_poll);
+#endif
+	}
 }
 
 #if defined(LWS_PLAT_TIMER_START_FROM_ISR)
@@ -289,6 +309,13 @@ lws_touch_irq(void *arg)
 }
 
 static LWS_PLAT_TIMER_CB(lws_touch_bh, th)
+{
+	lws_touch_service((lws_touch_state_t *)LWS_PLAT_TIMER_CB_GET_OPAQUE(th));
+}
+
+/* a finger is down: the timer repeats until the service sees it lift */
+
+static LWS_PLAT_TIMER_CB(lws_touch_poll, th)
 {
 	lws_touch_service((lws_touch_state_t *)LWS_PLAT_TIMER_CB_GET_OPAQUE(th));
 }
@@ -349,7 +376,9 @@ lws_touch_create(struct lws_context *ctx, const lws_touch_t *touch)
 	ts->timer_lp = LWS_PLAT_TIMER_CREATE("tslp",
 			(regime_us_longpress(&ts->cls) / LWS_US_PER_MS) + 10, 0,
 			ts, (TimerCallbackFunction_t)lws_touch_lp);
-	if (!ts->timer_bh || !ts->timer_lp)
+	ts->timer_poll = LWS_PLAT_TIMER_CREATE("tspl", LWS_TOUCH_POLL_MS, 1,
+			ts, (TimerCallbackFunction_t)lws_touch_poll);
+	if (!ts->timer_bh || !ts->timer_lp || !ts->timer_poll)
 		goto bail;
 #endif
 
@@ -376,6 +405,8 @@ bail:
 		LWS_PLAT_TIMER_DELETE(ts->timer_bh);
 	if (ts->timer_lp)
 		LWS_PLAT_TIMER_DELETE(ts->timer_lp);
+	if (ts->timer_poll)
+		LWS_PLAT_TIMER_DELETE(ts->timer_poll);
 #endif
 	lws_free(ts);
 
@@ -401,6 +432,7 @@ lws_touch_destroy(struct lws_touch_state **pts)
 #if defined(LWS_PLAT_TIMER_DELETE)
 	LWS_PLAT_TIMER_DELETE(ts->timer_bh);
 	LWS_PLAT_TIMER_DELETE(ts->timer_lp);
+	LWS_PLAT_TIMER_DELETE(ts->timer_poll);
 #endif
 
 	lws_free(ts);

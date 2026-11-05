@@ -107,10 +107,15 @@ lws_touch_cst816s_read(struct lws_touch_state *ts, lws_touch_sample_t *s)
 		return 0;
 	}
 
+	/*
+	 * With no finger on it, what the coordinate registers hold isn't a
+	 * position to trust for where it lifted: taken as one, a drag ended
+	 * with a scroll to there
+	 */
 	s->down		= !!b[1];
+	s->has_pos	= s->down;
 	s->x		= (int16_t)(((b[2] & 0x0f) << 8) | b[3]);
 	s->y		= (int16_t)(((b[4] & 0x0f) << 8) | b[5]);
-	s->has_pos	= 1;
 
 	return 0;
 }

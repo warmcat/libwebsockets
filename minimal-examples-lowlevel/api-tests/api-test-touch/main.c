@@ -14,7 +14,9 @@
  *
  * Then whole touch controllers, a CST816S behind a simulated i2c bus and
  * gpio, from reset through to the lws_smd events they issue, with the
- * controller's coordinates mapped into display pixels.
+ * controller's coordinates mapped into display pixels.  A lift the chip
+ * reports with no finger must not take its coordinate registers for where
+ * the finger lifted: a drag ended with a scroll to there.
  */
 
 #include <libwebsockets.h>
@@ -381,6 +383,10 @@ static const char * const expect_smd[] = {
 	"{\"type\":\"touch\",\"src\":\"ta\",\"event\":\"down\",\"x\":239,\"y\":239}",
 	"{\"type\":\"touch\",\"src\":\"ta\",\"event\":\"scroll\",\"x\":200,\"y\":239,\"dx\":-39,\"dy\":0}",
 	"{\"type\":\"touch\",\"src\":\"ta\",\"event\":\"up\",\"x\":200,\"y\":239}",
+	/* ta: a drag, lifted with its coordinate registers elsewhere */
+	"{\"type\":\"touch\",\"src\":\"ta\",\"event\":\"down\",\"x\":50,\"y\":50}",
+	"{\"type\":\"touch\",\"src\":\"ta\",\"event\":\"scroll\",\"x\":50,\"y\":150,\"dx\":0,\"dy\":100}",
+	"{\"type\":\"touch\",\"src\":\"ta\",\"event\":\"up\",\"x\":50,\"y\":150}",
 	/* ta: held */
 	"{\"type\":\"touch\",\"src\":\"ta\",\"event\":\"down\",\"x\":100,\"y\":100}",
 	"{\"type\":\"touch\",\"src\":\"ta\",\"event\":\"longpress\",\"x\":100,\"y\":100}",
@@ -450,6 +456,18 @@ next_step(lws_sorted_usec_list_t *sul)
 		sim_finger(1, 200, 0xfff);
 		lws_touch_service(tsa);
 		sim_finger(0, 200, 0xfff);
+		lws_touch_service(tsa);
+
+		/*
+		 * A drag, then the chip saying there's no finger with its
+		 * coordinate registers somewhere else: the lift is where the
+		 * drag got to, not a scroll to there
+		 */
+		sim_finger(1, 50, 50);
+		lws_touch_service(tsa);
+		sim_finger(1, 50, 150);
+		lws_touch_service(tsa);
+		sim_finger(0, 0, 0);
 		lws_touch_service(tsa);
 
 		sim_finger(1, 100, 100);

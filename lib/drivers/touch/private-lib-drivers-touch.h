@@ -32,6 +32,7 @@ typedef struct lws_touch_state {
 #if defined(LWS_PLAT_TIMER_TYPE)
 	LWS_PLAT_TIMER_TYPE		timer_bh;  /* ISR bottom half */
 	LWS_PLAT_TIMER_TYPE		timer_lp;  /* long press deadline */
+	LWS_PLAT_TIMER_TYPE		timer_poll; /* a finger is down */
 #endif
 	lws_sorted_usec_list_t		sul;	   /* for the controller */
 	lws_touch_classify_t		cls;
@@ -42,6 +43,7 @@ typedef struct lws_touch_state {
 
 	uint8_t				ready;
 	uint8_t				lp_armed;
+	uint8_t				poll_armed;
 } lws_touch_state_t;
 
 /*
