@@ -2144,6 +2144,14 @@ lws_quic_dump_stream(struct lws_quic_netconn *qn, struct lws *w,
 			(unsigned long long)qs->tx_offset, (int)w->txc.tx_cr,
 			qs->sent_fin, qs->fin_received,
 			(unsigned int)lws_buflist_total_len(&w->buflist_out));
+	/* and how far its rx got: what it waits for, what it holds past it */
+	lwsl_wsi_notice(w, "  stream %llu rx: offset %llu, highest %llu, "
+			"max data %llu, %u chunks held out of order",
+			(unsigned long long)qs->stream_id,
+			(unsigned long long)qs->rx_offset,
+			(unsigned long long)qs->highest_rx_offset,
+			(unsigned long long)qs->rx_max_data,
+			(unsigned int)qs->rx_held.count);
 	lws_quic_dump_frames(w, "waiting", &qn->pending_tx[LWS_QUIC_LEVEL_APP],
 			     qs->stream_id, now, 1);
 	lws_quic_dump_frames(w, "in flight", &qn->in_flight[LWS_QUIC_LEVEL_APP],
@@ -2156,7 +2164,7 @@ lws_quic_dump_stalled(struct lws *wsi)
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 	struct lws_quic_netconn *qn;
 	lws_usec_t now;
-	int l, any = 0;
+	int any = 0;
 
 	if (!nwsi || !nwsi->quic.qn)
 		return;
@@ -2183,6 +2191,23 @@ lws_quic_dump_stalled(struct lws *wsi)
 
 	lwsl_wsi_notice(wsi, "QUIC: timed out (%d) with a stream stuck",
 			wsi->pending_timeout);
+	lws_quic_dump(wsi);
+}
+
+void
+lws_quic_dump(struct lws *wsi)
+{
+	struct lws *nwsi = wsi ? lws_get_quic_network_wsi(wsi) : NULL;
+	struct lws_quic_netconn *qn;
+	lws_usec_t now;
+	int l;
+
+	if (!nwsi || !nwsi->quic.qn)
+		return;
+
+	qn = nwsi->quic.qn;
+	now = lws_wsi_now(nwsi);
+
 	lwsl_wsi_notice(nwsi, "  conn: handshake done %d, closing %d, tx "
 			"credit %d, pto_count %u, pto armed %d, wants write %d "
 			"(its listener %d), last pass held %d full %d failed %d, "
