@@ -96,6 +96,7 @@ enum {
 static int quiet;
 static uint32_t max_idle_ms;		/* --max-idle, 0 for the default */
 static struct lws *server_stream;	/* the server's stream of the connection */
+static struct lws *client_stream;	/* the client's */
 static lws_usec_t server_estab_us, server_last_rx_us;
 static lws_sorted_usec_list_t sul_quiet;
 static char quiet_over;	/* the verdict is in: later closes are teardown */
@@ -1569,6 +1570,19 @@ report_progress(void)
 		 (unsigned long)client_sent, (unsigned long)client_rx,
 		 (unsigned long)server_sent, (unsigned long)server_rx);
 
+	/*
+	 * Our deadline comes before lws' own for a stuck stream, so say what
+	 * lws would have: where each side's connection and stream stand
+	 */
+	if (client_stream) {
+		lwsl_err("client's side:\n");
+		lws_quic_dump(client_stream);
+	}
+	if (server_stream) {
+		lwsl_err("server's side:\n");
+		lws_quic_dump(server_stream);
+	}
+
 	if (!relay.wsi)
 		return;
 
@@ -1941,9 +1955,10 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
 		lwsl_wsi_info(wsi, "Server received new QUIC client connection!");
 		/* the connection's stream, not the listener */
+		if (lws_get_network_wsi(wsi) != wsi)
+			server_stream = wsi;
 		if (quiet && lws_get_network_wsi(wsi) != wsi) {
 			/* the server sends nothing either */
-			server_stream = wsi;
 			server_estab_us = lws_now_usecs();
 			if (quiet == QCS_QUIET_CONN)
 				quiet_deadline_set(server_estab_us,
@@ -1957,6 +1972,7 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 		lwsl_wsi_notice(wsi, "Client successfully established QUIC connection!");
+		client_stream = wsi;
 		spread_start = lws_now_usecs();
 		/* --deaf: the writes start once the handshake is long done */
 		if (relay.deaf)
@@ -2013,13 +2029,16 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED:
-		if (quiet && wsi == server_stream) {
+		if (wsi == server_stream) {
 			server_stream = NULL;
-			quiet_server_closed();
+			if (quiet)
+				quiet_server_closed();
 		}
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (wsi == client_stream)
+			client_stream = NULL;
 		if (quiet == QCS_QUIET_CONN)
 			quiet_client_closed();
 		break;
