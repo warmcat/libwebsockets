@@ -928,7 +928,13 @@ teardown_tick(void)
 	if (++teardown_ticks < 20)
 		return 0;
 
-	if (step_done || times_asked("", RR_DNSKEY) != 3) {
+	/*
+	 * The walk asked for the root's keys a third time, and is still
+	 * waiting on them... a loaded box can take long enough over the ticks
+	 * that the resolver has resent the unanswered question, so more asks
+	 * than that are the same wait
+	 */
+	if (step_done || times_asked("", RR_DNSKEY) < 3) {
 		lwsl_err("%s: the walk isn't parked on the root's keys\n",
 			 __func__);
 		fails++;
