@@ -448,7 +448,9 @@ render(lws_sorted_usec_list_t *sul)
 				expand(rs->line[(n >> 1)] & 0xf, dump + (4 * (n + 1)));
 			}
 
-			if (write(fdout, dump, (size_t)rs->box.w.whole * 4) < (ssize_t)((size_t)rs->box.w.whole * 4))
+			if (write(fdout, dump,
+				  LWS_POSIX_LENGTH_CAST((size_t)rs->box.w.whole * 4)) <
+					(ssize_t)((size_t)rs->box.w.whole * 4))
 				lwsl_err("%s: write failed\n", __func__);
 		}
 #else
@@ -465,14 +467,9 @@ render(lws_sorted_usec_list_t *sul)
 			}
 		}
 
-#if defined(WIN32)
-		if (write(fdout, rs->line, (unsigned int)lbuflen) < 0) {
-#else
-		if (write(fdout, rs->line, lbuflen) < 0) {
-#endif
-#endif
+		if (write(fdout, rs->line, LWS_POSIX_LENGTH_CAST(lbuflen)) < 0)
 			lwsl_err("%s: unable to write\n", __func__);
-		}
+#endif
 
 		rs->curr++;
 
@@ -527,7 +524,8 @@ read_raw_file(const char *path, size_t *len)
 	}
 
 	while (done < (size_t)s.st_size) {
-		n = read(fd, buf + done, (size_t)s.st_size - done);
+		n = read(fd, buf + done,
+			 LWS_POSIX_LENGTH_CAST((size_t)s.st_size - done));
 		if (n <= 0)
 			break;
 		done += (size_t)n;
