@@ -753,7 +753,7 @@ test_html(void)
 #if defined(LWS_WITH_HL_LANG_DIFF)
 	static const uint8_t in4[] = "@@ -1 +1 @@\n-old & <x>\n+new & <y>\n";
 #endif
-	const struct {
+	static const struct {
 		const uint8_t			*data;
 		size_t				len;
 		const lws_hl_ops_t		*(*ops)(void);
