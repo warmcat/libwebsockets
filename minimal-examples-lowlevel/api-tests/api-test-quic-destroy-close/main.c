@@ -47,6 +47,16 @@ static struct lws_context *cx_cli;
 static lws_usec_t cli_destroyed, srv_conn_gone;
 static int cli_status, cli_stop;
 
+/*
+ * The client's context logs through a log context of its own.  A log context
+ * counts the objects bound to it, and a build for one service thread doesn't
+ * lock that count, so contexts serviced by two threads can't share the
+ * default one.
+ */
+static lws_log_cx_t cli_log_cx = {
+	.u.emit		= lwsl_emit_stderr,
+};
+
 /* ------------------------------------------------------------- server */
 
 struct pss_srv {
@@ -201,14 +211,14 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		status = (int)lws_http_client_http_response(wsi);
-		lwsl_user("%s: client: GET answered %d\n", __func__, status);
+		lwsl_wsi_user(wsi, "client: GET answered %d\n", status);
 		if (status != 200)
 			status = -1;
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		lwsl_err("%s: client: connection error: %s\n", __func__,
-			 in ? (const char *)in : "(null)");
+		lwsl_wsi_err(wsi, "client: connection error: %s\n",
+			     in ? (const char *)in : "(null)");
 		status = -1;
 		break;
 
@@ -243,9 +253,15 @@ client_thread(void *d)
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *cx;
-	int stop = 0;
+	int stop = 0, n;
+
+	/* the same log levels as the main thread's, eg, from -d */
+	for (n = 0; n < LLL_COUNT; n++)
+		if (lwsl_visible(1 << n))
+			cli_log_cx.lll_flags |= 1u << n;
 
 	lws_context_info_defaults(&info, NULL);
+	info.log_cx		= &cli_log_cx;
 	info.port		= CONTEXT_PORT_NO_LISTEN;
 	info.protocols		= protocols_cli;
 	info.options		= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -276,7 +292,7 @@ client_thread(void *d)
 	i.disable_h3_fallback	= 1;
 
 	if (!lws_client_connect_via_info(&i)) {
-		lwsl_err("%s: client connect failed\n", __func__);
+		lwsl_cx_err(cx, "client connect failed\n");
 		goto bail_cx;
 	}
 
@@ -291,8 +307,8 @@ client_thread(void *d)
 	cli_destroyed = lws_now_usecs();
 	cx_cli = NULL;
 	pthread_mutex_unlock(&lock);
+	lwsl_cx_user(cx, "client: destroying its context\n");
 	lws_context_destroy(cx);
-	lwsl_user("%s: client: context destroyed\n", __func__);
 
 	return NULL;
 
