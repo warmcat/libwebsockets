@@ -63,7 +63,7 @@ else()
 		add_test(NAME st_hcm_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 				hcm_srv ${VALGRIND} --tool=memcheck $<TARGET_FILE:lws-minimal-http-server-tls>
-				-p ${PORT_HCM_SRV})
+				-p ${PORT_HCM_SRV} --log-spew-tail 1000)
 		add_test(NAME ki_hcm_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 				hcm_srv ${VALGRIND} $<TARGET_FILE_NAME:lws-minimal-http-server-tls>
@@ -81,7 +81,7 @@ else()
 		add_test(NAME st_hcm_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 				hcm_srv $<TARGET_FILE:lws-minimal-http-server-tls>
-				-p ${PORT_HCM_SRV} )
+				-p ${PORT_HCM_SRV} --log-spew-tail 1000)
 		add_test(NAME ki_hcm_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 				hcm_srv $<TARGET_FILE_NAME:lws-minimal-http-server-tls>
@@ -128,28 +128,41 @@ endif()
 	# server, with RESOURCE_LOCK, while ctest gets on with other tests.
 	#
 
-	add_test(NAME http-client-multi COMMAND lws-minimal-http-client-multi
+	#
+	# A failure here is often the server's side of it, eg, a handshake it
+	# stalled on and reset, so a failing test shows what the server logged
+	# while it ran, as well as its own log.  Both keep a long tail of any
+	# log spew, so what led up to the failure isn't swallowed.
+	#
+	function(hcm_test name)
+		add_test(NAME ${name} COMMAND ${CMAKE_COMMAND}
+			-DFIX_LOG_STEM=${CMAKE_BINARY_DIR}/Testing/fixtures/lws-minimal-http-server-tls.hcm_srv
+			"-DCMD=$<TARGET_FILE:lws-minimal-http-client-multi>;${ARGN};--log-spew-tail;1000"
+			-P ${CMAKE_SOURCE_DIR}/scripts/ctest-fixture-log-on-fail.cmake)
+	endfunction()
+
+	hcm_test(http-client-multi
 			-l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d 1151)
-	add_test(NAME http-client-multi-h1 COMMAND lws-minimal-http-client-multi
+	hcm_test(http-client-multi-h1
 			--h1 -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
-	add_test(NAME http-client-multi-pipe COMMAND lws-minimal-http-client-multi
+	hcm_test(http-client-multi-pipe
 			-p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
-	add_test(NAME http-client-multi-h1-pipe COMMAND lws-minimal-http-client-multi
+	hcm_test(http-client-multi-h1-pipe
 			--h1 -p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
-	add_test(NAME http-client-multi-stag COMMAND lws-minimal-http-client-multi
+	hcm_test(http-client-multi-stag
 			-s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
-	add_test(NAME http-client-multi-stag-h1 COMMAND lws-minimal-http-client-multi
+	hcm_test(http-client-multi-stag-h1
 			--h1 -s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
-	add_test(NAME http-client-multi-stag-pipe COMMAND lws-minimal-http-client-multi
+	hcm_test(http-client-multi-stag-pipe
 			-p -s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
-	add_test(NAME http-client-multi-stag-h1-pipe COMMAND lws-minimal-http-client-multi
+	hcm_test(http-client-multi-stag-h1-pipe
 			--h1 -p -s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
 
 	# confirm that the pipelined mode really is doing it in one connection
-	add_test(NAME http-client-multi-restrict-pipe COMMAND lws-minimal-http-client-multi -d1151 --limit 1 -p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
-	add_test(NAME http-client-multi-restrict-h1-pipe COMMAND lws-minimal-http-client-multi -d1151 --limit 1 --h1 -p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
-	add_test(NAME http-client-multi-restrict-stag-pipe COMMAND lws-minimal-http-client-multi -d1151 --limit 1 -p -s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
-	add_test(NAME http-client-multi-restrict-stag-h1-pipe COMMAND lws-minimal-http-client-multi -d1151 --limit 1 --h1 -p -s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
+	hcm_test(http-client-multi-restrict-pipe -d1151 --limit 1 -p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
+	hcm_test(http-client-multi-restrict-h1-pipe -d1151 --limit 1 --h1 -p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
+	hcm_test(http-client-multi-restrict-stag-pipe -d1151 --limit 1 -p -s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
+	hcm_test(http-client-multi-restrict-stag-h1-pipe -d1151 --limit 1 --h1 -p -s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
 	# confirm that we do fail with a one connection limit and no pipelining
 	add_test(NAME http-client-multi-restrict-nopipe-fail COMMAND lws-minimal-http-client-multi --limit 1 -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
 	set_property(TEST http-client-multi-restrict-nopipe-fail PROPERTY WILL_FAIL TRUE)
@@ -159,7 +172,7 @@ endif()
 	# 40 transactions pipelined on one h2 connection: the server advertises
 	# SETTINGS_MAX_CONCURRENT_STREAMS 24, so the rest must queue on the
 	# connection and go as streams complete, not be refused or stall
-	add_test(NAME http-client-multi-pipe-over-max-streams COMMAND lws-minimal-http-client-multi -d1151 --limit 1 -p -c 40 -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
+	hcm_test(http-client-multi-pipe-over-max-streams -d1151 --limit 1 -p -c 40 -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
 
 	if (has_fault_injection)
 		# ... and the peer dropping that connection on its second read,
