@@ -160,6 +160,26 @@ LWS_VISIBLE LWS_EXTERN int
 lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi);
 
 /**
+ * lws_quic_dump() - log where a QUIC connection and its streams stand
+ *
+ * \param wsi: any QUIC wsi on the connection (stream or network), or NULL
+ *
+ * Logs at notice level what the connection holds and waits on: handshake
+ * and close state, credit, PTO count and whether it is armed, the frames
+ * waiting and in flight at each level, and the congestion controller's say.
+ * Then, for a stream wsi, that stream, or else every stream with data
+ * outstanding: how far its tx and rx got, what it holds out of order and
+ * the first of its frames waiting or in flight.
+ *
+ * lws logs this itself when a stream times out stuck.  This is for an
+ * application or test to say the same when its own deadline for a transfer
+ * passes first, so the log shows why it hadn't moved.  Nothing is logged
+ * for a wsi that isn't on a QUIC connection.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_quic_dump(struct lws *wsi);
+
+/**
  * lws_quic_initiate_key_update() - Manually trigger a QUIC Key Update
  *
  * \param wsi: any QUIC wsi on the connection (stream or network)
