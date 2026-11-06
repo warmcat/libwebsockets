@@ -44,10 +44,14 @@ foreach(SIDE A B)
 	execute_process(COMMAND ${TOOL} file://${HTML_${SIDE}} --w ${W} --h ${H}
 				${COMMON} ${FLAGS_${SIDE}}
 				${cache_flags}
-				--bmp ${OUT}-${SIDE}.bmp -d 3
-			RESULT_VARIABLE r OUTPUT_QUIET ERROR_QUIET TIMEOUT 60)
+				--bmp ${OUT}-${SIDE}.bmp -d 1027
+			RESULT_VARIABLE r OUTPUT_VARIABLE log ERROR_VARIABLE log
+			TIMEOUT 60)
 	file(REMOVE_RECURSE ${CACHE_DIR})
 	if (NOT r EQUAL 0)
+		# the log is kept quiet unless the render failed, then it
+		# is what says why
+		message("${log}")
 		message(FATAL_ERROR "${TOOL} failed (${r}) rendering ${HTML_${SIDE}} (${SIDE})")
 	endif()
 endforeach()
