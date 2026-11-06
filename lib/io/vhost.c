@@ -166,10 +166,11 @@ lws_create_vhost(struct lws_context *context,
 	if (!vh)
 		goto early_bail;
 
+	/* like a wsi or an ss, a vhost logs as its context does, unless told */
 	if (info->log_cx)
 		vh->lc.log_cx = info->log_cx;
 	else
-		vh->lc.log_cx = &log_cx;
+		vh->lc.log_cx = context->log_cx;
 
 #if defined(LWS_WITH_EVENT_LIBS)
 	vh->evlib_vh = (void *)&vh[1];
