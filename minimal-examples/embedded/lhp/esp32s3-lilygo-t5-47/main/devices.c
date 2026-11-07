@@ -168,7 +168,11 @@ static const lws_epd_direct_esp32_t epd_bus = {
 	.power_on_count			= LWS_ARRAY_SIZE(power_on),
 	.power_off			= power_off,
 	.power_off_count		= LWS_ARRAY_SIZE(power_off),
-	.xcl_hz				= 10000000,
+	/*
+	 * The ED047TC1 takes XCL up to 60MHz, 20MHz is its typical.  It's
+	 * an exact division of the S3 LCD peripheral's 160MHz clock.
+	 */
+	.xcl_hz				= 20000000,
 	.sr_first_out			= 7,
 
 #if T547_ROUTING == T547_ROUTING_WATCH
