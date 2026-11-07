@@ -2387,6 +2387,134 @@ bail:
 }
 
 /*
+ * The numbers inside rgb() / rgba() / hsl() / hsla() are parsed by their own
+ * helper, not the property value parser.  Freeze what a set of them comes to,
+ * so any change in how they are parsed or scaled shows up here.  Negative
+ * values must keep their sign when the whole part is 0 (-0.5 is not 0.5) and
+ * then clamp to 0, so a negative alpha is transparent.  Digits past the
+ * eighth decimal place are ignored.
+ */
+
+static const struct {
+	const char	*css;
+	uint32_t	rgba;
+} cf_cases[] = {
+	{ "rgba(0,0,0,-0.5)",		LWSDC_RGBA(0, 0, 0, 0) },
+	{ "rgba(0,0,0,-1.5)",		LWSDC_RGBA(0, 0, 0, 0) },
+	{ "rgba(0,0,0,-0)",		LWSDC_RGBA(0, 0, 0, 0) },
+	{ "rgba(-0.5,0,0,1)",		LWSDC_RGBA(0, 0, 0, 0xff) },
+	{ "rgba(-.5,.5,0,1)",		LWSDC_RGBA(0, 1, 0, 0xff) },
+	{ "rgba(-0.5%,0,0,1)",		LWSDC_RGBA(0, 0, 0, 0xff) },
+	{ "hsla(0,100%,-0.5%,1)",	LWSDC_RGBA(0, 0, 0, 0xff) },
+	{ "rgba(0,0,0,0.5)",		LWSDC_RGBA(0, 0, 0, 128) },
+	{ "rgba(1.25,2.5,3.75,0.25)",	LWSDC_RGBA(2, 3, 4, 64) },
+	{ "rgba(50%,0.5%,100%,1)",	LWSDC_RGBA(128, 2, 0xff, 0xff) },
+	{ "rgb(255.99999999,0,0)",	LWSDC_RGBA(0xff, 0, 0, 0xff) },
+	{ "rgba(0,0,0,0.00000001)",	LWSDC_RGBA(0, 0, 0, 1) },
+	{ "rgba(0,0,0,0.123456789)",	LWSDC_RGBA(0, 0, 0, 32) },
+};
+
+static int cf_elems, cf_bad;
+
+static lws_stateful_ret_t
+cf_cb(lhp_ctx_t *ctx, char reason)
+{
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
+					    lhp_pstack_t, list);
+	const lcsp_atr_t *col;
+	const lhp_atr_t *ta;
+
+	if (reason != LHPCB_ELEMENT_START || lws_dll2_is_empty(&ps->atr))
+		return 0;
+
+	ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
+	if (ta->name_len != 1 || *(const char *)&ta[1] != 'p')
+		return 0;
+
+	if (cf_elems >= (int)LWS_ARRAY_SIZE(cf_cases))
+		return LWS_SRET_FATAL;
+
+	col = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_COLOR);
+	if (!col || col->unit != LCSP_UNIT_RGBA ||
+	    col->u.rgba != cf_cases[cf_elems].rgba) {
+		lwsl_err("%s: %s: got 0x%08x, expected 0x%08x\n", __func__,
+			 cf_cases[cf_elems].css,
+			 col && col->unit == LCSP_UNIT_RGBA ?
+					(unsigned int)col->u.rgba : 0u,
+			 (unsigned int)cf_cases[cf_elems].rgba);
+		cf_bad++;
+	}
+	cf_elems++;
+
+	return 0;
+}
+
+static int
+test_colour_func_values(void)
+{
+	size_t alloc = LWS_ARRAY_SIZE(cf_cases) * 64 + 64, len;
+	lws_stateful_ret_t r;
+	const uint8_t *data;
+	lws_dl_rend_t drt;
+	lhp_ctx_t *ctx;
+	char *doc, *p;
+	int e = 1;
+	size_t n;
+
+	doc = malloc(alloc);
+	ctx = malloc(sizeof(*ctx));
+	if (!doc || !ctx)
+		goto bail;
+	memset(ctx, 0, sizeof(*ctx));
+	cf_elems = cf_bad = 0;
+
+	p = doc;
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "<html><body>");
+	for (n = 0; n < LWS_ARRAY_SIZE(cf_cases); n++)
+		p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+				  "<p style=\"color:%s\">x</p>",
+				  cf_cases[n].css);
+	p += lws_snprintf(p, alloc - lws_ptr_diff_size_t(p, doc),
+			  "</body></html>");
+	len = lws_ptr_diff_size_t(p, doc);
+	if (len >= alloc - 1) {
+		lwsl_err("%s: document doesn't fit\n", __func__);
+		goto bail;
+	}
+
+	memset(&drt, 0, sizeof(drt));
+	drt.dl = &displaylist;
+	drt.w = ic.wh_px[0].whole;
+	drt.h = ic.wh_px[1].whole;
+
+	if (lws_lhp_construct(ctx, cf_cb, &drt, &ic))
+		goto bail;
+	ctx->flags = LHP_FLAG_DOCUMENT_END;
+	ctx->base_url = strdup("");
+
+	data = (const uint8_t *)doc;
+	r = lws_lhp_parse(ctx, &data, &len);
+	lws_lhp_destruct(ctx);
+
+	if (r & LWS_SRET_FATAL || cf_elems != (int)LWS_ARRAY_SIZE(cf_cases) ||
+	    cf_bad) {
+		lwsl_err("%s: %d elements, %d wrong, r 0x%x\n", __func__,
+			 cf_elems, cf_bad, (unsigned int)r);
+		goto bail;
+	}
+
+	lwsl_user("%s: %d colour values as expected\n", __func__, cf_elems);
+	e = 0;
+
+bail:
+	free(ctx);
+	free(doc);
+
+	return e;
+}
+
+/*
  * Property lookups must cost a bounded amount however long the declarations
  * they find.  Every lookup listed all the values of the winning declaration
  * in ctx->active_atr, which had no limit, and an inherited property is
@@ -3236,6 +3364,9 @@ main(int argc, const char **argv)
 			goto bail;
 
 	if (test_decl_values())
+		goto bail;
+
+	if (test_colour_func_values())
 		goto bail;
 
 	if (test_table_wide())
