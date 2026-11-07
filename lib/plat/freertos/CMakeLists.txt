@@ -42,7 +42,8 @@ list(APPEND SOURCES
 
 if (LWS_ESP_PLATFORM AND LWS_WITH_DRIVERS)
 	list(APPEND SOURCES plat/freertos/esp32/drivers/settings-esp32.c
-			    plat/freertos/esp32/drivers/spi-esp32.c)
+			    plat/freertos/esp32/drivers/spi-esp32.c
+			    plat/freertos/esp32/drivers/epd-direct-esp32.c)
 	if (LWS_WITH_NETWORK)
 		list(APPEND SOURCES plat/freertos/esp32/drivers/netdev/wifi-esp32.c)
 	endif()

@@ -144,6 +144,9 @@
 #include <libwebsockets/lws-ssd1675b-spi.h>
 #include <libwebsockets/lws-uc8176-spi.h>
 #include <libwebsockets/lws-epd-direct.h>
+#if defined(LWS_ESP_PLATFORM)
+#include <libwebsockets/lws-esp32-epd-direct.h>
+#endif
 #if defined(LWS_WITH_DLTS)
 #include <libwebsockets/lws-gendtls.h>
 #endif

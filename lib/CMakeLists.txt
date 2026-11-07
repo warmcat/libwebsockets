@@ -504,7 +504,8 @@ foreach (lib ${LWS_LIBRARIES})
 			   esp_hw_support hal soc esp_rom esp_system esp_common
 			   esp_timer heap log esp_wifi esp_event esp_netif
 			   esp_eth driver esp_driver_gpio esp_driver_spi
-			   esp_driver_ledc esp_partition app_update
+			   esp_driver_ledc esp_driver_rmt esp_lcd
+			   esp_partition app_update
 			   bootloader_support nvs_flash esp_app_format
 			   esp_bootloader_format esp_mm xtensa riscv)
 			if (TARGET idf::${_c})
