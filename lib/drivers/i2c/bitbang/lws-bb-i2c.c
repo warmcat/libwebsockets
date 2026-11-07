@@ -83,7 +83,7 @@ lws_bb_i2c_write(const lws_i2c_ops_t *octx, uint8_t data)
 		ctx->delay();
 		ctx->gpio->set(ctx->scl, 1);
 		ctx->delay();
-		data <<= 1;
+		data = (uint8_t)(data << 1);
 		ctx->gpio->set(ctx->scl, 0);
 	}
 

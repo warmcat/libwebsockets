@@ -107,6 +107,7 @@ lws_netdev_wifi_scan_select(lws_netdev_instance_wifi_t *wnd)
 	 * ... let's dump what's left
 	 */
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(
 	                                                       &wnd->scan)) {
 		lws_wifi_sta_t *w = lws_container_of(p, lws_wifi_sta_t, list);
@@ -117,6 +118,7 @@ lws_netdev_wifi_scan_select(lws_netdev_instance_wifi_t *wnd)
 			    w->bssid[5], w->ch, rssi_averaged(w));
 
 	} lws_end_foreach_dll(p);
+#endif
 
 	/*
 	 * make sure we have our device's connection credentials at hand
