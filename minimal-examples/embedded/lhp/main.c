@@ -1018,7 +1018,8 @@ smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
 	const char *p;
 	size_t al;
 
-	if (!lws_json_simple_strcmp(buf, len, "\"src\":", "bc/user") &&
+	/* boards without leds have no led controller */
+	if (lls && !lws_json_simple_strcmp(buf, len, "\"src\":", "bc/user") &&
 	    !lws_json_simple_strcmp(buf, len, "\"event\":", "click")) {
 		lws_led_transition(lls, "blue", seqs[flip & 3],
 				   &lws_pwmseq_linear_wipe);

@@ -246,7 +246,8 @@ saying so: either build with `-DLWS_WITH_HTTP3=0 -DLWS_ROLE_QUIC=0`, as CI
 does, or give IDF a patched mbedtls component.
 
 `esp32-waveshare-600-448-7col` uses http/3 for its content, and
-`esp32s3-waveshare-240-240-touch` builds it beside h2, so they need the
+`esp32s3-waveshare-240-240-touch` and `esp32s3-lilygo-t5-47` build it beside
+h2, so they need the
 patched component.  For esp-idf v6.1 (mbedtls 4.1), you can make one
 without touching the IDF install: copy IDF's component, apply the patches
 to the mbedtls inside it, and enable them in IDF's mbedtls config
