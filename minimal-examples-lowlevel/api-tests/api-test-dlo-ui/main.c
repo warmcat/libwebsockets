@@ -28,6 +28,25 @@
  *    Done gives what was typed and shows the list page again.  Pressing the
  *    title abandons an edit.
  *
+ *  - the status capsule: it's drawn at the right end of the title strip, inside
+ *    the circle, only the title strip's band is sent when it changes, and not
+ *    at all when what it shows doesn't.  Pressing it issues its button's
+ *    interaction event, as a button of that name would
+ *
+ *  - using it with buttons: lws_dlo_ui_nav(), or button events given to
+ *    lws_dlo_ui_interaction(), move a cursor down the list and pick its row,
+ *    or go back like the title; on the edit page, which can start with
+ *    something already typed, they move the cursor over the keys, type with
+ *    them, and press Done
+ *
+ *  - the frame page: drawn all at once with its body white, then its title
+ *    strip is drawn by the caller with lws_dlo_ui_frame_line() in an update
+ *    of its own, around its body, which touches and nav leave to the caller.
+ *    Changing the title or status then only sends the title strip's band,
+ *    leaving the body alone, or on a display that can't take a band, asks
+ *    the caller to draw it all again.  Laying the title strip out again
+ *    while the body's page is fetching an image doesn't stop the image.
+ *
  *  - the theme: the first time, the default theme's title strip colour is
  *    drawn; the second time, the ui is given css that makes the title strip
  *    white with red text, which is drawn instead, and with nothing then drawn
@@ -81,9 +100,35 @@ static const lws_dlo_filesystem_t fs_icon = {
 	.len			= sizeof(icon_svg) - 1,
 };
 
+/*
+ * The body's page, for the frame: its image is on a server of ours that takes
+ * the connection and never says anything, so it is still being fetched for as
+ * long as the test needs, which lws_dlo_ss_find() tells us
+ */
+
+static char body_html[192], body_img[64];
+
+static lws_dlo_filesystem_t fs_body = {
+	.name			= "body.html",
+	.data			= body_html,
+};
+
+static int
+callback_silent(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+		void *in, size_t len)
+{
+	return 0;
+}
+
+static const struct lws_protocols protocols[] = {
+	{ "silent", callback_silent, 0, 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
+};
+
 static struct lws_context *cx;
 static struct lws_plat_file_ops dlo_fops;
 static lws_display_state_t lds;
+static lws_display_render_state_t body_rs;
 static struct lws_dlo_ui *ui;
 static lws_sorted_usec_list_t sul_step, sul_timeout;
 static int step, fail, picked = -1, updates, upd_y0, upd_y1, win_y0, win_y1,
@@ -91,7 +136,12 @@ static int step, fail, picked = -1, updates, upd_y0, upd_y1, win_y0, win_y1,
 	   titled;
 static char done_text[LWS_DLO_UI_EDIT_MAX];
 static char done_null, in_edit;
+/* the caller drew its body all over the display, outside the circle too */
+static char unclipped;
 static size_t heap_before;
+static int settings_clicks, frame_redraws, body_y;
+/* the title strip as the ui drew it, for the caller drawing it */
+static uint8_t title_band[W * (H / 6) * 3];
 
 /* what the display shows, RGB */
 static uint8_t fb[W * H * 3];
@@ -163,6 +213,39 @@ static const lws_display_t disp = {
 		.round		= 1,
 	},
 };
+
+/* the same, but it can only take an update of all of it */
+
+static const lws_display_t disp_whole = {
+	.blit			= pretend_blit,
+	.name			= "pretend 240 round, whole updates",
+	.ic = {
+		.wh_px		= { { W, 0 }, { H, 0 } },
+		.wh_mm		= { { 32, 0 }, { 32, 0 } },
+		.type		= LWSSURF_TRUECOLOR32,
+		.round		= 1,
+	},
+};
+
+/* the capsule is a button, as a physical one called "settings" would be */
+
+static int
+smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
+       size_t len)
+{
+	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "button") &&
+	    !lws_json_simple_strcmp(buf, len, "\"src\":", "ui/settings") &&
+	    !lws_json_simple_strcmp(buf, len, "\"event\":", "click"))
+		settings_clicks++;
+
+	return 0;
+}
+
+static void
+frame_redraw_cb(void *opaque)
+{
+	frame_redraws++;
+}
 
 static int
 row_cb(void *opaque, int idx, lws_dlo_ui_row_t *row)
@@ -336,8 +419,167 @@ updated(const char *what, int y0, int y1)
 	}
 
 	/* the keyboard is dragged anywhere: its keys may be drawn outside */
-	return in_edit || outside_circle_white();
+	return in_edit || unclipped || outside_circle_white();
 }
+
+/* a button event, as lws-button.h issues them */
+
+static int
+button(const char *name)
+{
+	char buf[96];
+	int n;
+
+	n = lws_snprintf(buf, sizeof(buf), "{\"type\":\"button\","
+			 "\"src\":\"bc/%s\",\"event\":\"click\"}", name);
+
+	return lws_dlo_ui_interaction(ui, buf, (size_t)n);
+}
+
+/*
+ * The capsule: the theme's white, with the theme's dark blue bars in it, at
+ * the right end of the title's line, inside the circle
+ */
+
+static int
+capsule_drawn(void)
+{
+	int x0 = W / 2 + 20, x1 = W - 30, y0 = TITLE_H / 2, y1 = TITLE_H;
+
+	if (colour_in(x0, y0, x1, y1, 0xff, 0xff, 0xff) < 40 ||
+	    colour_in(x0, y0, x1, y1, 0x24, 0x47, 0x6b) < 10) {
+		lwsl_err("%s: no capsule\n", __func__);
+		return 0;
+	}
+
+	return 1;
+}
+
+static int
+body_img_fetching(void)
+{
+	lws_dlo_image_t u;
+
+	return !lws_dlo_ss_find(cx, body_img, &u);
+}
+
+static void
+body_render(lws_sorted_usec_list_t *sul)
+{
+	/* the body's page is never drawn here, only fetched */
+}
+
+/* browse the body's page onto the frame's body surface */
+
+static int
+body_browse(const lws_surface_info_t *b)
+{
+	lws_display_dl_init(&body_rs.displaylist, &lds);
+	body_rs.ic = b;
+	body_rs.lds = &lds;
+
+	if (lws_lhp_ss_browse(cx, &body_rs, "file://dlofs/body.html",
+			      body_render)) {
+		lwsl_err("body browse failed\n");
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
+ * The ui's own layouts didn't stop the body's image: cancelling the body's
+ * browse does.  Returns nonzero if that isn't so
+ */
+
+static int
+body_survived(void)
+{
+	if (!body_img_fetching()) {
+		lwsl_err("frame layout stopped the body's image\n");
+		return 1;
+	}
+
+	lws_lhp_ss_cancel(&body_rs);
+	lws_display_list_destroy(cx, &body_rs.displaylist);
+	lws_display_render_free_ids(&body_rs);
+
+	if (body_img_fetching()) {
+		lwsl_err("body cancel left its image\n");
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
+ * Draw all of the display as a caller with something in the frame's body
+ * does: the title strip's lines from the ui, then the body's, here grey
+ */
+
+static int
+caller_draw(void)
+{
+	uint8_t line[W * 3];
+	lws_stateful_ret_t r;
+	lws_box_t box;
+	int y, tries;
+
+	if (lds.display_busy)
+		return 1;
+
+	unclipped = 1;
+	lds.display_busy = 1;
+	memset(&box, 0, sizeof(box));
+	box.w.whole = W;
+	box.h.whole = H;
+	lds.disp->blit(&lds, (uint8_t *)&body_rs, &box, NULL);
+
+	box.h.whole = 1;
+	for (y = 0; y < H; y++) {
+		if (y < body_y) {
+			tries = 0;
+			do {
+				r = lws_dlo_ui_frame_line(ui, y, line);
+			} while ((r & LWS_SRET_YIELD) && tries++ < 100);
+			if (r) {
+				lwsl_err("%s: line %d: 0x%x\n", __func__, y,
+					 (unsigned int)r);
+				return 1;
+			}
+		} else
+			memset(line, 0x80, sizeof(line));
+
+		box.y.whole = y;
+		lds.disp->blit(&lds, line, &box, NULL);
+	}
+
+	box.y.whole = 0;
+	box.h.whole = 0;
+	lds.disp->blit(&lds, line, &box, NULL);
+
+	return 0;
+}
+
+/* the body is still all of what is was drawn as, the ui didn't touch it */
+
+static int
+body_is(uint8_t v)
+{
+	int y, x;
+
+	for (y = body_y; y < H; y++)
+		for (x = 0; x < W * 3; x++)
+			if (fb[y * W * 3 + x] != v) {
+				lwsl_err("%s: %d,%d is %d, not %d\n",
+					 __func__, x / 3, y,
+					 fb[y * W * 3 + x], v);
+				return 0;
+			}
+
+	return 1;
+}
+
 
 static void
 finish(int ok)
@@ -360,6 +602,10 @@ start(void)
 	seen_updates = 0;
 	picked = -1;
 	done_calls = 0;
+	titled = 0;
+	settings_clicks = 0;
+	frame_redraws = 0;
+	lds.disp = &disp;
 	memset(fb, 0xff, sizeof(fb));
 
 	heap_before = lws_get_allocated_heap();
@@ -371,6 +617,8 @@ start(void)
 	ui_info.pick = pick_cb;
 	ui_info.title = title_cb;
 	ui_info.done = done_cb;
+	ui_info.frame_redraw = frame_redraw_cb;
+	ui_info.status_button = "settings";
 	if (pass)
 		ui_info.css = css_red_title;
 
@@ -652,6 +900,285 @@ next_step(lws_sorted_usec_list_t *sul)
 			return;
 		}
 
+		/* the status capsule only changes the title strip */
+		{
+			lws_dlo_ui_status_t st = { 3, 60, 0 };
+
+			lws_dlo_ui_set_status(ui, &st);
+		}
+		break;
+
+	case 12:
+		if (!updated("status", 0, TITLE_H) || !capsule_drawn()) {
+			finish(0);
+			return;
+		}
+
+		/* pressing it clicks its button, not the title */
+
+		touch("press", W / 2 + 34, TITLE_H - 6, 0, 0);
+		if (titled != 1) {
+			lwsl_err("capsule press was a title press\n");
+			finish(0);
+			return;
+		}
+
+		/* what is shown doesn't change: nothing is drawn for it */
+		{
+			lws_dlo_ui_status_t st = { 3, 58, 0 };
+
+			lws_dlo_ui_set_status(ui, &st);
+		}
+
+		/* the first nav shows the cursor, on the first row */
+
+		if (!lws_dlo_ui_nav(ui, LWS_DLO_UI_NAV_DOWN)) {
+			lwsl_err("nav refused\n");
+			finish(0);
+			return;
+		}
+		break;
+
+	case 13:
+		/* the click's smd event has been delivered by now */
+		if (settings_clicks != 1) {
+			lwsl_err("capsule clicked %d times\n", settings_clicks);
+			finish(0);
+			return;
+		}
+		if (!updated("cursor", TITLE_H, H)) {
+			finish(0);
+			return;
+		}
+		/* the cursor's row is the theme's dark blue */
+		if (colour_in(60, TITLE_H + 4, W - 60, TITLE_H + ROW_H - 4,
+			      0x24, 0x47, 0x6b) < 20 * (W - 120)) {
+			lwsl_err("no cursor\n");
+			finish(0);
+			return;
+		}
+
+		/*
+		 * Buttons move it and pick its row, or go back.  The list has
+		 * two rows, the cursor stays on the last going down from it
+		 */
+
+		picked = -1;
+		if (!button("down") || !button("down") || !button("up") ||
+		    !button("enter") || picked != 0 || !button("down") ||
+		    !button("enter") || picked != 1) {
+			lwsl_err("button picked %d\n", picked);
+			finish(0);
+			return;
+		}
+		if (button("left") || button("settings")) {
+			lwsl_err("list page took a button it doesn't use\n");
+			finish(0);
+			return;
+		}
+		if (!button("esc") || titled != 2) {
+			lwsl_err("esc wasn't the title\n");
+			finish(0);
+			return;
+		}
+
+		/* an edit that starts with something already there */
+
+		kbx = KB_X0;
+		kby = 0;
+		in_edit = 1;
+		if (lws_dlo_ui_edit(ui, "Hostname", 32, 0) ||
+		    lws_dlo_ui_edit_set(ui, "ab")) {
+			lwsl_err("edit failed\n");
+			finish(0);
+			return;
+		}
+		break;
+
+	case 14:
+		if (!updated("hostname edit", 0, H)) {
+			finish(0);
+			return;
+		}
+
+		/*
+		 * The cursor was shown on the list, so it starts on q: right to
+		 * w and type it.  Down three rows goes a, Shift, then ?123, the
+		 * first key of the last row: left from there goes round to Done
+		 */
+
+		done_calls = 0;
+		if (!lws_dlo_ui_nav(ui, LWS_DLO_UI_NAV_RIGHT) ||
+		    !lws_dlo_ui_nav(ui, LWS_DLO_UI_NAV_ENTER) ||
+		    !lws_dlo_ui_nav(ui, LWS_DLO_UI_NAV_DOWN) ||
+		    !lws_dlo_ui_nav(ui, LWS_DLO_UI_NAV_DOWN) ||
+		    !lws_dlo_ui_nav(ui, LWS_DLO_UI_NAV_DOWN) ||
+		    !lws_dlo_ui_nav(ui, LWS_DLO_UI_NAV_LEFT)) {
+			lwsl_err("edit nav refused\n");
+			finish(0);
+			return;
+		}
+		in_edit = 0;
+		if (!lws_dlo_ui_nav(ui, LWS_DLO_UI_NAV_ENTER) ||
+		    done_calls != 1 || strcmp(done_text, "abw")) {
+			lwsl_err("nav typed '%s' (%d)\n", done_text,
+				 done_calls);
+			finish(0);
+			return;
+		}
+		break;
+
+	case 15:
+		if (!updated("list page after nav edit", 0, H)) {
+			finish(0);
+			return;
+		}
+
+		/* the frame, drawn all at once to begin with, its body white */
+
+		lws_dlo_ui_frame(ui, LWS_DLO_UI_FRAME_DRAW);
+		break;
+
+	case 16:
+		if (!updated("frame", 0, H) || !capsule_drawn() ||
+		    !dark_in(W / 2 - 40, 0, W / 2 + 40, TITLE_H)) {
+			finish(0);
+			return;
+		}
+		{
+			const lws_surface_info_t *b =
+					lws_dlo_ui_frame_body(ui, &body_y);
+
+			if (body_y != TITLE_H || b->round ||
+			    b->wh_px[0].whole != W ||
+			    b->wh_px[1].whole != H - TITLE_H) {
+				lwsl_err("frame body %dx%d at %d\n",
+					 (int)b->wh_px[0].whole,
+					 (int)b->wh_px[1].whole, body_y);
+				finish(0);
+				return;
+			}
+
+			/*
+			 * The caller's page, still fetching its image.  Only
+			 * the first time: the connections and dns cache it
+			 * makes come and go in their own time, which the heap
+			 * check of the ui the second time mustn't see
+			 */
+
+			if (!pass && body_browse(b)) {
+				finish(0);
+				return;
+			}
+		}
+		if (!body_is(0xff)) {
+			finish(0);
+			return;
+		}
+		memcpy(title_band, fb, sizeof(title_band));
+
+		/* the body and nav are the caller's */
+
+		picked = -1;
+		touch("down", W / 2, H / 2, 0, 0);
+		touch("scroll", W / 2, H / 2 - 30, 0, -30);
+		touch("press", W / 2, H / 2, 0, 0);
+		if (picked != -1 || lws_dlo_ui_nav(ui, LWS_DLO_UI_NAV_DOWN) ||
+		    button("enter")) {
+			lwsl_err("frame took the body's input\n");
+			finish(0);
+			return;
+		}
+
+		/* the caller draws it all, with the ui's title strip */
+
+		if (caller_draw()) {
+			finish(0);
+			return;
+		}
+		break;
+
+	case 17:
+		if (!updated("caller", 0, H) || !body_is(0x80) ||
+		    memcmp(title_band, fb, sizeof(title_band))) {
+			lwsl_err("caller's title strip differs\n");
+			finish(0);
+			return;
+		}
+
+		/* the body's image is on its way */
+
+		if (!pass && !body_img_fetching()) {
+			lwsl_err("body image isn't being fetched\n");
+			finish(0);
+			return;
+		}
+
+		/* the title, laid out again, is only drawn in its band */
+
+		lws_dlo_ui_set_title(ui, "Page 2");
+		break;
+
+	case 18:
+		if (!updated("frame title", 0, TITLE_H) || !body_is(0x80)) {
+			finish(0);
+			return;
+		}
+
+		/* laying the title out again didn't stop the body's image */
+
+		if (!pass && body_survived()) {
+			finish(0);
+			return;
+		}
+
+		/*
+		 * On a display that can only take all of it, the caller is
+		 * asked to draw it again, and the ui draws nothing itself
+		 */
+
+		lds.disp = &disp_whole;
+		{
+			lws_dlo_ui_status_t st = { 1, 60, 1 };
+
+			lws_dlo_ui_set_status(ui, &st);
+		}
+		lws_sul_schedule(cx, 0, &sul_step, next_step,
+				 300 * LWS_US_PER_MS);
+		break;
+
+	case 19:
+		if (frame_redraws != 1 || updates != seen_updates) {
+			lwsl_err("whole display frame: %d redraws, %d updates\n",
+				 frame_redraws, updates - seen_updates);
+			finish(0);
+			return;
+		}
+		if (caller_draw()) {
+			finish(0);
+			return;
+		}
+		break;
+
+	case 20:
+		if (!updated("caller again", 0, H) || !body_is(0x80)) {
+			finish(0);
+			return;
+		}
+		lds.disp = &disp;
+
+		/* the list takes the whole display back */
+
+		unclipped = 0;
+		lws_dlo_ui_set_list(ui, ROWS, -1);
+		break;
+
+	case 21:
+		if (!updated("list after frame", 0, H)) {
+			finish(0);
+			return;
+		}
+
 		lws_dlo_ui_destroy(&ui);
 		if (pass++ && lws_get_allocated_heap() > heap_before) {
 			lwsl_err("ui kept %u bytes of heap\n", (unsigned int)
@@ -690,6 +1217,7 @@ int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
+	struct lws_vhost *vh;
 
 	signal(SIGINT, sigint_handler);
 
@@ -709,6 +1237,26 @@ main(int argc, const char **argv)
 		return 1;
 	}
 
+	/* the silent server, on a port nothing else is using */
+
+	info.port = 0;
+	info.vhost_name = "silent";
+	info.protocols = protocols;
+	info.listen_accept_role = "raw-skt";
+	info.listen_accept_protocol = "silent";
+	vh = lws_create_vhost(cx, &info);
+	if (!vh) {
+		lwsl_err("silent vhost failed\n");
+		lws_context_destroy(cx);
+		return 1;
+	}
+	lws_snprintf(body_img, sizeof(body_img), "http://127.0.0.1:%d/x.png",
+		     lws_get_vhost_listen_port(vh));
+	fs_body.len = (size_t)lws_snprintf(body_html, sizeof(body_html),
+			"<!doctype html><html><head><meta charset=\"utf-8\">"
+			"</head><body><img src=\"%s\"></body></html>",
+			body_img);
+
 	/* the dlo filesystem after the platform one, where the ui's html is */
 
 	dlo_fops = lws_dlo_fops;
@@ -719,6 +1267,14 @@ main(int argc, const char **argv)
 	lws_font_register(cx, fira_c_r_16, sizeof(fira_c_r_16));
 	lws_font_register(cx, fira_c_r_20, sizeof(fira_c_r_20));
 	lws_dlo_file_register(cx, &fs_icon);
+	lws_dlo_file_register(cx, &fs_body);
+
+	/* the capsule's button event */
+	if (!lws_smd_register(cx, NULL, 0, LWSSMDCL_INTERACTION, smd_cb)) {
+		lwsl_err("smd register failed\n");
+		lws_context_destroy(cx);
+		return 1;
+	}
 
 	memset(&lds, 0, sizeof(lds));
 	lds.disp = &disp;
@@ -730,7 +1286,7 @@ main(int argc, const char **argv)
 	}
 
 	lws_sul_schedule(cx, 0, &sul_timeout, timeout_cb,
-			 20 * LWS_US_PER_SEC);
+			 40 * LWS_US_PER_SEC);
 
 	lws_context_default_loop_run_destroy(cx);
 

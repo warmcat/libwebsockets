@@ -19,6 +19,11 @@ require_lws_config(LWS_WITH_SVG 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_FILE_OPS 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS 1 requirements)
+# the status capsule issues a button event
+require_lws_config(LWS_WITH_SYS_SMD 1 requirements)
+# the frame's body fetches from a raw server of the test's own
+require_lws_config(LWS_WITH_SERVER 1 requirements)
+require_lws_config(LWS_ROLE_RAW 1 requirements)
 # lhp fetches its assets through a secure stream from the JSON policy
 require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
 
@@ -28,7 +33,7 @@ if (requirements)
 	set_tests_properties(api-test-dlo-ui
 			     PROPERTIES
 			     WORKING_DIRECTORY .
-			     TIMEOUT 30)
+			     TIMEOUT 60)
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})

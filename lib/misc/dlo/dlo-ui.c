@@ -37,14 +37,22 @@
  * css, so they can't move anything; everything the caller gave us is put in
  * the html as text.
  *
- * There are two pages: the list page, a title strip over a list strip, and
- * the edit page, a title strip over an edit strip over a keyboard strip.
+ * There are three pages: the list page, a title strip over a list strip, the
+ * edit page, a title strip over an edit strip over a keyboard strip, and the
+ * frame page, a title strip over the caller's body.  The frame's html is
+ * the title strip over nothing, white: the ui only draws all of it to show
+ * the frame before the caller has anything in its body.  Otherwise the
+ * caller draws the display, taking the title strip's lines from us.
+ *
+ * The status capsule, and its icons, are boxes styled by the css, so they
+ * need nothing from the dlo filesystem and are sized for the display.
  */
 
 #include <private-lib-core.h>
 
 #define LWS_DLO_UI_TITLE_MAX		32
 #define UI_CSS_MAX			2048
+#define UI_BUTTON_NAME_MAX		16
 
 /* the strips, as bits of what needs drawing */
 
@@ -53,6 +61,7 @@ enum {
 	UI_STRIP_LIST			= (1 << 1),
 	UI_STRIP_EDIT			= (1 << 2),
 	UI_STRIP_KEYS			= (1 << 3),
+	UI_STRIP_BODY			= (1 << 4),	/* the caller's */
 };
 
 /* the strips each page has */
@@ -60,6 +69,7 @@ enum {
 #define UI_PAGE_LIST			(UI_STRIP_TITLE | UI_STRIP_LIST)
 #define UI_PAGE_EDIT			(UI_STRIP_TITLE | UI_STRIP_EDIT | \
 					 UI_STRIP_KEYS)
+#define UI_PAGE_FRAME			(UI_STRIP_TITLE | UI_STRIP_BODY)
 
 /*
  * The keyboard.  Keys are placed in halves of the key pitch, 20 to a row;
@@ -158,10 +168,12 @@ struct lws_dlo_ui {
 	lws_dlo_ui_info_t		i;
 	lws_display_render_state_t	rs;
 	lws_sorted_usec_list_t		sul_kick;
+	lws_surface_info_t		body_ic; /* the frame's body */
 
 	char				title[LWS_DLO_UI_TITLE_MAX];
 	char				edit_title[LWS_DLO_UI_TITLE_MAX];
 	char				page_name[32];
+	char				status_button[UI_BUTTON_NAME_MAX];
 	char				*css;	/* the caller's, or NULL */
 
 	char				*page;	/* the html we made, while it is
@@ -193,6 +205,14 @@ struct lws_dlo_ui {
 	int				count;	/* rows in the list */
 	int				focus;	/* row to keep in the middle */
 	int				top;	/* the list is scrolled down by */
+	int				cursor;	/* row the cursor is on */
+	int				kcur;	/* key the cursor is on */
+
+	/* the status capsule, where it is on the display, if it's shown */
+	int				cap_x0, cap_x1, cap_y0, cap_y1;
+	int8_t				st_wlan;	/* bars, or NONE */
+	int8_t				st_batt;	/* quarters, or NONE */
+	uint8_t				st_chg;
 
 	lws_display_scalar		y0, y1;	/* the band being rendered */
 
@@ -207,6 +227,11 @@ struct lws_dlo_ui {
 	uint8_t				dirty;	 /* UI_STRIP_*: to draw */
 	uint8_t				drawing; /* UI_STRIP_*: being drawn */
 	uint8_t				user_scrolled;
+	uint8_t				nav;	 /* the cursor is shown */
+	uint8_t				frame_full; /* draw all the frame */
+	uint8_t				frame_lines; /* the caller is partway
+						      * through the title
+						      * strip's lines */
 };
 
 /*
@@ -351,7 +376,7 @@ ui_strip_band(const struct lws_dlo_ui *ui, int strip, int *y0, int *y1)
 		*y0 = eb;
 		*y1 = ui->h;
 		break;
-	default: /* UI_STRIP_LIST */
+	default: /* UI_STRIP_LIST, UI_STRIP_BODY */
 		*y0 = ui->title_h;
 		*y1 = ui->h;
 		break;
@@ -365,7 +390,7 @@ ui_strip_at(const struct lws_dlo_ui *ui, int y)
 {
 	int s, y0, y1;
 
-	for (s = UI_STRIP_TITLE; s <= UI_STRIP_KEYS; s <<= 1) {
+	for (s = UI_STRIP_TITLE; s <= UI_STRIP_BODY; s <<= 1) {
 		if (!(ui->page_strips & s))
 			continue;
 		ui_strip_band(ui, s, &y0, &y1);
@@ -388,6 +413,102 @@ ui_span(const struct lws_dlo_ui *ui, int y0, int y1, int *x0, int *x1)
 
 	if (lws_surface_visible_span(&ui->i.lds->disp->ic, y0, y1, x0, x1))
 		*x0 = *x1 = 0;
+}
+
+/*
+ * The title's line of text sits at the bottom of its strip, and the status
+ * capsule, if it's shown, at the right end of the same lines
+ */
+
+static void
+ui_title_line(const struct lws_dlo_ui *ui, int *y0, int *y1)
+{
+	*y0 = ui->title_h - (ui->fs_title * 6) / 5 - ui->pad;
+	*y1 = ui->title_h - ui->pad;
+}
+
+/* the inside of the capsule is split into its icons with this much padding */
+
+static int
+ui_status_pad(const struct lws_dlo_ui *ui)
+{
+	int p = (ui->cap_y1 - ui->cap_y0) / 6;
+
+	return p < 1 ? 1 : p;
+}
+
+/* how wide the battery icon is, for the capsule's height */
+
+static int
+ui_status_batt_w(int ih)
+{
+	return (ih * 3) / 2;
+}
+
+/* where the capsule is, sized for the icons it shows */
+
+static void
+ui_status_place(struct lws_dlo_ui *ui)
+{
+	int y0, y1, x0, x1, ih, cp, w;
+
+	ui->cap_x0 = ui->cap_x1 = 0;
+
+	if (ui->st_wlan == LWS_DLO_UI_STATUS_NONE &&
+	    ui->st_batt == LWS_DLO_UI_STATUS_NONE)
+		return;
+
+	/* as tall as the title's text, in the middle of its line */
+	ui_title_line(ui, &y0, &y1);
+	ui->cap_y0 = y0 + (y1 - y0 - ui->fs_title) / 2;
+	ui->cap_y1 = ui->cap_y0 + ui->fs_title;
+	cp = ui_status_pad(ui);
+	ih = ui->fs_title - 2 * cp;
+	if (ih < 4)
+		return;
+
+	w = cp;
+	if (ui->st_wlan != LWS_DLO_UI_STATUS_NONE)
+		w += ih + cp;
+	if (ui->st_batt != LWS_DLO_UI_STATUS_NONE)
+		w += ui_status_batt_w(ih) + cp;
+	/* its round ends */
+	w += ih / 2;
+
+	ui_span(ui, ui->cap_y0, ui->cap_y1, &x0, &x1);
+	if (x1 - x0 < 2 * w)
+		/* it would leave no room for the title */
+		return;
+
+	ui->cap_x1 = x1 - ui->pad;
+	ui->cap_x0 = ui->cap_x1 - w;
+}
+
+/*
+ * The columns the title's text can use: what can be seen of its line, less
+ * the capsule's width at both ends, so the title stays in the middle.  If
+ * that leaves it less than half, eg, at the top of a round display, it has
+ * what is left of the capsule instead
+ */
+
+static void
+ui_title_span(const struct lws_dlo_ui *ui, int *x0, int *x1)
+{
+	int y0, y1, w = ui->cap_x1 - ui->cap_x0;
+
+	ui_title_line(ui, &y0, &y1);
+	ui_span(ui, y0, y1, x0, x1);
+
+	if (!w)
+		return;
+
+	if ((*x1 - *x0) - 2 * (w + 2 * ui->pad) >= (*x1 - *x0) / 2) {
+		*x0 += w + 2 * ui->pad;
+		*x1 -= w + 2 * ui->pad;
+		return;
+	}
+
+	*x1 = ui->cap_x0 - ui->pad;
 }
 
 /* place the keys of the current layer, on the keyboard */
@@ -526,6 +647,8 @@ static const char * const ui_css =
 		" overflow: hidden }"
 	".x { white-space: nowrap }"
 	".d { opacity: 0.25 }"
+	"#s, .sb, #sbo, #sbi, #sbf, #sbc, #sbn { position: absolute;"
+		" overflow: hidden }"
 
 	/* the theme */
 
@@ -536,7 +659,102 @@ static const char * const ui_css =
 	"#et { background-color: #eee; border-radius: 4px }"
 	".k { background-color: #ddd; border-radius: 4px }"
 	".ks { background-color: #b8bcc8 }"
-	".ka { background-color: #24476b; color: #fff }";
+	".ka { background-color: #24476b; color: #fff }"
+	".c { background-color: #24476b; color: #fff; border-radius: 4px;"
+		" opacity: 1 }"
+	".kc { background-color: #000; color: #fff }"
+	"#s { background-color: #fff }"
+	".sb, #sbo, #sbn, #sbf { background-color: #24476b }"
+	".sb { opacity: 0.3 }"
+	".so { opacity: 1 }"
+	"#sbi { background-color: #fff }"
+	"#sbc { background-color: #2a8f3a }";
+
+/* where the capsule's icons are in it */
+
+static void
+ui_status_css(const struct lws_dlo_ui *ui, ui_w_t *w)
+{
+	int ch = ui->cap_y1 - ui->cap_y0, cp = ui_status_pad(ui),
+	    ih = ch - 2 * cp, x = ih / 4 + cp, n, g, bw, bh, ow, oh, ot, nw,
+	    fw;
+
+	if (ui->cap_x1 == ui->cap_x0)
+		return;
+
+	ui_printf(w, "#s { left: %dpx; top: %dpx; width: %dpx; height: %dpx;"
+		     " border-radius: %dpx }", ui->cap_x0, ui->cap_y0,
+		     ui->cap_x1 - ui->cap_x0, ch, ch / 2);
+
+	if (ui->st_wlan != LWS_DLO_UI_STATUS_NONE) {
+		/* bars getting taller, standing on the bottom of the icon */
+		g = ih / 8 ? ih / 8 : 1;
+		bw = (ih - (LWS_DLO_UI_WLAN_BARS - 1) * g) /
+							LWS_DLO_UI_WLAN_BARS;
+		if (bw < 1)
+			bw = 1;
+		for (n = 0; n < LWS_DLO_UI_WLAN_BARS; n++) {
+			bh = (ih * (n + 1)) / LWS_DLO_UI_WLAN_BARS;
+			if (bh < 1)
+				bh = 1;
+			ui_printf(w, "#sb%d { left: %dpx; top: %dpx;"
+				     " width: %dpx; height: %dpx }", n,
+				     x + n * (bw + g), cp + ih - bh, bw, bh);
+		}
+		x += ih + cp;
+	}
+
+	if (ui->st_batt == LWS_DLO_UI_STATUS_NONE)
+		return;
+
+	/* an outline with a nub on its right, filled as far as charged */
+
+	nw = ui_status_batt_w(ih) / 10 ? ui_status_batt_w(ih) / 10 : 1;
+	ow = ui_status_batt_w(ih) - nw;
+	oh = (ih * 2) / 3 < 5 ? 5 : (ih * 2) / 3;
+	ot = cp + (ih - oh) / 2;
+	fw = ((ow - 4) * ui->st_batt) / 4;
+	if (fw < 0)
+		fw = 0;
+
+	ui_printf(w, "#sbo { left: %dpx; top: %dpx; width: %dpx; height: %dpx }"
+		     "#sbn { left: %dpx; top: %dpx; width: %dpx; height: %dpx }"
+		     "#sbi { left: %dpx; top: %dpx; width: %dpx; height: %dpx }",
+		     x, ot, ow, oh, x + ow, ot + oh / 4, nw, oh - 2 * (oh / 4),
+		     x + 1, ot + 1, ow - 2, oh - 2);
+	if (ui->st_batt)
+		ui_printf(w, "#%s { left: %dpx; top: %dpx; width: %dpx;"
+			     " height: %dpx }", ui->st_chg ? "sbc" : "sbf",
+			     x + 2, ot + 2, fw, oh - 4);
+}
+
+/* the capsule, inside the title strip */
+
+static void
+ui_status_html(const struct lws_dlo_ui *ui, ui_w_t *w)
+{
+	int n;
+
+	if (ui->cap_x1 == ui->cap_x0)
+		return;
+
+	ui_printf(w, "<div id=\"s\">");
+
+	if (ui->st_wlan != LWS_DLO_UI_STATUS_NONE)
+		for (n = 0; n < LWS_DLO_UI_WLAN_BARS; n++)
+			ui_printf(w, "<div class=\"sb%s\" id=\"sb%d\"></div>",
+				  n < ui->st_wlan ? " so" : "", n);
+
+	if (ui->st_batt != LWS_DLO_UI_STATUS_NONE) {
+		ui_printf(w, "<div id=\"sbo\"></div><div id=\"sbi\"></div>");
+		if (ui->st_batt)
+			ui_printf(w, "<div id=\"%s\"></div>",
+				  ui->st_chg ? "sbc" : "sbf");
+		ui_printf(w, "<div id=\"sbn\"></div>");
+	}
+
+	ui_printf(w, "</div>");
+}
 
 /* the edit page's strips, after the title strip */
 
@@ -581,6 +799,8 @@ ui_html_edit(struct lws_dlo_ui *ui, ui_w_t *w)
 	ui_printf(w, "</style></head><body><div id=\"ui\"><div id=\"t\">"
 		     "<div id=\"tt\">");
 	ui_text(w, ui->edit_title, sizeof(ui->edit_title));
+	ui_printf(w, "</div>");
+	ui_status_html(ui, w);
 
 	/*
 	 * What was typed, or as many stars, as much as fits of it, ending
@@ -598,7 +818,7 @@ ui_html_edit(struct lws_dlo_ui *ui, ui_w_t *w)
 		t[n++ - start] = '_';
 	t[n - start] = '\0';
 
-	ui_printf(w, "</div></div><div id=\"e\"><div id=\"et\">"
+	ui_printf(w, "</div><div id=\"e\"><div id=\"et\">"
 		     "<div class=\"x\">");
 	ui_text(w, t, sizeof(t));
 	lws_explicit_bzero(t, sizeof(t));
@@ -618,12 +838,13 @@ ui_html_edit(struct lws_dlo_ui *ui, ui_w_t *w)
 		if (kp->k->act == K_SHOW && ui->show)
 			cap = "Hide";
 
-		ui_printf(w, "<div class=\"k%s%s\" id=\"k%d\">"
+		ui_printf(w, "<div class=\"k%s%s%s\" id=\"k%d\">"
 			     "<div class=\"x\">",
 			  kp->k->act == K_CHR ? "" : " ks",
 			  (kp->k->act == K_SHIFT &&
 			   ui->layer == UI_LAYER_UPPER) ||
-			  (kp->k->act == K_SHOW && ui->show) ? " ka" : "", n);
+			  (kp->k->act == K_SHOW && ui->show) ? " ka" : "",
+			  ui->nav && n == ui->kcur ? " kc" : "", n);
 		ui_text(w, cap, 8);
 		ui_printf(w, "</div></div>");
 	}
@@ -635,7 +856,7 @@ static int
 ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 {
 	int lh = ui->h - ui->title_h, tl = (ui->fs_title * 6) / 5,
-	    rl = (ui->fs_row * 6) / 5, x0, x1, y0, n, first, last, ry, ix0,
+	    x0, x1, y0, n, first, last, ry, ix0,
 	    ix1, round = ui->i.lds->disp->ic.round;
 	lws_dlo_ui_row_t row;
 	ui_w_t w;
@@ -653,13 +874,27 @@ ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 
 	/* the title's line sits at the bottom of its strip */
 
-	ui_span(ui, ui->title_h - tl - ui->pad, ui->title_h - ui->pad, &x0, &x1);
+	ui_title_span(ui, &x0, &x1);
+	if (x1 < x0)
+		x1 = x0;
 	ui_printf(&w, "#tt { left: %dpx; top: %dpx; width: %dpx; height: %dpx;"
 		      " font-size: %dpx }", x0, ui->title_h - tl - ui->pad,
 		      x1 - x0, tl, ui->fs_title);
+	ui_status_css(ui, &w);
 
 	if (ui->page_strips == UI_PAGE_EDIT) {
 		ui_html_edit(ui, &w);
+		goto done;
+	}
+
+	if (ui->page_strips == UI_PAGE_FRAME) {
+		/* below the title strip, the body is the caller's */
+		ui_printf(&w, "</style></head><body><div id=\"ui\">"
+			      "<div id=\"t\"><div id=\"tt\">");
+		ui_text(&w, ui->title, sizeof(ui->title));
+		ui_printf(&w, "</div>");
+		ui_status_html(ui, &w);
+		ui_printf(&w, "</div></div></body></html>");
 		goto done;
 	}
 
@@ -669,7 +904,8 @@ ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 	/*
 	 * Only the rows that can be seen are in the html, each positioned
 	 * where it is in the strip as scrolled, and kept to the columns that
-	 * can be seen across its line of text, which is in its middle.
+	 * can be seen across all of it, so the background of a highlighted
+	 * one is all inside the circle.
 	 *
 	 * On a round display, a row's icon and text start at the left edge of
 	 * the circle instead of being centred, from where all of its icon can
@@ -687,9 +923,9 @@ ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 
 	for (n = first; n < last; n++) {
 		ry = n * ui->row_h - ui->top;
-		y0 = ui->title_h + ry + (ui->row_h - rl) / 2;
-		ui_span(ui, y0 < ui->title_h ? ui->title_h : y0, y0 + rl,
-			&x0, &x1);
+		y0 = ui->title_h + ry;
+		ui_span(ui, y0 < ui->title_h ? ui->title_h : y0,
+			y0 + ui->row_h, &x0, &x1);
 
 		if (round) {
 			y0 = ui->title_h + ry + ui->pad;
@@ -709,16 +945,19 @@ ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 		      "<body><div id=\"ui\"><div id=\"t\"><div id=\"tt\">",
 		      ui->icon, ui->icon, ui->pad * 2);
 	ui_text(&w, ui->title, sizeof(ui->title));
-	ui_printf(&w, "</div></div><div id=\"l\">");
+	ui_printf(&w, "</div>");
+	ui_status_html(ui, &w);
+	ui_printf(&w, "</div><div id=\"l\">");
 
 	for (n = first; n < last && !w.full; n++) {
 		memset(&row, 0, sizeof(row));
 		if (ui->i.row(ui->i.opaque, n, &row))
 			continue;
 
-		ui_printf(&w, "<div class=\"r%s\" id=\"r%d\">",
+		ui_printf(&w, "<div class=\"r%s%s\" id=\"r%d\">",
 			  row.state == LWS_DLO_UI_ROW_DIM ? " d" :
-			  (row.state == LWS_DLO_UI_ROW_FOCUS ? " f" : ""), n);
+			  (row.state == LWS_DLO_UI_ROW_FOCUS ? " f" : ""),
+			  ui->nav && n == ui->cursor ? " c" : "", n);
 		if (ui_icon_name_ok(row.icon))
 			ui_printf(&w, "<div class=\"i\"><img src=\"%s\">"
 				      "</div>", row.icon);
@@ -762,7 +1001,7 @@ ui_render(lws_sorted_usec_list_t *sul);
 static int
 ui_layout(struct lws_dlo_ui *ui)
 {
-	size_t len = 2048 + (ui->css ? strlen(ui->css) : 0) +
+	size_t len = 3072 + (ui->css ? strlen(ui->css) : 0) +
 		     (ui->page_strips == UI_PAGE_EDIT ?
 			(size_t)UI_KEYS_MAX * 192 :
 			(size_t)((ui->h / ui->row_h) + 2) * 512);
@@ -820,13 +1059,20 @@ ui_layout(struct lws_dlo_ui *ui)
 
 	ui->stale = 0;
 	ui->phase = UI_LAYOUT;
-	ui->i.lds->display_busy = 1;
+	/*
+	 * Laying the frame out doesn't draw anything: the caller may be
+	 * drawing its body meanwhile.  Otherwise the display is ours, and we
+	 * draw on it as soon as the layout is complete
+	 */
+	if (ui->page_strips != UI_PAGE_FRAME)
+		ui->i.lds->display_busy = 1;
 
 	lws_snprintf(url, sizeof(url), "file://dlofs/%s", ui->page_name);
 	if (lws_lhp_ss_browse(ui->i.cx, &ui->rs, url, ui_render)) {
 		lwsl_err("%s: browse failed\n", __func__);
 		ui->phase = UI_IDLE;
-		ui->i.lds->display_busy = 0;
+		if (ui->page_strips != UI_PAGE_FRAME)
+			ui->i.lds->display_busy = 0;
 		ui_page_drop(ui);
 		return 1;
 	}
@@ -883,6 +1129,10 @@ ui_scan_start(struct lws_dlo_ui *ui)
 	ui->drawing = ui->dirty & ui->page_strips;
 	ui->dirty = 0;
 
+	/* of the frame, we draw its body, white, only when drawing all of it */
+	if (ui->page_strips == UI_PAGE_FRAME && !ui->frame_full)
+		ui->drawing &= (uint8_t)~UI_STRIP_BODY;
+
 	/*
 	 * The strips are bands of whole lines, one above the other: the band
 	 * drawn runs from the top of the first that changed to the bottom of
@@ -890,7 +1140,7 @@ ui_scan_start(struct lws_dlo_ui *ui)
 	 * everything
 	 */
 
-	for (s = UI_STRIP_TITLE; s <= UI_STRIP_KEYS; s <<= 1) {
+	for (s = UI_STRIP_TITLE; s <= UI_STRIP_BODY; s <<= 1) {
 		if (!(ui->drawing & s))
 			continue;
 		ui_strip_band(ui, s, &y0, &y1);
@@ -957,6 +1207,7 @@ ui_scan_end(struct lws_dlo_ui *ui)
 
 	ui->phase = UI_IDLE;
 	ui->drawing = 0;
+	ui->frame_full = 0;
 
 	/*
 	 * A zero-height blit ends the update: the display's completion
@@ -997,6 +1248,14 @@ ui_render(lws_sorted_usec_list_t *sul)
 		ui->kb = ui_dlo_by_id(&rs->displaylist,
 				      lws_display_render_get_id(rs, "kb"));
 		lws_display_get_ids_boxes(rs);
+
+		if (ui->page_strips == UI_PAGE_FRAME) {
+			/* whether, and how, it's drawn is decided when idle */
+			ui->phase = UI_IDLE;
+			if (ui->dirty || ui->stale)
+				lws_dlo_ui_kick(ui);
+			return;
+		}
 
 		/* the whole of what changed is drawn from the new layout */
 
@@ -1050,13 +1309,72 @@ ui_render(lws_sorted_usec_list_t *sul)
 	ui_scan_end(ui);
 }
 
+/*
+ * The frame page: its title strip is laid out again whenever it changed and
+ * the caller isn't partway through drawing it, even while the caller is
+ * drawing its body.  What changed is drawn by us only when the display is
+ * free, and then only if we're asked to draw all of it, or it's just the title
+ * strip and the display can take it as a band.  A bistable display gets it
+ * with the caller's next update, and other displays are drawn again by the
+ * caller, if it wants to be told.
+ */
+
+static void
+ui_frame_kick(struct lws_dlo_ui *ui)
+{
+	const lws_display_t *disp = ui->i.lds->disp;
+
+	if (ui->frame_lines && !ui->i.lds->display_busy)
+		/* the caller's update ended before the strip's last line */
+		ui->frame_lines = 0;
+
+	if (ui->stale) {
+		if (ui->frame_lines)
+			/* frame_line() kicks us after its last line */
+			return;
+		if (ui_layout(ui))
+			ui->dirty = 0;
+		return;
+	}
+
+	if (!ui->dirty || ui->i.lds->display_busy)
+		return;
+
+	if (ui->frame_full || disp->ic.band) {
+		if (ui_scan_start(ui)) {
+			lwsl_err("%s: OOM\n", __func__);
+			ui->phase = UI_IDLE;
+			ui->i.lds->display_busy = 0;
+			ui->dirty = 0;
+			return;
+		}
+		ui_render(&ui->rs.sul);
+		return;
+	}
+
+	if (disp->bistable || !ui->i.frame_redraw)
+		/* frame_line() clears it, when the caller draws it */
+		return;
+
+	ui->dirty = 0;
+	ui->i.frame_redraw(ui->i.opaque);
+}
+
 static void
 ui_kick_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_dlo_ui *ui = lws_container_of(sul, struct lws_dlo_ui,
 						 sul_kick);
 
-	if (ui->phase != UI_IDLE || ui->i.lds->display_busy)
+	if (ui->phase != UI_IDLE)
+		return;
+
+	if (ui->page_strips == UI_PAGE_FRAME) {
+		ui_frame_kick(ui);
+		return;
+	}
+
+	if (ui->i.lds->display_busy)
 		/* we are kicked again when it's free */
 		return;
 
@@ -1092,10 +1410,26 @@ lws_dlo_ui_create(const lws_dlo_ui_info_t *info)
 	const lws_surface_info_t *ic = &info->lds->disp->ic;
 	struct lws_dlo_ui *ui;
 
-	size_t cl = 0;
+	size_t cl = 0, n;
 
 	if (!info->row)
 		return NULL;
+
+	if (info->status_button) {
+		/* it goes in the JSON of the events it issues */
+		for (n = 0; info->status_button[n]; n++)
+			if (n == UI_BUTTON_NAME_MAX - 1 ||
+			    !((info->status_button[n] >= 'a' &&
+			       info->status_button[n] <= 'z') ||
+			      (info->status_button[n] >= '0' &&
+			       info->status_button[n] <= '9') ||
+			      info->status_button[n] == '-' ||
+			      info->status_button[n] == '_')) {
+				lwsl_err("%s: status_button refused\n",
+					 __func__);
+				return NULL;
+			}
+	}
 
 	if (info->css) {
 		/* it goes in a style element: it mustn't be able to end it */
@@ -1116,9 +1450,15 @@ lws_dlo_ui_create(const lws_dlo_ui_info_t *info)
 		memcpy(ui->css, info->css, cl + 1);
 	}
 	ui->i.css = NULL; /* it is ui->css */
+	if (info->status_button)
+		lws_strncpy(ui->status_button, info->status_button,
+			    sizeof(ui->status_button));
+	ui->i.status_button = NULL; /* it is ui->status_button */
 	ui->w = ic->wh_px[0].whole;
 	ui->h = ic->wh_px[1].whole;
 	ui->focus = -1;
+	ui->cursor = -1;
+	ui->st_wlan = ui->st_batt = LWS_DLO_UI_STATUS_NONE;
 	ui->page_strips = UI_PAGE_LIST;
 
 	lws_snprintf(ui->page_name, sizeof(ui->page_name), "lws-dlo-ui-%p.html",
@@ -1154,6 +1494,23 @@ lws_dlo_ui_create(const lws_dlo_ui_info_t *info)
 		lws_free(ui);
 		return NULL;
 	}
+
+	/*
+	 * The frame's body is the display below the title strip, as many
+	 * pixels to the mm.  It isn't a circle, even if the display is
+	 */
+
+	ui->body_ic = *ic;
+	ui->body_ic.wh_px[1].whole = ui->h - ui->title_h;
+	ui->body_ic.wh_px[1].frac = 0;
+	if (ui->h) {
+		lws_fx_t a, t;
+
+		lws_fx_set(a, ui->h - ui->title_h, 0);
+		lws_fx_div(&t, &a, &ic->wh_px[1]);
+		lws_fx_mul(&ui->body_ic.wh_mm[1], &ic->wh_mm[1], &t);
+	}
+	ui->body_ic.round = 0;
 
 	return ui;
 }
@@ -1203,7 +1560,7 @@ lws_dlo_ui_set_title(struct lws_dlo_ui *ui, const char *title)
 		return;
 
 	memcpy(ui->title, t, sizeof(t));
-	if (ui->page_strips != UI_PAGE_LIST)
+	if (ui->page_strips == UI_PAGE_EDIT)
 		/* it's shown when the list page is again */
 		return;
 
@@ -1229,10 +1586,21 @@ lws_dlo_ui_set_list(struct lws_dlo_ui *ui, int count, int focus)
 		ui->user_scrolled = 0;
 	}
 	ui->focus = focus;
+	if (ui->cursor >= count)
+		ui->cursor = count - 1;
 	ui_clamp_top(ui);
 
-	if (ui->page_strips != UI_PAGE_LIST)
+	if (ui->page_strips == UI_PAGE_EDIT)
 		return;
+
+	if (ui->page_strips == UI_PAGE_FRAME) {
+		/* the list page takes the whole display again */
+		ui->page_strips = UI_PAGE_LIST;
+		ui->drag = 0;
+		ui->frame_full = 0;
+		ui->frame_lines = 0;
+		ui->dirty |= UI_PAGE_LIST;
+	}
 
 	ui->stale = 1;
 	ui->dirty |= UI_STRIP_LIST;
@@ -1260,6 +1628,9 @@ ui_edit_end(struct lws_dlo_ui *ui)
 	ui_page_show(ui, UI_PAGE_LIST);
 }
 
+static void
+ui_kcur_place(struct lws_dlo_ui *ui);
+
 int
 lws_dlo_ui_edit(struct lws_dlo_ui *ui, const char *title, size_t max,
 		unsigned int flags)
@@ -1284,9 +1655,157 @@ lws_dlo_ui_edit(struct lws_dlo_ui *ui, const char *title, size_t max,
 	ui->ky = 0;
 	ui_clamp_kb(ui);
 
+	/* using buttons, the cursor starts on the first key, in view */
+	ui->kcur = 0;
+	if (ui->nav)
+		ui_kcur_place(ui);
+
 	ui_page_show(ui, UI_PAGE_EDIT);
 
 	return 0;
+}
+
+int
+lws_dlo_ui_edit_set(struct lws_dlo_ui *ui, const char *text)
+{
+	size_t n = strlen(text);
+
+	if (ui->page_strips != UI_PAGE_EDIT || n > ui->edit_max)
+		return 1;
+
+	lws_explicit_bzero(ui->edit, sizeof(ui->edit));
+	memcpy(ui->edit, text, n);
+	ui->edit_len = n;
+	ui->escroll = 0;
+	ui->stale = 1;
+	ui->dirty |= UI_STRIP_EDIT;
+	lws_dlo_ui_kick(ui);
+
+	return 0;
+}
+
+/* going back from editing abandons it, the caller is told */
+
+static void
+ui_edit_abandon(struct lws_dlo_ui *ui)
+{
+	unsigned int gen = ui->edit_gen;
+
+	ui->i.done(ui->i.opaque, NULL);
+	if (ui->edit_gen == gen)
+		ui_edit_end(ui);
+}
+
+void
+lws_dlo_ui_frame(struct lws_dlo_ui *ui, unsigned int flags)
+{
+	if (ui->page_strips == UI_PAGE_EDIT) {
+		ui_edit_abandon(ui);
+		if (ui->page_strips == UI_PAGE_EDIT)
+			/* the done callback started another edit */
+			return;
+	}
+
+	ui->page_strips = UI_PAGE_FRAME;
+	ui->drag = 0;
+	ui->nav = 0;
+	ui->frame_lines = 0;
+	ui->frame_full = !!(flags & LWS_DLO_UI_FRAME_DRAW);
+	/* otherwise, the caller draws it */
+	ui->dirty = ui->frame_full ? UI_PAGE_FRAME : 0;
+	ui->stale = 1;
+	lws_dlo_ui_kick(ui);
+}
+
+const lws_surface_info_t *
+lws_dlo_ui_frame_body(struct lws_dlo_ui *ui, int *y)
+{
+	if (y)
+		*y = ui->title_h;
+
+	return &ui->body_ic;
+}
+
+lws_stateful_ret_t
+lws_dlo_ui_frame_line(struct lws_dlo_ui *ui, int y, uint8_t *line)
+{
+	lws_display_render_state_t *rs = &ui->rs;
+	lws_stateful_ret_t r;
+
+	if (ui->page_strips != UI_PAGE_FRAME || y < 0 || y >= ui->title_h ||
+	    ui->phase == UI_SCAN)
+		return LWS_SRET_FATAL;
+
+	if (!y) {
+		/* the caller starts drawing the title strip, maybe again */
+		ui->frame_lines = 0;
+		if (ui->stale || ui->phase == UI_LAYOUT) {
+			/* it's laid out first, as it is now */
+			lws_dlo_ui_kick(ui);
+			return LWS_SRET_WANT_INPUT;
+		}
+
+		/* until the last line, it isn't laid out again */
+		ui->frame_lines = 1;
+		memset(rs->st, 0, sizeof(rs->st));
+		rs->sp = 0;
+	}
+
+	if (!ui->frame_lines)
+		/* the caller must start from the first line */
+		return LWS_SRET_FATAL;
+
+	rs->curr = (lws_display_scalar)y;
+	rs->line = line;
+	r = lws_display_list_render_line(rs);
+	rs->line = NULL;
+
+	if (r & (LWS_SRET_WANT_INPUT | LWS_SRET_YIELD))
+		return r & (LWS_SRET_WANT_INPUT | LWS_SRET_YIELD);
+	if (r & LWS_SRET_FATAL) {
+		ui->frame_lines = 0;
+		return LWS_SRET_FATAL;
+	}
+
+	if (y == ui->title_h - 1) {
+		/* the caller has drawn the title strip as it is now */
+		ui->frame_lines = 0;
+		ui->dirty &= (uint8_t)~UI_STRIP_TITLE;
+		lws_dlo_ui_kick(ui);
+	}
+
+	return LWS_SRET_OK;
+}
+
+void
+lws_dlo_ui_set_status(struct lws_dlo_ui *ui, const lws_dlo_ui_status_t *status)
+{
+	int8_t wlan = LWS_DLO_UI_STATUS_NONE, batt = LWS_DLO_UI_STATUS_NONE;
+	uint8_t chg = 0;
+
+	if (status) {
+		/* what is shown: bars, and the charge in quarters */
+		if (status->wlan >= 0)
+			wlan = (int8_t)(status->wlan > LWS_DLO_UI_WLAN_BARS ?
+					LWS_DLO_UI_WLAN_BARS : status->wlan);
+		if (status->battery >= 0) {
+			batt = (int8_t)(((status->battery > 100 ? 100 :
+					  status->battery) + 12) / 25);
+			chg = !!status->charging;
+		}
+	}
+
+	if (wlan == ui->st_wlan && batt == ui->st_batt && chg == ui->st_chg)
+		return;
+
+	ui->st_wlan = wlan;
+	ui->st_batt = batt;
+	ui->st_chg = chg;
+	ui_status_place(ui);
+
+	ui->stale = 1;
+	ui->dirty |= UI_STRIP_TITLE;
+	lws_dlo_ui_kick(ui);
 }
 
 /* the edit text, or what the keys show, changed */
@@ -1409,7 +1928,6 @@ int
 lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len)
 {
 	int x, y, dx, dy, v, idx, strip;
-	unsigned int gen;
 
 	if (lws_json_simple_strcmp(buf, len, "\"type\":", "touch") ||
 	    ui_json_int(buf, len, "\"x\":", &x) ||
@@ -1418,6 +1936,22 @@ lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len)
 		return 0;
 
 	strip = ui_strip_at(ui, y);
+
+	if (ui->nav && ui->page_strips != UI_PAGE_FRAME) {
+		/* it's being touched: the cursor goes */
+		ui->nav = 0;
+		ui->stale = 1;
+		ui->dirty |= ui->page_strips == UI_PAGE_EDIT ? UI_STRIP_KEYS :
+							       UI_STRIP_LIST;
+		lws_dlo_ui_kick(ui);
+	}
+
+	if (strip == UI_STRIP_BODY) {
+		/* it's the caller's, but a drag that began in it is too */
+		if (!lws_json_simple_strcmp(buf, len, "\"event\":", "down"))
+			ui->drag = UI_STRIP_BODY;
+		return 0;
+	}
 
 	if (!lws_json_simple_strcmp(buf, len, "\"event\":", "down")) {
 		/* a drag moves what is in the strip it began in */
@@ -1492,6 +2026,19 @@ lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len)
 
 	switch (strip) {
 	case UI_STRIP_TITLE:
+		if (ui->cap_x1 != ui->cap_x0 && ui->status_button[0] &&
+		    x >= ui->cap_x0 - ui->pad && x < ui->cap_x1 + ui->pad) {
+			/* the capsule is a button, for a finger */
+#if defined(LWS_WITH_SYS_SMD)
+			lws_smd_msg_printf(ui->i.cx, LWSSMDCL_INTERACTION,
+					   "{\"type\":\"button\","
+					   "\"src\":\"ui/%s\","
+					   "\"event\":\"click\"}",
+					   ui->status_button);
+#endif
+			return 1;
+		}
+
 		if (ui->page_strips != UI_PAGE_EDIT) {
 			if (!ui->i.title)
 				return 0;
@@ -1499,10 +2046,7 @@ lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len)
 			return 1;
 		}
 		/* going back from editing abandons it */
-		gen = ui->edit_gen;
-		ui->i.done(ui->i.opaque, NULL);
-		if (ui->edit_gen == gen)
-			ui_edit_end(ui);
+		ui_edit_abandon(ui);
 		return 1;
 
 	case UI_STRIP_KEYS:
@@ -1519,4 +2063,242 @@ lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len)
 	default:
 		return 0;
 	}
+}
+
+/*
+ * The cursor on the list: the focus row, or the first that can be seen, the
+ * first time.  The list is scrolled to keep the row it is on in view
+ */
+
+static void
+ui_cursor_show(struct lws_dlo_ui *ui)
+{
+	int lh = ui->h - ui->title_h;
+
+	if (ui->cursor < 0 || ui->cursor >= ui->count)
+		ui->cursor = ui->focus >= 0 ? ui->focus :
+			     (ui->top + ui->row_h - 1) / ui->row_h;
+	if (ui->cursor >= ui->count)
+		ui->cursor = ui->count - 1;
+	if (ui->cursor < 0)
+		ui->cursor = 0;
+
+	if (ui->cursor * ui->row_h < ui->top) {
+		ui->top = ui->cursor * ui->row_h;
+		ui->user_scrolled = 1;
+	}
+	if ((ui->cursor + 1) * ui->row_h > ui->top + lh) {
+		ui->top = (ui->cursor + 1) * ui->row_h - lh;
+		ui->user_scrolled = 1;
+	}
+	ui_clamp_top(ui);
+
+	ui->stale = 1;
+	ui->dirty |= UI_STRIP_LIST;
+	lws_dlo_ui_kick(ui);
+}
+
+static int
+ui_nav_list(struct lws_dlo_ui *ui, lws_dlo_ui_nav_t nav)
+{
+	switch (nav) {
+	case LWS_DLO_UI_NAV_UP:
+	case LWS_DLO_UI_NAV_DOWN:
+		if (!ui->count)
+			return 0;
+		if (ui->nav && ui->cursor >= 0)
+			ui->cursor += nav == LWS_DLO_UI_NAV_UP ? -1 : 1;
+		ui->nav = 1;
+		ui_cursor_show(ui);
+		return 1;
+
+	case LWS_DLO_UI_NAV_ENTER:
+		if (!ui->count)
+			return 0;
+		if (!ui->nav) {
+			/* the first time, it only shows where it is */
+			ui->nav = 1;
+			ui_cursor_show(ui);
+			return 1;
+		}
+		if (ui->i.pick && ui->cursor >= 0 && ui->cursor < ui->count)
+			ui->i.pick(ui->i.opaque, ui->cursor);
+		return 1;
+
+	case LWS_DLO_UI_NAV_ESC:
+		if (!ui->i.title)
+			return 0;
+		ui->i.title(ui->i.opaque);
+		return 1;
+
+	default:
+		return 0;
+	}
+}
+
+/*
+ * The key the cursor goes to: along its row, or to the row above or below,
+ * the key nearest across
+ */
+
+static int
+ui_kcur_move(const struct lws_dlo_ui *ui, lws_dlo_ui_nav_t nav)
+{
+	const ui_kpos_t *c = &ui->keys[ui->kcur];
+	int n, best = ui->kcur, bd = INT32_MAX, cx = c->x + c->w / 2, ty, d,
+	    first = -1, last = -1;
+
+	switch (nav) {
+	case LWS_DLO_UI_NAV_LEFT:
+	case LWS_DLO_UI_NAV_RIGHT:
+		/* along the row, around to the other end */
+		for (n = 0; n < ui->nkeys; n++)
+			if (ui->keys[n].y == c->y) {
+				if (first < 0)
+					first = n;
+				last = n;
+			}
+		if (nav == LWS_DLO_UI_NAV_LEFT)
+			return ui->kcur == first ? last : ui->kcur - 1;
+		return ui->kcur == last ? first : ui->kcur + 1;
+
+	default:
+		ty = c->y + (nav == LWS_DLO_UI_NAV_UP ? -ui->row_h : ui->row_h);
+		for (n = 0; n < ui->nkeys; n++) {
+			if (ui->keys[n].y != ty)
+				continue;
+			d = ui->keys[n].x + ui->keys[n].w / 2 - cx;
+			if (d < 0)
+				d = -d;
+			if (d < bd) {
+				bd = d;
+				best = n;
+			}
+		}
+		return best;
+	}
+}
+
+/* move the keyboard so the key the cursor is on can be seen */
+
+static void
+ui_kcur_place(struct lws_dlo_ui *ui)
+{
+	const ui_kpos_t *kp;
+	int y0, y1, x0, x1, ky;
+
+	if (ui->kcur < 0 || ui->kcur >= ui->nkeys)
+		ui->kcur = 0;
+	kp = &ui->keys[ui->kcur];
+
+	ui_strip_band(ui, UI_STRIP_KEYS, &y0, &y1);
+
+	ky = y0 + ui->ky + kp->y;
+	if (ky < y0)
+		ui->ky = -kp->y;
+	if (ky + ui->row_h > y1)
+		ui->ky = y1 - y0 - kp->y - ui->row_h;
+
+	ky = y0 + ui->ky + kp->y;
+	ui_span(ui, ky, ky + ui->row_h, &x0, &x1);
+	if (ui->kx + kp->x < x0)
+		ui->kx = x0 - kp->x;
+	if (ui->kx + kp->x + kp->w > x1)
+		ui->kx = x1 - kp->x - kp->w;
+
+	ui_clamp_kb(ui);
+}
+
+static void
+ui_kcur_show(struct lws_dlo_ui *ui)
+{
+	ui_kcur_place(ui);
+	ui_edit_changed(ui, UI_STRIP_KEYS);
+}
+
+static int
+ui_nav_edit(struct lws_dlo_ui *ui, lws_dlo_ui_nav_t nav)
+{
+	if (!ui->nkeys)
+		return 0;
+
+	switch (nav) {
+	case LWS_DLO_UI_NAV_ESC:
+		ui_edit_abandon(ui);
+		return 1;
+
+	case LWS_DLO_UI_NAV_ENTER:
+		if (!ui->nav) {
+			/* the first time, it only shows where it is */
+			ui->nav = 1;
+			ui_kcur_show(ui);
+			return 1;
+		}
+		ui_key(ui, ui->keys[ui->kcur].k);
+		if (ui->page_strips != UI_PAGE_EDIT)
+			/* Done, and the edit is over */
+			return 1;
+		/* eg, the layer changed, and with it the keys */
+		if (ui->kcur >= ui->nkeys)
+			ui->kcur = ui->nkeys - 1;
+		ui_kcur_show(ui);
+		return 1;
+
+	default:
+		if (ui->nav)
+			ui->kcur = ui_kcur_move(ui, nav);
+		ui->nav = 1;
+		ui_kcur_show(ui);
+		return 1;
+	}
+}
+
+int
+lws_dlo_ui_nav(struct lws_dlo_ui *ui, lws_dlo_ui_nav_t nav)
+{
+	switch (ui->page_strips) {
+	case UI_PAGE_LIST:
+		return ui_nav_list(ui, nav);
+	case UI_PAGE_EDIT:
+		return ui_nav_edit(ui, nav);
+	default:
+		/* the frame's body is the caller's */
+		return 0;
+	}
+}
+
+int
+lws_dlo_ui_interaction(struct lws_dlo_ui *ui, const void *buf, size_t len)
+{
+	static const char * const names[] = {
+		"up", "down", "left", "right", "enter", "esc"
+	};
+	const char *p, *slash;
+	size_t al, n, nl;
+
+	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "touch"))
+		return lws_dlo_ui_touch(ui, buf, len);
+
+	if (lws_json_simple_strcmp(buf, len, "\"type\":", "button") ||
+	    lws_json_simple_strcmp(buf, len, "\"event\":", "click"))
+		return 0;
+
+	/* the button's name is what follows the controller's, eg, bc/up */
+
+	p = lws_json_simple_find(buf, len, "\"src\":", &al);
+	if (!p)
+		return 0;
+	slash = memchr(p, '/', al);
+	if (slash) {
+		al -= lws_ptr_diff_size_t(slash + 1, p);
+		p = slash + 1;
+	}
+
+	for (n = 0; n < LWS_ARRAY_SIZE(names); n++) {
+		nl = strlen(names[n]);
+		if (al == nl && !memcmp(p, names[n], nl))
+			return lws_dlo_ui_nav(ui, (lws_dlo_ui_nav_t)n);
+	}
+
+	return 0;
 }

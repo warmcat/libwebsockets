@@ -22,6 +22,27 @@ a framebuffer and notes the window of each update.  It checks
    was typed, or keeps it being edited if the caller refuses it, then the
    list page is shown again; pressing the title abandons an edit
 
+ - the status capsule: drawn at the right end of the title strip, inside the
+   circle, sending only the title strip's band when it changes, and nothing
+   when what it shows doesn't; pressing it issues its button's interaction
+   event, `"src":"ui/settings"`, as a physical button called "settings" would
+
+ - buttons: `lws_dlo_ui_nav()`, or button events given to
+   `lws_dlo_ui_interaction()`, move a cursor down the list, pick its row, and
+   go back like the title; on the edit page, which can start with something
+   already typed, they move the cursor over the keys, type with them and
+   press Done
+
+ - the frame page: drawn all at once with its body white, then drawn by the
+   caller around a body of its own, taking the title strip's lines from the
+   ui, which match what the ui drew itself.  Touches on the body and nav are
+   left to the caller.  Changing the title or status then sends only the
+   title strip's band, leaving the body alone, or on a display that can't
+   take a band, asks the caller to draw it all again.  Laying the title strip
+   out again while a page browsed into the body is still fetching its image,
+   from a server of the test's own that never answers, doesn't stop the
+   image: cancelling that page's browse does
+
  - the theme: the first time, the default theme's title strip colour is
    drawn; the second time, the ui is given css making the title strip white
    with red text, which is drawn instead, and nothing at all is drawn outside
@@ -30,7 +51,9 @@ a framebuffer and notes the window of each update.  It checks
  - destroying the ui gives back all the heap it took, checked the second
    time, once the context has made what it makes on first use
 
-Everything is local: the ui's html and the icon are in the dlo filesystem.
+Everything is local: the ui's html, the icon and the body's page are in the
+dlo filesystem, and the body's image is on a raw server on a free port of the
+test's own.
 
 ## build
 

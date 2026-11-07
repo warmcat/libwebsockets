@@ -228,8 +228,45 @@ passphrase, has
    strip to reach the keys.  Done gives what was typed to the done callback,
    which can accept it, or keep it being edited.
 
+and its frame page, shown by `lws_dlo_ui_frame()`, has
+
+ - the title strip, eg, saying which page of the application this is
+
+ - the body, the rest of the display, which is the caller's: it lays its own
+   content out on the surface `lws_dlo_ui_frame_body()` gives, eg, browsing a
+   page with lhp onto it, and draws the whole display itself, getting the
+   title strip's lines from `lws_dlo_ui_frame_line()`.  So on a display that
+   can only take an update of all of it, eg, an EPD, the title strip and the
+   page arrive together.
+
 Each strip only moves for drags that begin in it, and dragging never types
 anything.
+
+On every page, the title strip can show a capsule at its right end, with
+small icons for how strong the wlan signal is and how charged the battery is,
+`lws_dlo_ui_set_status()`.  They are boxes styled by the css, so they need no
+images and are sized for the display; on a round display the capsule is at
+the right end of what can be seen of the title's line.  It is only drawn
+again when what it shows changes, eg, the battery's charge is shown in
+quarters.  Pressing it is a button: with `.status_button = "settings"`, it
+issues the interaction event `{"type":"button","src":"ui/settings",
+"event":"click"}`, as a physical button called "settings" would, so either can
+open the settings, through the same code.
+
+While the frame is shown, the ui only draws the title strip by itself when
+it changes, and only on a `.band` display.  On a `.bistable` one, eg, an EPD
+that takes seconds to update, the change waits for the caller's next update;
+otherwise the caller is told with the `frame_redraw` callback, to draw it all
+again.
+
+Without touch, the ui can be driven by buttons, or anything else that says
+which way to go: `lws_dlo_ui_nav()` moves a cursor up and down the list, and
+around the keyboard, and presses what it is on with ENTER; ESC goes back.
+`lws_dlo_ui_interaction()` takes any interaction event, giving touches to
+`lws_dlo_ui_touch()` and clicks of buttons named "up", "down", "left",
+"right", "enter" and "esc" to `lws_dlo_ui_nav()`, so the caller can give it
+everything, whatever the board has.  Typing on the keyboard needs the four
+directions and enter: with fewer buttons than that, only touch can.
 
 ```
 	lws_dlo_ui_info_t i;
@@ -267,8 +304,10 @@ the html it was shown in when that is made again.
 It uses the display like any other update: it sets `lds->display_busy`, the
 display's completion callback clears it, and should then call
 `lws_dlo_ui_kick()` so anything that changed meanwhile is drawn.  Give it
-touch events with `lws_dlo_ui_touch()`.  It only uses the faces built in,
-so it can be shown before there is any network.
+interaction events with `lws_dlo_ui_interaction()`.  It only uses the faces
+built in, so it can be shown before there is any network.  Laying it out again
+only stops its own document, so a page being browsed into the frame's body
+carries on fetching meanwhile.
 
 `minimal-examples-lowlevel/api-tests/api-test-dlo-ui` shows it on a pretend
 round display, and the lhp embedded examples use it for their boot overlay.

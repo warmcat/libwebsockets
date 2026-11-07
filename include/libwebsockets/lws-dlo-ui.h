@@ -31,7 +31,7 @@
  * own.  On a display that can update a band of lines (lws_surface_info_t
  * .band), only the strips that changed are sent to it.
  *
- * It shows one of two pages.  Down the display, the list page has
+ * It shows one of three pages.  Down the display, the list page has
  *
  *  - a title strip, saying where we are, eg, "Boot", then "AP".  Pressing it
  *    tells the caller, if it wants to know.
@@ -57,8 +57,29 @@
  *    keyboard is bigger than a small display: it is dragged around in its
  *    strip to reach the keys.
  *
+ * and the frame page, shown by lws_dlo_ui_frame(), has
+ *
+ *  - the title strip, eg, saying which page of the application it is
+ *
+ *  - below it, the body: the rest of the display is the caller's, to show
+ *    its own content in, eg, a page browsed with lhp.  The ui doesn't draw
+ *    it: the caller lays its content out on the surface the body is, see
+ *    lws_dlo_ui_frame_body(), and draws the whole display, getting the lines
+ *    of the title strip from the ui with lws_dlo_ui_frame_line().
+ *
  * Each strip moves only by drags that begin in it, and dragging never changes
  * what was typed; only pressing keys does.
+ *
+ * On every page, the title strip can show a capsule at its right end, with
+ * small icons saying how the system is, eg, how strong the wlan signal is and
+ * how charged the battery is, see lws_dlo_ui_set_status().  Pressing it is
+ * like pressing a button: the ui issues an interaction event for it, see
+ * lws_dlo_ui_info_t .status_button, so a physical button and the capsule can
+ * do the same thing, eg, open the settings.
+ *
+ * The ui can be used with buttons, or anything else that can say which way
+ * to go, instead of touch: see lws_dlo_ui_nav().  A cursor then shows which
+ * row of the list, or which key of the keyboard, ENTER will press.
  *
  * On a round display (lws_surface_info_t .round), what is in each strip, and
  * each row of the list, is kept to the columns of the circle that can be seen
@@ -69,11 +90,16 @@
  *
  *  - #ui: the whole display
  *  - #t: the title strip, #tt: its text
+ *  - #s: the status capsule, .sb: a bar of the wlan icon, with .so if it is
+ *    lit, #sbo: the battery icon's outline, #sbn: its nub, #sbi: its
+ *    inside, #sbf: how charged it is, or #sbc instead if it is charging
  *  - #l: the list strip, .r: a row of the list, with .f if it's the focus
- *    row, or .d if it's dim, .i: a row's icon, .x: a row's text
+ *    row, or .d if it's dim, and .c if the cursor is on it, .i: a row's icon,
+ *    .x: a row's text
  *  - #e: the edit strip, #et: the box of text in it
  *  - #k: the keyboard strip, .k: a key, with .ks if it is not a letter or
- *    symbol, and .ka if what it changes is on, eg, shift
+ *    symbol, .ka if what it changes is on, eg, shift, and .kc if the cursor
+ *    is on it
  *
  * The positions and sizes of these follow from the display, and are set by
  * the ui after the caller's css, so css can't change them; colours, borders
@@ -85,9 +111,12 @@
  * changed meanwhile is drawn.  The ui only uses the faces built in, so it can
  * be shown before there is any network.
  *
- * The display is the ui's while it exists: nothing else should be browsed on
- * to it meanwhile, since laying the ui out again stops any other document's
- * assets on the context, as lws_lhp_ss_cancel() does.
+ * While the list or edit page is shown, the display is the ui's: nothing else
+ * should be drawn on it meanwhile.  While the frame page is shown, the body is
+ * the caller's, and the ui only draws the title strip by itself, when it
+ * changed and the display can take a band of lines.  Laying the ui out again
+ * only stops its own document, so the caller's content can still be arriving
+ * while it is.
  */
 
 #if !defined(__LWS_DLO_UI_H__)
@@ -125,8 +154,15 @@ typedef int (*lws_dlo_ui_row_cb_t)(void *opaque, int idx,
 /* row idx of the list was pressed */
 typedef void (*lws_dlo_ui_pick_cb_t)(void *opaque, int idx);
 
-/* the title strip of the list page was pressed */
+/* the title strip of the list or frame page was pressed */
 typedef void (*lws_dlo_ui_title_cb_t)(void *opaque);
+
+/*
+ * The frame page's title strip changed, on a display that can only take an
+ * update of all of it: the caller should draw the whole display again, eg,
+ * its body as it was, when it can.  See lws_dlo_ui_info_t .frame_redraw
+ */
+typedef void (*lws_dlo_ui_frame_redraw_cb_t)(void *opaque);
 
 /*
  * Done was pressed on the edit page: text is what was typed.  Or the title
@@ -154,18 +190,67 @@ typedef struct lws_dlo_ui_info {
 	/**< NULL, or told which row of the list was pressed.  As for done,
 	 * it may call the other apis, but not destroy the ui */
 	lws_dlo_ui_title_cb_t		title;
-	/**< NULL, or told the title strip of the list page was pressed, eg,
+	/**< NULL, or told the title strip of the list or frame page was
+	 * pressed, or ESC was given on the list page (lws_dlo_ui_nav()), eg,
 	 * to go back, or to show another list.  As for pick, it may call the
 	 * other apis, but not destroy the ui */
 	lws_dlo_ui_done_cb_t		done;
 	/**< NULL, or told what was typed on the edit page: needed to use
 	 * lws_dlo_ui_edit() */
+	lws_dlo_ui_frame_redraw_cb_t	frame_redraw;
+	/**< NULL, or told the frame page's title strip changed, eg, its
+	 * status, on a display that can't take a band of lines, which isn't
+	 * bistable: see lws_dlo_ui_frame().  If NULL, the change is drawn
+	 * with the caller's next update of the display */
 	const char			*css;
 	/**< NULL, or css that follows the ui's own theme, so it can change
 	 * how the ui looks, eg, "#t { background-color: #800 }": see the
 	 * elements above.  It is copied.  It is the caller's own: it can't
 	 * contain '<', and is limited to 2KB */
+	const char			*status_button;
+	/**< NULL, or the name of the button the status capsule is, eg,
+	 * "settings": pressing the capsule issues a LWSSMDCL_INTERACTION
+	 * event, as a button of that name being clicked does, see
+	 * lws-button.h, from "ui": {"type":"button","src":"ui/settings",
+	 * "event":"click"}.  It is copied: up to 15 of a-z, 0-9, '-' or '_' */
 } lws_dlo_ui_info_t;
+
+/*
+ * What the status capsule shows: see lws_dlo_ui_set_status().  The ui only
+ * draws it again when what is shown changes, eg, the battery icon shows its
+ * charge in quarters, so a percent less doesn't redraw it
+ */
+
+#define LWS_DLO_UI_STATUS_NONE		-1	/* the icon isn't shown */
+#define LWS_DLO_UI_WLAN_BARS		4	/* the most bars the wlan has */
+
+typedef struct lws_dlo_ui_status {
+	int8_t				wlan;
+	/**< LWS_DLO_UI_STATUS_NONE, 0 if it isn't associated, or how strong
+	 * its signal is, 1 to LWS_DLO_UI_WLAN_BARS */
+	int8_t				battery;
+	/**< LWS_DLO_UI_STATUS_NONE if there's no battery, or how charged it
+	 * is, 0 to 100 percent */
+	uint8_t				charging;
+	/**< the battery is being charged */
+} lws_dlo_ui_status_t;
+
+/* which way to go, eg, from buttons, see lws_dlo_ui_nav() */
+
+typedef enum {
+	LWS_DLO_UI_NAV_UP,
+	LWS_DLO_UI_NAV_DOWN,
+	LWS_DLO_UI_NAV_LEFT,
+	LWS_DLO_UI_NAV_RIGHT,
+	LWS_DLO_UI_NAV_ENTER,
+	LWS_DLO_UI_NAV_ESC,
+} lws_dlo_ui_nav_t;
+
+/* lws_dlo_ui_frame() flags */
+
+#define LWS_DLO_UI_FRAME_DRAW		(1 << 0)
+/**< the ui draws all of the display now, the body white, eg, to show the
+ * frame at once while the caller's content isn't ready yet */
 
 #define LWS_DLO_UI_EDIT_MAX		64	/* including the NUL */
 
@@ -243,6 +328,135 @@ lws_dlo_ui_edit(struct lws_dlo_ui *ui, const char *title, size_t max,
 		unsigned int flags);
 
 /**
+ * lws_dlo_ui_edit_set() - replace what has been typed on the edit page
+ *
+ * \param ui: the ui, which is editing
+ * \param text: what to show as typed, eg, the hostname being changed, copied
+ *
+ * Call after lws_dlo_ui_edit(), so the edit starts with something already
+ * there to change.  Don't give it secrets: they would be shown until
+ * deleted.  Returns 0 if it was set, or nonzero if the ui isn't editing, or
+ * text is longer than the edit's max.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dlo_ui_edit_set(struct lws_dlo_ui *ui, const char *text);
+
+/**
+ * lws_dlo_ui_frame() - show the frame page, the title strip over a body
+ *
+ * \param ui: the ui
+ * \param flags: LWS_DLO_UI_FRAME_DRAW, or 0
+ *
+ * Shows the title strip, saying the list page's title, see
+ * lws_dlo_ui_set_title(), over the caller's own content.  An edit in progress
+ * is abandoned, as pressing its title would.
+ *
+ * The caller lays its content out on the surface lws_dlo_ui_frame_body()
+ * gives, and draws the whole display itself, taking the lines of the title
+ * strip from lws_dlo_ui_frame_line().  With LWS_DLO_UI_FRAME_DRAW, the ui
+ * draws the whole display itself now, with the body white, when the display
+ * is next free.
+ *
+ * When the title or the status changes while the frame is shown, the ui draws
+ * the title strip again by itself on a display that can take a band of lines.
+ * On a bistable display, eg, an EPD that takes seconds for an update, it's
+ * drawn with the caller's next update of the display.  Otherwise the
+ * info's frame_redraw callback is told, to draw the whole display again.
+ *
+ * Going back to the list page, with lws_dlo_ui_set_list(), or editing, with
+ * lws_dlo_ui_edit(), takes the whole display again.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_dlo_ui_frame(struct lws_dlo_ui *ui, unsigned int flags);
+
+/**
+ * lws_dlo_ui_frame_body() - the surface the frame's body is
+ *
+ * \param ui: the ui
+ * \param y: set to how far down the display the body starts, or NULL
+ *
+ * Returns the surface the caller lays its content out on, and renders it to:
+ * as wide as the display, as tall as what is below the title strip, and as
+ * many pixels to the mm.  Its line y is line y + *y on the display.  It's not
+ * round, even if the display is.  It's valid while the ui exists.
+ */
+LWS_VISIBLE LWS_EXTERN const lws_surface_info_t *
+lws_dlo_ui_frame_body(struct lws_dlo_ui *ui, int *y);
+
+/**
+ * lws_dlo_ui_frame_line() - render a line of the frame's title strip
+ *
+ * \param ui: the ui, showing the frame page
+ * \param y: the line of the display, above the body
+ * \param line: where to render it, a line of the display's pixels, as the
+ *		display's lws_display_render_state_t .line is
+ *
+ * For the caller drawing the whole display while the frame page is shown,
+ * for the lines above the body.  Call it for each, from the first, then the
+ * body's: the title strip isn't laid out again until the last has been.
+ *
+ * Returns LWS_SRET_OK when the line is rendered, or LWS_SRET_WANT_INPUT if
+ * the title strip isn't laid out yet, eg, it just changed, or LWS_SRET_YIELD
+ * if it isn't finished: call it for the same line again a little later.
+ * LWS_SRET_FATAL means it can't be rendered, eg, the frame isn't shown.
+ */
+LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
+lws_dlo_ui_frame_line(struct lws_dlo_ui *ui, int y, uint8_t *line);
+
+/**
+ * lws_dlo_ui_set_status() - say what the status capsule shows
+ *
+ * \param ui: the ui
+ * \param status: what to show, copied, or NULL for no capsule
+ *
+ * The capsule is at the right end of the title strip, on a round display at
+ * the right end of the part of it that can be seen.  It's drawn again when the
+ * display is next free, if what it shows changed.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_dlo_ui_set_status(struct lws_dlo_ui *ui, const lws_dlo_ui_status_t *status);
+
+/**
+ * lws_dlo_ui_nav() - move the cursor, or press what it is on
+ *
+ * \param ui: the ui
+ * \param nav: which way to go
+ *
+ * For using the ui with buttons, or anything else that can say which way, eg,
+ * a rotary encoder.  The first time, a cursor is shown, on the focus row of
+ * the list, or else the first that can be seen, or on the keyboard's first
+ * key, without doing anything else.  It shows, on whichever page, until the ui
+ * is touched: an edit started meanwhile has it on its first key, in view.
+ *
+ * On the list page, UP and DOWN move the cursor, scrolling the list to keep it
+ * in view; ENTER picks its row, and ESC is like pressing the title.  On the
+ * edit page, the arrows move the cursor across the keys, moving the keyboard
+ * to keep it in view; ENTER presses its key, and ESC abandons the edit.  On
+ * the frame page, nothing is the ui's.
+ *
+ * Returns nonzero if the ui acted on it, else 0, eg, LEFT on the list page,
+ * so the caller can do something else with it.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dlo_ui_nav(struct lws_dlo_ui *ui, lws_dlo_ui_nav_t nav);
+
+/**
+ * lws_dlo_ui_interaction() - give the ui an interaction event
+ *
+ * \param ui: the ui
+ * \param buf: the LWSSMDCL_INTERACTION smd event's JSON payload
+ * \param len: its length
+ *
+ * Touches go to lws_dlo_ui_touch().  Clicks of buttons named "up", "down",
+ * "left", "right", "enter" and "esc", whatever issued them, eg,
+ * {"type":"button","src":"bc/up","event":"click"}, go to lws_dlo_ui_nav().
+ * So a caller can give it every interaction event, whether the board has a
+ * touch panel or buttons.  Returns nonzero if the ui acted on the event.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dlo_ui_interaction(struct lws_dlo_ui *ui, const void *buf, size_t len);
+
+/**
  * lws_dlo_ui_touch() - give the ui a touch event
  *
  * \param ui: the ui
@@ -251,8 +465,11 @@ lws_dlo_ui_edit(struct lws_dlo_ui *ui, const char *title, size_t max,
  *
  * Dragging the list scrolls it, and pressing a row of it calls the pick
  * callback; on the edit page, pressing keys types, dragging moves the edit
- * text or keyboard.  The ui needs the down events, to know which strip a
- * drag began in.  Returns nonzero if the ui acted on the event.
+ * text or keyboard.  Pressing the status capsule issues its button event.
+ * The ui needs the down events, to know which strip a drag began in.  On the
+ * frame page, touches on the body are not the ui's: they are the caller's to
+ * act on, at y less how far down the body starts.  Returns nonzero if the ui
+ * acted on the event.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len);
