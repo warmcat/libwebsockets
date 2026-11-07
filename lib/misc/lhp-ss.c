@@ -686,7 +686,7 @@ lws_lhp_ss_cancel(lws_display_render_state_t *rs)
 	}
 
 	if (rs->cx)
-		lws_dlo_ss_stop_any_active(rs->cx);
+		lws_dlo_ss_stop_rs(rs->cx, rs);
 
 	if (h)
 		lws_ss_destroy(&h); /* rs->hss_html is cleared at DESTROYING */

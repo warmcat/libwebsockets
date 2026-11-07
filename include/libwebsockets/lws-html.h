@@ -1262,8 +1262,9 @@ lws_lhp_ss_browse_filter(struct lws_context *cx,
  * document; \p rs can be browsed again immediately afterwards.  It is
  * meant for navigating away, or laying a document out again at a new size.
  *
- * Note it stops any assets active on the lws_context, so it suits the
- * single-document-at-a-time render state usage.
+ * Only the assets fetched for documents browsed into \p rs are stopped, see
+ * lws_dlo_ss_stop_rs(): documents browsed into other render states, eg,
+ * showing other parts of the display, carry on.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_lhp_ss_cancel(lws_display_render_state_t *rs);

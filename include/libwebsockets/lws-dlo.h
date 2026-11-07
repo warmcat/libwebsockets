@@ -1023,6 +1023,21 @@ LWS_VISIBLE LWS_EXTERN int
 lws_dlo_ss_stop_any_active(struct lws_context *cx);
 
 /**
+ * lws_dlo_ss_stop_rs() - destroy the document assets of one render state
+ *
+ * \param cx: the lws_context
+ * \param rs: the render state the assets were fetched for
+ *
+ * Destroys the document assets fetching, or queued for a fetch slot, that
+ * wake rs as their data arrives, ie, those of documents browsed into rs.
+ * Other documents' assets, eg, those of another render state showing a
+ * different part of the display, carry on.  See lws_lhp_ss_cancel().
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_dlo_ss_stop_rs(struct lws_context *cx,
+		   struct lws_display_render_state *rs);
+
+/**
  * lws_dlo_ss_detach_lhp() - forget a document parser in its asset streams
  *
  * \param cx: the lws context

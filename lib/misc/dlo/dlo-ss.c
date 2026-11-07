@@ -2259,26 +2259,35 @@ lws_dlo_ss_detach_lhp(struct lws_context *cx, lhp_ctx_t *lhp)
 #endif
 }
 
-int
-lws_dlo_ss_stop_any_active(struct lws_context *cx)
+/*
+ * Destroy the tracked assets that wake sul, or all of them if sul is NULL
+ */
+
+static void
+dloss_stop(struct lws_context *cx, const lws_sorted_usec_list_t *sul)
 {
 #if defined(LWS_WITH_SECURE_STREAMS)
 	/*
-	 * Detach the whole queue before destroying any of it... destroying an
-	 * active asset kicks the queue, which would connect queued assets
-	 * straight back as we are trying to tear everything down
+	 * Detach the queued assets we are stopping before destroying any of
+	 * them... destroying an active asset kicks the queue, which would
+	 * connect queued assets straight back as we are trying to tear them
+	 * down.  Queued assets of other documents stay queued.
 	 */
 	{
 		lws_dll2_owner_t parked;
 
 		memset(&parked, 0, sizeof(parked));
 
-		while (cx->pending_assets.head) {
-			struct lws_dll2 *d = cx->pending_assets.head;
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				lws_dll2_get_head(&cx->pending_assets)) {
+			dloss_t *ds = lws_container_of(d, dloss_t,
+						       active_asset_list);
 
-			lws_dll2_remove(d);
-			lws_dll2_add_tail(d, &parked);
-		}
+			if (!sul || ds->ssevsul == sul) {
+				lws_dll2_remove(d);
+				lws_dll2_add_tail(d, &parked);
+			}
+		} lws_end_foreach_dll_safe(d, d1);
 
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 					   lws_dll2_get_head(&parked)) {
@@ -2308,11 +2317,31 @@ lws_dlo_ss_stop_any_active(struct lws_context *cx)
 		} lws_end_foreach_dll_safe(d, d1);
 	}
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-			      lws_dll2_get_head(&cx->active_assets)) {
-		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);
-		struct lws_ss_handle *h = ds->ss;
+	/*
+	 * Destroying one kicks the queue, which may start another asset,
+	 * adding it to the active list: look again from the start each time,
+	 * each one we stop is off the list before it's destroyed
+	 */
 
+	do {
+		dloss_t *ds = NULL;
+		struct lws_ss_handle *h;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&cx->active_assets)) {
+			dloss_t *a = lws_container_of(d, dloss_t,
+						      active_asset_list);
+
+			if (!sul || a->ssevsul == sul) {
+				ds = a;
+				break;
+			}
+		} lws_end_foreach_dll(d);
+
+		if (!ds)
+			break;
+
+		h = ds->ss;
 		lws_dll2_remove(&ds->active_asset_list);
 
 		if (ds->u.u.dlo_jpeg)
@@ -2322,10 +2351,26 @@ lws_dlo_ss_stop_any_active(struct lws_context *cx)
 		 * backref coherent through the DESTROYING callbacks */
 
 		lws_ss_destroy(&h);
-
-	} lws_end_foreach_dll_safe(d, d1);
+	} while (1);
+#else
+	(void)cx;
+	(void)sul;
 #endif
+}
+
+int
+lws_dlo_ss_stop_any_active(struct lws_context *cx)
+{
+	dloss_stop(cx, NULL);
+
 	return 0;
+}
+
+void
+lws_dlo_ss_stop_rs(struct lws_context *cx,
+		   struct lws_display_render_state *rs)
+{
+	dloss_stop(cx, &rs->sul);
 }
 
 #endif /* LWS_WITH_LHP */
