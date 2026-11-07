@@ -3143,13 +3143,18 @@ lws_fx_comp(const lws_fx_t *a, const lws_fx_t *b)
 int
 lws_fx_roundup(const lws_fx_t *a)
 {
+	/*
+	 * The arithmetic saturates whole at +/-INT32_MAX, so a saturated
+	 * value with any frac must stay saturated rather than overflow
+	 */
+
 	if (!a->frac)
 		return a->whole;
 
 	if (lws_neg(a))
-		return a->whole - 1;
+		return a->whole <= -INT32_MAX ? -INT32_MAX : a->whole - 1;
 
-	return a->whole + 1;
+	return a->whole == INT32_MAX ? INT32_MAX : a->whole + 1;
 }
 
 LWS_VISIBLE LWS_EXTERN int
