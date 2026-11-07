@@ -98,6 +98,28 @@ static const struct { double a, r; } fx_tan_ref[] = {
 	{ -1.0, -1.557407724654902 },
 };
 
+static const struct {
+	lws_fx_t	a, b, r;
+} fx_div_ref[] = {
+	{ {  1,  50000000 }, { 100, 0 }, {  0,   1500000 } },	/* 1.5 / 100 */
+	{ { -1, -50000000 }, { 100, 0 }, {  0,  -1500000 } },
+	{ {  1,  50000000 }, { -100, 0 }, {  0, -1500000 } },
+	{ { -1, -50000000 }, { -100, 0 }, {  0,  1500000 } },
+	{ {  1,         0 }, {   3, 0 }, {  0,  33333333 } },
+	{ {  2,         0 }, {   3, 0 }, {  0,  66666667 } },
+	{ { -2,         0 }, {   3, 0 }, {  0, -66666667 } },
+	{ {  0, -50000000 }, {   2, 0 }, {  0, -25000000 } },	/* -0.5 / 2 */
+	{ {  7,         0 }, {   2, 0 }, {  3,  50000000 } },
+	{ { 255,        0 }, { 100, 0 }, {  2,  55000000 } },
+	{ {  5,         0 }, {   0, 0 }, {  0,         0 } },	/* / 0 */
+};
+
+static const lws_fx_t fx_fix64_ref[] = {
+	{ 0, 0 }, { 1, 50000000 }, { -1, -50000000 }, { 0, -50000000 },
+	{ 0, 1 }, { 0, -1 }, { -33, -92000000 }, { 1000000, 99999999 },
+	{ -1000000, -99999999 },
+};
+
 int
 main(int argc, const char **argv)
 {
@@ -133,6 +155,51 @@ main(int argc, const char **argv)
 	lws_fx_set(b, 4, 0);
 	lws_fx_div(&r, &a, &b);
 	CHK(fx2d(&r) == 2.5, "div 10 / 4 = %f", fx2d(&r));
+
+	/*
+	 * Division's result is rounded to the nearest 1e-8, not truncated,
+	 * and its sign is on both parts
+	 */
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(fx_div_ref); n++) {
+		lws_fx_div(&r, &fx_div_ref[n].a, &fx_div_ref[n].b);
+		CHK(r.whole == fx_div_ref[n].r.whole &&
+		    r.frac == fx_div_ref[n].r.frac,
+		    "div %d: %d.%d / %d.%d = { %d, %d }", n,
+		    fx_div_ref[n].a.whole, fx_div_ref[n].a.frac,
+		    fx_div_ref[n].b.whole, fx_div_ref[n].b.frac,
+		    r.whole, r.frac);
+	}
+
+	/*
+	 * To binary 32.32 and back keeps the value and its sign on both
+	 * parts, and lws_fix64() of a negative value is negative
+	 */
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(fx_fix64_ref); n++) {
+		const lws_fx_t *pa = &fx_fix64_ref[n];
+		lws_fx_t *pr = &r;
+		int64_t f64 = lws_fix64(pa);
+
+		lws_fix3232(pr, f64);
+		CHK(r.whole == pa->whole && r.frac == pa->frac &&
+		    (f64 < 0) == !!lws_neg(pa),
+		    "fix64 round trip %d: { %d, %d } -> { %d, %d }", n,
+		    pa->whole, pa->frac, r.whole, r.frac);
+	}
+
+	{
+		lws_fx_t *pr = &r;
+		int64_t f64 = INT64_MAX;
+
+		lws_fix3232(pr, f64);
+		CHK(r.whole == INT32_MAX && !r.frac, "fix3232 sat { %d, %d }",
+		    r.whole, r.frac);
+		f64 = -INT64_MAX;
+		lws_fix3232(pr, f64);
+		CHK(r.whole == -INT32_MAX && !r.frac, "fix3232 -sat { %d, %d }",
+		    r.whole, r.frac);
+	}
 
 	/*
 	 * Whole parts past int32 saturate rather than overflow: operands

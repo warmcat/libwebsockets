@@ -815,22 +815,57 @@ typedef enum {
 	LWS_SRET_YIELD          = (1 << 22), /* return to the event loop and continue */
 } lws_stateful_ret_t;
 
+/*
+ * lws_fx_t is sign-magnitude decimal fixed point: the value is
+ * |whole| + |frac| / LWS_FX_FRACTION_MSD, negative if either part is.  In the
+ * canonical form that the lws_fx_ apis produce, and that lws_fx_set() makes,
+ * a negative value has the sign on both parts, eg, -1.5 is { -1, -50000000 }
+ * and -0.5 is { 0, -50000000 }.  lws_fx_mul() and lws_fx_comp() need that
+ * form for their operands, so code filling in the parts directly must keep to
+ * it.  The apis saturate whole at +/-INT32_MAX rather than overflow.
+ */
+
 typedef struct lws_fixed3232 {
-	int32_t		whole;	/* signed 32-bit int */
-	int32_t		frac;	/* signed frac proportion from 0 to (100M - 1) */
+	int32_t		whole;	/* signed integer part */
+	int32_t		frac;	/* fraction in 1e-8 units, magnitude 0 to
+				 * (LWS_FX_FRACTION_MSD - 1), with the same
+				 * sign as the value */
 } lws_fx_t;
 
 #define LWS_FX_FRACTION_MSD 100000000
 #define lws_neg(a) (a->whole < 0 || a->frac < 0)
 #define lws_fx_set(a, x, y) { a.whole = x; a.frac = x < 0 ? -y : y; }
-#define lws_fix64(a) (((int64_t)a->whole << 32) + \
-		(((1ll << 32) * (a->frac < 0 ? -a->frac : a->frac)) / LWS_FX_FRACTION_MSD))
-#define lws_fix64_abs(a) \
-	((((int64_t)(a->whole < 0 ? (-a->whole) : a->whole) << 32) + \
-			(((1ll << 32) * (a->frac < 0 ? -a->frac : a->frac)) / LWS_FX_FRACTION_MSD)))
 
-#define lws_fix3232(a, a64) { a->whole = (int32_t)(a64 >> 32); \
-			      a->frac = (int32_t)((100000000 * (a64 & 0xffffffff)) >> 32); }
+/* the magnitude of an lws_fx_t, and its signed value, as binary 32.32 */
+#define lws_fix64_abs(a) \
+	((((int64_t)a->whole < 0 ? -(int64_t)a->whole : (int64_t)a->whole) << 32) + \
+	 (((1ll << 32) * (a->frac < 0 ? -(int64_t)a->frac : (int64_t)a->frac)) / \
+						LWS_FX_FRACTION_MSD))
+#define lws_fix64(a) (lws_neg(a) ? -lws_fix64_abs(a) : lws_fix64_abs(a))
+
+/*
+ * a signed binary 32.32 back to a canonical lws_fx_t, its fraction rounded to
+ * the nearest 1e-8 and its whole saturated at +/-INT32_MAX
+ */
+#define lws_fix3232(a, a64) do { \
+		uint64_t _m = (a64) < 0 ? 0ull - (uint64_t)(a64) : \
+					  (uint64_t)(a64); \
+		uint64_t _w = _m >> 32; \
+		int32_t _f = (int32_t)(((uint64_t)LWS_FX_FRACTION_MSD * \
+				(_m & 0xffffffffull) + (1ull << 31)) >> 32); \
+		if (_f == LWS_FX_FRACTION_MSD) { \
+			_f = 0; \
+			_w++; \
+		} \
+		if (_w > (uint64_t)INT32_MAX) \
+			_w = (uint64_t)INT32_MAX; \
+		a->whole = (int32_t)_w; \
+		a->frac = _f; \
+		if ((a64) < 0) { \
+			a->whole = -a->whole; \
+			a->frac = -a->frac; \
+		} \
+	} while (0)
 
 LWS_VISIBLE LWS_EXTERN const lws_fx_t *
 lws_fx_add(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b);

@@ -2876,13 +2876,15 @@ lws_fx_div(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b)
 		_a = q >> 1;
 	}
 
-	if (lws_neg(a) ^ lws_neg(b)) {
-		r->whole = -(int32_t)(_a >> 32);
-		r->frac = -(int32_t)((100000000 * (_a & 0xffffffff)) >> 32);
-	} else {
-		r->whole = (int32_t)(_a >> 32);
-		r->frac = (int32_t)((100000000 * (_a & 0xffffffff)) >> 32);
-	}
+	/*
+	 * The quotient is 32.32 binary: lws_fix3232() rounds its fraction to
+	 * the nearest 1e-8, not down, so eg, 1.5 / 100 is 0.015, not
+	 * 0.01499999
+	 */
+
+	if (lws_neg(a) ^ lws_neg(b))
+		_a = -_a;
+	lws_fix3232(r, _a);
 
 	return r;
 }

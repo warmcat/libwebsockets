@@ -700,7 +700,7 @@ int main(int argc, const char **argv)
 
 		lws_fx_div(&r, &a, &b);
 
-		if (r.whole != 3 || r.frac != 3030302) {
+		if (r.whole != 3 || r.frac != 3030303) {
 			lwsl_err("%s: fixed3232: test14 fail: %d.%08u\n", __func__, r.whole, r.frac);
 			return 1;
 		}
