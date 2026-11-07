@@ -143,6 +143,7 @@
 #include <libwebsockets/lws-spd1656-spi.h>
 #include <libwebsockets/lws-ssd1675b-spi.h>
 #include <libwebsockets/lws-uc8176-spi.h>
+#include <libwebsockets/lws-epd-direct.h>
 #if defined(LWS_WITH_DLTS)
 #include <libwebsockets/lws-gendtls.h>
 #endif
