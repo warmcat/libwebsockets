@@ -32,6 +32,9 @@ real panel would, if the waveforms suited it.  It checks
  - with `full_refresh_every`, the panel is cleared before every so many
    updates
 
+ - rows are driven for the waveform's `clear_drive_ns` in a clear's passes,
+   and its `drive_ns` in an update's
+
  - the panel supplies are turned off once the passes are done
 
 Where there are pthreads, it then runs all of it again with the passes run on

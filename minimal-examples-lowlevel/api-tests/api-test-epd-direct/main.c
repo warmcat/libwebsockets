@@ -26,6 +26,8 @@
  *  - a pixel changed back while it's still moving finishes moving, then
  *    moves back
  *  - a full refresh clears the panel every so many updates
+ *  - rows are driven for the clear's drive time in its passes, and the
+ *    updates' in theirs
  *  - a line blitted without pixels is white
  *  - the supplies are turned off after the passes are done
  *
@@ -68,6 +70,9 @@ static struct lws_context *cx;
 #define INK_STEPS	4
 #define MAX_PASSES	512
 
+#define DRIVE_NS	10000
+#define CLEAR_DRIVE_NS	25000
+
 #define CODE_NONE	0
 #define CODE_BLACK	1
 #define CODE_WHITE	2
@@ -107,6 +112,8 @@ static struct {
 	int		driven[MAX_PASSES][H];
 	/**< a pixel on the row was driven in that pass, 1 black, 2 white,
 	 * 3 both */
+	uint32_t	drive_ns[MAX_PASSES];
+	/**< how long rows were driven for in that pass, 0 if none were */
 	uint8_t		ink_min[H][W];
 	int		row;
 	int		passes;
@@ -117,6 +124,7 @@ static struct {
 	int		bad_frames;
 	int		bad_loads;
 	int		bad_buffers;
+	int		bad_drives;
 } sim;
 
 static int
@@ -210,10 +218,18 @@ sim_apply(void)
 }
 
 static void
-sim_row_drive(const lws_epd_direct_bus_ops_t *bus, uint32_t drive_us)
+sim_row_drive(const lws_epd_direct_bus_ops_t *bus, uint32_t drive_ns)
 {
 	(void)bus;
-	(void)drive_us;
+
+	/* every row driven in a pass is driven for the same time */
+
+	if (sim.passes < MAX_PASSES) {
+		if (!sim.drive_ns[sim.passes])
+			sim.drive_ns[sim.passes] = drive_ns;
+		else if (sim.drive_ns[sim.passes] != drive_ns)
+			sim.bad_drives++;
+	}
 
 	if (!sim.sending) {
 		sim.bad_loads++;
@@ -297,7 +313,8 @@ static const lws_epd_direct_waveform_bw_t sim_wf = {
 	.to_white_len		= LWS_ARRAY_SIZE(to_white),
 	.clear			= clear,
 	.clear_len		= LWS_ARRAY_SIZE(clear),
-	.row_drive_us		= 10,
+	.drive_ns		= DRIVE_NS,
+	.clear_drive_ns		= CLEAR_DRIVE_NS,
 };
 
 static const lws_display_colour_t palette[] = {
@@ -644,6 +661,10 @@ test_boot(void)
 	check_panel("boot clear");
 	check(sim.passes == LWS_ARRAY_SIZE(clear),
 	      "clear took %d passes\n", sim.passes);
+	for (x = 0; x < sim.passes; x++)
+		check(sim.drive_ns[x] == CLEAR_DRIVE_NS,
+		      "clear pass %d drove for %uns\n", x,
+		      (unsigned int)sim.drive_ns[x]);
 	check(!cb2, "update completion without an update\n");
 
 	/* after the idle time, the supplies go off */
@@ -672,6 +693,16 @@ test_update(void)
 		else
 			check(d < 0, "row %d driven, but unchanged\n", y);
 	}
+
+	/* passes with only skipped rows drive nothing */
+
+	for (d = p0, y = 0; d < sim.passes; d++) {
+		check(sim.drive_ns[d] == DRIVE_NS || !sim.drive_ns[d],
+		      "update pass %d drove for %uns\n", d,
+		      (unsigned int)sim.drive_ns[d]);
+		y += sim.drive_ns[d] == DRIVE_NS;
+	}
+	check(y, "update drove no rows\n");
 
 	/* nothing changing is complete at once */
 
@@ -824,6 +855,18 @@ test_full_refresh(void)
 	}
 	check(full == 4, "%d passes drove the whole panel black\n", full);
 
+	/* the clear's passes drive for longer than the update's */
+
+	for (p = p0; p < sim.passes; p++)
+		check(sim.drive_ns[p] == CLEAR_DRIVE_NS ||
+		      sim.drive_ns[p] == DRIVE_NS || !sim.drive_ns[p],
+		      "pass %d drove for %uns\n", p,
+		      (unsigned int)sim.drive_ns[p]);
+	for (p = p0, c = 0; p < sim.passes; p++)
+		c += sim.drive_ns[p] == CLEAR_DRIVE_NS;
+	check(c == LWS_ARRAY_SIZE(clear), "%d passes drove for the clear's time\n",
+	      c);
+
 	disp.full_refresh_every = 0;
 }
 
@@ -857,6 +900,8 @@ run_tests(const lws_epd_direct_runner_t *runner)
 	check(!sim.bad_loads, "%d bad row loads\n", sim.bad_loads);
 	check(!sim.bad_buffers, "%d rows changed while being sent\n",
 	      sim.bad_buffers);
+	check(!sim.bad_drives, "%d passes drove rows for different times\n",
+	      sim.bad_drives);
 
 	lwsl_user("%d passes\n", aget(&sim.passes));
 

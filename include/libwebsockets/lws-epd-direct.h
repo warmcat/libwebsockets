@@ -149,9 +149,13 @@ typedef struct lws_epd_direct_waveform_bw {
 	/**< passes in to_white */
 	uint16_t		clear_len;
 	/**< passes in clear */
-	uint16_t		row_drive_us;
-	/**< how long each row is driven for in every pass, the same for every
-	 * pass so updates started at different passes can overlap */
+	uint32_t		drive_ns;
+	/**< how long each row is driven for in every pass of an update, the
+	 * same for every pass so updates started at different passes can
+	 * overlap */
+	uint32_t		clear_drive_ns;
+	/**< how long each row is driven for in every pass of a clear, which
+	 * has the panel to itself; 0 means the same as drive_ns */
 } lws_epd_direct_waveform_bw_t;
 
 /*
@@ -187,9 +191,9 @@ typedef struct lws_epd_direct_bus_ops {
 	 * prepared while it's being sent; the data stays valid until the
 	 * following row_drive() returns */
 	void (*row_drive)(const struct lws_epd_direct_bus_ops *bus,
-			  uint32_t drive_us);
+			  uint32_t drive_ns);
 	/**< wait for the row_load() to finish, latch it into the source
-	 * driver outputs, and select the current row for drive_us, then move
+	 * driver outputs, and select the current row for drive_ns, then move
 	 * on to the next row */
 	void (*row_skip)(const struct lws_epd_direct_bus_ops *bus);
 	/**< move on to the next row as quickly as the gate driver allows,

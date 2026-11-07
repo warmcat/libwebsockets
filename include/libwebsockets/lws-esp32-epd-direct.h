@@ -212,7 +212,7 @@ lws_epd_direct_esp32_row_load(const lws_epd_direct_bus_ops_t *bus,
 			      const uint8_t *data, size_t len);
 LWS_VISIBLE LWS_EXTERN void
 lws_epd_direct_esp32_row_drive(const lws_epd_direct_bus_ops_t *bus,
-			       uint32_t drive_us);
+			       uint32_t drive_ns);
 LWS_VISIBLE LWS_EXTERN void
 lws_epd_direct_esp32_row_skip(const lws_epd_direct_bus_ops_t *bus);
 LWS_VISIBLE LWS_EXTERN void

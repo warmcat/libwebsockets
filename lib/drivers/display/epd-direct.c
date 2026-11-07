@@ -540,6 +540,7 @@ epdd_pass(epdd_priv_t *priv)
 	    left = 0;
 	const uint8_t *data = NULL, *ndata = NULL;
 	uint8_t st[EPDD_SLOTS];
+	uint32_t drive_ns = wf->drive_ns;
 	lws_usec_t t0;
 
 	if (!priv->powered) {
@@ -565,8 +566,12 @@ epdd_pass(epdd_priv_t *priv)
 			st[n] = EPDD_SLOT_RUNNING;
 			epdd_set(&priv->slot[n].state, st[n]);
 		}
-		if (st[n] == EPDD_SLOT_RUNNING)
+		if (st[n] == EPDD_SLOT_RUNNING) {
 			any = 1;
+			/* a clear has the panel to itself */
+			if (priv->slot[n].clear && wf->clear_drive_ns)
+				drive_ns = wf->clear_drive_ns;
+		}
 	}
 
 	if (!any)
@@ -595,7 +600,7 @@ epdd_pass(epdd_priv_t *priv)
 		/* the next row is made ready while this one is sent */
 		if (row + 1 < rows)
 			nact = prepare_row(priv, wf, row + 1, &ndata);
-		bus->row_drive(bus, wf->row_drive_us);
+		bus->row_drive(bus, drive_ns);
 
 		act = nact;
 		data = ndata;
@@ -1152,7 +1157,8 @@ check_config(const lws_display_epd_direct_t *ed)
 	if (check_table(wf->to_black, wf->to_black_len) ||
 	    check_table(wf->to_white, wf->to_white_len) ||
 	    check_table(wf->clear, wf->clear_len) ||
-	    !wf->to_black_len || !wf->to_white_len || !wf->clear_len) {
+	    !wf->to_black_len || !wf->to_white_len || !wf->clear_len ||
+	    !wf->drive_ns) {
 		lwsl_err("%s: bad waveform\n", __func__);
 		return 1;
 	}

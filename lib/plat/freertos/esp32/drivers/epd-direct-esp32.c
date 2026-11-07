@@ -853,11 +853,12 @@ lws_epd_direct_esp32_row_load(const lws_epd_direct_bus_ops_t *bus,
 
 void IRAM_ATTR
 lws_epd_direct_esp32_row_drive(const lws_epd_direct_bus_ops_t *bus,
-			       uint32_t drive_us)
+			       uint32_t drive_ns)
 {
 	const lws_epd_direct_esp32_t *ee = to_ee(bus);
 	lws_epd_direct_esp32_state_t *st = ee->state;
-	uint32_t sym = ckv_drive_sym(st, drive_us * EPDD_TICKS_PER_US);
+	uint32_t sym = ckv_drive_sym(st, (drive_ns * EPDD_TICKS_PER_US + 999) /
+									1000);
 
 	lcd_wait(st);
 	/* XLE follows the last XCL by le_min_delay_xcl_x2 half cycles */
@@ -945,7 +946,7 @@ lws_epd_direct_esp32_row_load(const lws_epd_direct_bus_ops_t *bus,
 
 void
 lws_epd_direct_esp32_row_drive(const lws_epd_direct_bus_ops_t *bus,
-			       uint32_t drive_us) { }
+			       uint32_t drive_ns) { }
 
 void
 lws_epd_direct_esp32_row_skip(const lws_epd_direct_bus_ops_t *bus) { }
