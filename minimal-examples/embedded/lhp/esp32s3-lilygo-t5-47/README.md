@@ -70,6 +70,28 @@ On the watch routing, what to look at on the scope is:
  - at the start of each pass, SPV should fall while the first CKV pulse is
    still high
 
+## Scope test pattern
+
+Setting `T547_SCOPE_PATTERN` to 1 near the top of `main/devices.c` replaces
+whatever lhp draws with a fixed pattern of black marks on white, so you know
+exactly what bytes should go out on the bus.  A mark is four pixels, one bus
+byte of black drive codes, 0x55, so D0 is high and D1 low for that byte, and
+the other bytes are 0x00.
+
+Row|Marks at bus bytes (of 0 - 239)
+---|---
+100 - 107|0, 16 x (row - 99), ie, 16, 32 ... 128, and 239
+108 - 111|0, 200 and 239, all four rows the same
+
+After the boot clear, the first update draws it in 20 passes.  Each pass has
+row 100 - 111 data bursts, one all-zero burst on row 112 to stop driving,
+and gate steps with no data for the other rows.  The first pass also has an
+all-zero burst on row 0.
+
+The clear's bursts are all 0x55 or 0xAA, so D0 doesn't change during them.
+Triggering on a positive D0 pulse shorter than 100ns catches the pattern's
+first row instead.
+
 ## sdkconfig for the LilyGo boards
 
 `sdkconfig` is set up for the watch's 2MB quad PSRAM.  The LilyGo boards

@@ -39,6 +39,14 @@
 #define T547_ROUTING		T547_ROUTING_WATCH
 #endif
 
+/*
+ * 1 replaces what lhp draws with a fixed pattern, to check what goes out on
+ * the panel bus with a scope.  See "Scope test pattern" in the README.
+ */
+#if !defined(T547_SCOPE_PATTERN)
+#define T547_SCOPE_PATTERN	0
+#endif
+
 struct lws_led_state *lls;
 lws_display_state_t lds;
 struct lws_button_state *bcs;
@@ -291,9 +299,56 @@ static const lws_display_colour_t palette[] = {
 	PALETTE_RGBY(255, 255, 255),
 };
 
+#if T547_SCOPE_PATTERN
+
+/*
+ * Whatever lhp draws, the lines we pass on are black marks on white, on
+ * rows 100 - 111 only.  A mark is four pixels, so one bus byte of black
+ * drive codes, 0x55, in a row of 240.  Each row has marks at bytes 0 and
+ * 239.  Rows 100 - 107 also have one at byte 16, 32 ... 128, different on
+ * each row, and rows 108 - 111 are all the same, with one at byte 200.
+ */
+
+#define SP_ROW_FIRST	100
+#define SP_ROWS_STAIR	8
+#define SP_ROWS_SAME	4
+
+static int
+scope_pattern_blit(lws_display_state_t *lds, const uint8_t *src,
+		   lws_box_t *box, lws_dll2_owner_t *ids)
+{
+	static uint8_t line[960];
+	int y = box->y.whole, k = y - SP_ROW_FIRST, byte;
+
+	if (box->h.whole != 1)
+		/* not a line: the start or end of an update */
+		return lws_display_epd_direct_blit(lds, src, box, ids);
+
+	memset(line, 0xff, sizeof(line));
+
+	if (k >= 0 && k < SP_ROWS_STAIR + SP_ROWS_SAME) {
+		byte = k < SP_ROWS_STAIR ? 16 * (k + 1) : 200;
+
+		memset(line, 0, 4);
+		memset(line + 4 * byte, 0, 4);
+		memset(line + sizeof(line) - 4, 0, 4);
+	}
+
+	return lws_display_epd_direct_blit(lds, line, box, ids);
+}
+
+#endif
+
 static const lws_display_epd_direct_t disp = {
 	.disp = {
+#if T547_SCOPE_PATTERN
+		.init			= lws_display_epd_direct_init,
+		.blit			= scope_pattern_blit,
+		.power			= lws_display_epd_direct_power,
+		.bistable		= 1,
+#else
 		lws_display_epd_direct_ops,
+#endif
 		.ic = {
 			.wh_px = { { 960,0 },		{ 540,0 } },
 			.wh_mm = { { 103,68000000 },	{ 58,32000000 } },
