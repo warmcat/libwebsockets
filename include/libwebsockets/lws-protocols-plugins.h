@@ -60,6 +60,10 @@ struct lws_protocols {
 	 * be able to consume it all without having to return to the event
 	 * loop.  That is supported in lws.
 	 *
+	 * This is used for WebSocket receive buffers and raw socket receive
+	 * limits.  It does not set the HTTP client receive buffer size: see
+	 * lws_http_client_read() and lws_context_creation_info.pt_serv_buf_size.
+	 *
 	 * If .tx_packet_size is 0, this also controls how much may be sent at
 	 * once for backwards compatibility.
 	 */
