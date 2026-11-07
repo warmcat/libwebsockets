@@ -266,21 +266,30 @@ static const lws_epd_direct_esp32_t epd_bus = {
 };
 
 /*
- * Black and white waveforms.  These are a first guess, to be found on the
- * panel: about 0.3s of drive for a transition, and clearing by pushing every
- * pixel black and white twice.
+ * Black and white waveforms, giving each pixel about as much drive as
+ * LilyGo's own code for this board does.
+ *
+ * It darkens white to black with 15 passes of 2 - 30us, about 102us in all,
+ * and lightens black to white with 15 passes of 0.8 - 30us, about 55us.
+ * Here, those are 5 and 3 passes of 20us, since every pass of an update must
+ * drive for the same time.
+ *
+ * Its clear is 4 times 4 passes black then 4 white, of 50us each, and so is
+ * ours.
  */
 
 #define B LWS_EPDD_BLACK
 #define W LWS_EPDD_WHITE
 
 static const uint8_t wf_to_black[] = {
-	B, B, B, B, B, B, B, B, B, B, B, B, B, B, B, B, B, B, B, B,
+	B, B, B, B, B,
 }, wf_to_white[] = {
-	W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W,
+	W, W, W,
 }, wf_clear[] = {
-	B, B, B, B, B, B, B, B, B, B, W, W, W, W, W, W, W, W, W, W,
-	B, B, B, B, B, B, B, B, B, B, W, W, W, W, W, W, W, W, W, W,
+	B, B, B, B, W, W, W, W,
+	B, B, B, B, W, W, W, W,
+	B, B, B, B, W, W, W, W,
+	B, B, B, B, W, W, W, W,
 };
 
 static const lws_epd_direct_waveform_bw_t wf_bw = {
@@ -291,7 +300,8 @@ static const lws_epd_direct_waveform_bw_t wf_bw = {
 	.clear				= wf_clear,
 	.clear_len			= LWS_ARRAY_SIZE(wf_clear),
 	/* at least the source driver output settling time */
-	.row_drive_us			= 20,
+	.drive_ns			= 20000,
+	.clear_drive_ns			= 50000,
 };
 
 static const lws_display_colour_t palette[] = {

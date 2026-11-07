@@ -59,6 +59,11 @@ send, but the next row can't be latched until the previous row's 20us CKV
 drive has ended, so rows come every 21.5 - 22us, about 12ms per pass.  On
 V2.3, XLE is on the 4094, so each row also costs two shift register writes.
 
+The panel allows at most 85 passes a second, so a pass takes at least 11.8ms
+however few rows change.  The waveforms in `main/devices.c` give pixels
+about the drive LilyGo's own code does: an update is 5 passes of 20us drive,
+about 60ms, and the clear is 32 passes of 50us drive, about 0.9s.
+
 On the watch routing, what to look at on the scope is:
 
  - the row period (rising XSTL to rising XSTL) should be about 22us, with
@@ -83,7 +88,7 @@ Row|Marks at bus bytes (of 0 - 239)
 100 - 107|0, 16 x (row - 99), ie, 16, 32 ... 128, and 239
 108 - 111|0, 200 and 239, all four rows the same
 
-After the boot clear, the first update draws it in 20 passes.  Each pass has
+After the boot clear, the first update draws it in 5 passes.  Each pass has
 row 100 - 111 data bursts, one all-zero burst on row 112 to stop driving,
 and gate steps with no data for the other rows.  The first pass also has an
 all-zero burst on row 0.
@@ -126,5 +131,5 @@ code, and need checking on a real board:
 
  - the power sequencing delays
 
- - the waveforms in `main/devices.c`, 20 passes for each transition and
-   a black / white / black / white clear, which are only a starting point
+ - the waveforms in `main/devices.c`, which give pixels about the drive
+   LilyGo's own code does, but in fewer, longer passes
