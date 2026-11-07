@@ -47,13 +47,19 @@
 
 #include <libwebsockets.h>
 
+#include <sdkconfig.h>
 #include <soc/soc_caps.h>
 #include <driver/gpio.h>
 #include <esp_heap_caps.h>
 #include <esp_rom_sys.h>
 
-#if SOC_LCDCAM_I80_LCD_SUPPORTED && SOC_RMT_SUPPORTED
+/*
+ * It knows the ESP32-S3's LCD_CAM and RMT registers.  Other chips with an
+ * LCD_CAM i80 bus lay out their RMT registers differently.
+ */
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
 
+#include <esp_attr.h>
 #include <esp_cpu.h>
 #include <esp_clk_tree.h>
 #include <esp_rom_gpio.h>
@@ -94,31 +100,49 @@
  * The RMT channels' symbol memory, from the chip's linker script.  The RMT
  * driver gives us the channel, we write the one pulse it sends ourselves.
  */
-extern uint32_t RMTMEM;
+extern volatile uint32_t RMTMEM[];
 
-static lcd_cam_dev_t *
+/*
+ * What runs for each row is in IRAM: from flash, through a cache the other
+ * core is also using, a miss costs us more than the gaps we're trying to keep
+ * between the panel signals.  Its timings are worked out at init, so it
+ * doesn't divide, or look at the panel description, per row.
+ */
+
+static inline lcd_cam_dev_t *
 lcd_dev(void)
 {
 	return LCD_LL_GET_HW(0);
 }
 
-static const lws_epd_direct_esp32_t *
+static inline const lws_epd_direct_esp32_t *
 to_ee(const lws_epd_direct_bus_ops_t *bus)
 {
 	return lws_container_of(bus, lws_epd_direct_esp32_t, bus);
 }
 
-static void
-spin_ns(const lws_epd_direct_esp32_state_t *st, uint32_t ns)
+static uint32_t
+ns_to_cyc(const lws_epd_direct_esp32_state_t *st, uint32_t ns)
 {
-	uint32_t t0 = esp_cpu_get_cycle_count(),
-		 cyc = (ns * st->cyc_per_us + 999) / 1000;
+	return (uint32_t)(((uint64_t)ns * st->cyc_per_us + 999) / 1000);
+}
+
+static void IRAM_ATTR
+spin_cyc(uint32_t cyc)
+{
+	uint32_t t0 = esp_cpu_get_cycle_count();
 
 	while (esp_cpu_get_cycle_count() - t0 < cyc)
 		;
 }
 
 static void
+spin_ns(const lws_epd_direct_esp32_state_t *st, uint32_t ns)
+{
+	spin_cyc(ns_to_cyc(st, ns));
+}
+
+static void IRAM_ATTR
 pin_set(int gpio, int level)
 {
 	gpio_ll_set_level(&GPIO, (uint32_t)gpio, (uint32_t)level);
@@ -129,7 +153,7 @@ pin_set(int gpio, int level)
  * strobed at the end.
  */
 
-static void
+static void IRAM_ATTR
 sr_write(const lws_epd_direct_esp32_t *ee)
 {
 	lws_epd_direct_esp32_state_t *st = ee->state;
@@ -142,18 +166,18 @@ sr_write(const lws_epd_direct_esp32_t *ee)
 
 		pin_set(ee->sr_clk_gpio, 0);
 		pin_set(ee->sr_data_gpio, (st->sr >> out) & 1);
-		spin_ns(st, EPDD_SR_EDGE_NS);
+		spin_cyc(st->sr_edge_cyc);
 		pin_set(ee->sr_clk_gpio, 1);
-		spin_ns(st, EPDD_SR_EDGE_NS);
+		spin_cyc(st->sr_edge_cyc);
 	}
 
 	pin_set(ee->sr_clk_gpio, 0);
 	pin_set(ee->sr_str_gpio, 1);
-	spin_ns(st, EPDD_SR_EDGE_NS);
+	spin_cyc(st->sr_edge_cyc);
 	pin_set(ee->sr_str_gpio, 0);
 }
 
-static void
+static void IRAM_ATTR
 ctl_set(const lws_epd_direct_esp32_t *ee, int ctl, int assert)
 {
 	const lws_epd_direct_esp32_ctl_t *c = &ee->ctl[ctl];
@@ -200,7 +224,7 @@ gpio_out(int gpio, int level)
 
 /* wait for the gate pulse in flight, if any, including its low time */
 
-static void
+static void IRAM_ATTR
 ckv_wait(lws_epd_direct_esp32_state_t *st)
 {
 	uint32_t done = RMT_LL_EVENT_TX_DONE(st->rmt_ch);
@@ -217,16 +241,13 @@ ckv_wait(lws_epd_direct_esp32_state_t *st)
 }
 
 /*
- * Start a gate pulse, high for high_ticks then low for low_ticks, after the
- * one in flight
+ * An RMT symbol: duration0 in b0 - b14, level0 in b15, then duration1 and
+ * level1 the same in the upper 16 bits.  Ours is high, then low.
  */
 
-static void
-ckv_pulse(lws_epd_direct_esp32_state_t *st, uint32_t high_ticks,
-	  uint32_t low_ticks)
+static uint32_t IRAM_ATTR
+ckv_sym(uint32_t high_ticks, uint32_t low_ticks)
 {
-	ckv_wait(st);
-
 	if (!high_ticks)
 		high_ticks = 1;
 	if (high_ticks > 0x7fff)
@@ -236,42 +257,97 @@ ckv_pulse(lws_epd_direct_esp32_state_t *st, uint32_t high_ticks,
 	if (low_ticks > 0x7fff)
 		low_ticks = 0x7fff;
 
-	/*
-	 * An RMT symbol: duration0 in b0 - b14, level0 in b15, then duration1
-	 * and level1 the same in the upper 16 bits.  A zero symbol ends it.
-	 */
-	st->ckv_mem[0] = high_ticks | (1u << 15) | (low_ticks << 16);
-	st->ckv_mem[1] = 0;
-
-	rmt_ll_clear_interrupt_status(&RMT, RMT_LL_EVENT_TX_DONE(st->rmt_ch));
-	rmt_ll_tx_reset_pointer(&RMT, (uint32_t)st->rmt_ch);
-	rmt_ll_tx_start(&RMT, (uint32_t)st->rmt_ch);
-	st->ckv_busy = 1;
+	return high_ticks | (1u << 15) | (low_ticks << 16);
 }
 
 /*
- * The shortest gate pulse the panel allows, high and low, in RMT ticks
+ * Get the idle channel ready to send sym, so starting it is then a single
+ * register write.  The symbol after ours, zero, ends it.
+ */
+
+static void IRAM_ATTR
+ckv_arm(lws_epd_direct_esp32_state_t *st, uint32_t sym)
+{
+	if (st->ckv_sym != sym) {
+		st->ckv_mem[0] = sym;
+		st->ckv_sym = sym;
+	}
+
+	RMT.chnconf0[st->rmt_ch].val = st->ckv_conf_rewind;
+}
+
+static void IRAM_ATTR
+ckv_go(lws_epd_direct_esp32_state_t *st)
+{
+	RMT.chnconf0[st->rmt_ch].val = st->ckv_conf_go;
+	st->ckv_busy = 1;
+}
+
+/* start a gate pulse, after the one in flight */
+
+static void IRAM_ATTR
+ckv_pulse(lws_epd_direct_esp32_state_t *st, uint32_t sym)
+{
+	ckv_wait(st);
+	ckv_arm(st, sym);
+	ckv_go(st);
+}
+
+/*
+ * A gate pulse high for high_ticks, low for no longer than the panel needs
+ * between pulses
+ */
+
+static uint32_t IRAM_ATTR
+ckv_drive_sym(const lws_epd_direct_esp32_state_t *st, uint32_t high_ticks)
+{
+	uint32_t lo = st->ckv_low;
+
+	if (high_ticks + lo < st->ckv_period)
+		lo = st->ckv_period - high_ticks;
+
+	return ckv_sym(high_ticks, lo);
+}
+
+/*
+ * Work out what the gate pulses need in RMT ticks: the shortest pulse the
+ * panel allows, and the least low time and period for any pulse
  */
 
 static void
-ckv_min(const lws_epd_direct_esp32_t *ee, uint32_t *hi, uint32_t *lo)
+ckv_timing(const lws_epd_direct_esp32_t *ee)
 {
 	const lws_epd_direct_panel_t *p = ee->panel;
+	lws_epd_direct_esp32_state_t *st = ee->state;
 	uint32_t period = p->ckv_max_hz ? (EPDD_RMT_HZ + p->ckv_max_hz - 1) /
-					   p->ckv_max_hz : 1;
+					   p->ckv_max_hz : 2,
+		 hi = ((uint32_t)p->ckv_min_high_ns * EPDD_TICKS_PER_US + 999) /
+									1000,
+		 lo = ((uint32_t)p->ckv_min_low_ns * EPDD_TICKS_PER_US + 999) /
+									1000;
 
-	*hi = ((uint32_t)p->ckv_min_high_ns * EPDD_TICKS_PER_US + 999) / 1000;
-	*lo = ((uint32_t)p->ckv_min_low_ns * EPDD_TICKS_PER_US + 999) / 1000;
+	if (!hi)
+		hi = 1;
+	if (!lo)
+		lo = 1;
+	if (period > 0x7fff)
+		period = 0x7fff;
 
-	if (*hi + *lo < period) {
-		*hi = period / 2;
-		*lo = period - *hi;
+	st->ckv_low = (uint16_t)lo;
+	st->ckv_period = (uint16_t)period;
+
+	if (hi + lo < period) {
+		hi = period / 2;
+		lo = period - hi;
 	}
+
+	st->ckv_min_hi = (uint16_t)hi;
+	st->ckv_min_lo = (uint16_t)lo;
 }
 
 /* wait for the row being sent, if any, to have been sent */
 
-static void
+static void IRAM_ATTR
 lcd_wait(lws_epd_direct_esp32_state_t *st)
 {
 	lcd_cam_dev_t *dev = lcd_dev();
@@ -293,18 +369,13 @@ lcd_wait(lws_epd_direct_esp32_state_t *st)
  */
 
 static uintptr_t
-link_for(lws_epd_direct_esp32_state_t *st, const uint8_t *data, size_t len)
+link_mount(lws_epd_direct_esp32_state_t *st, const uint8_t *data, size_t len)
 {
 	gdma_buffer_mount_config_t mc;
-	int n;
+	int n = st->link_next;
 
-	for (n = 0; n < LWS_EPDD_ESP32_LINKS; n++)
-		if (st->link_buf[n] == data)
-			return gdma_link_get_head_addr(
-				(gdma_link_list_handle_t)st->link[n]);
-
-	n = st->link_next;
 	st->link_next = (uint8_t)((n + 1) % LWS_EPDD_ESP32_LINKS);
+	st->link_buf[n] = NULL;
 
 	memset(&mc, 0, sizeof(mc));
 	mc.buffer = (void *)data;
@@ -317,8 +388,22 @@ link_for(lws_epd_direct_esp32_state_t *st, const uint8_t *data, size_t len)
 		return 0;
 
 	st->link_buf[n] = data;
+	st->link_head[n] = gdma_link_get_head_addr(
+					(gdma_link_list_handle_t)st->link[n]);
 
-	return gdma_link_get_head_addr((gdma_link_list_handle_t)st->link[n]);
+	return st->link_head[n];
+}
+
+static inline uintptr_t
+link_for(lws_epd_direct_esp32_state_t *st, const uint8_t *data, size_t len)
+{
+	int n;
+
+	for (n = 0; n < LWS_EPDD_ESP32_LINKS; n++)
+		if (st->link_buf[n] == data)
+			return st->link_head[n];
+
+	return link_mount(st, data, len);
 }
 
 void *
@@ -530,6 +615,7 @@ rmt_init(const lws_epd_direct_esp32_t *ee)
 	lws_epd_direct_esp32_state_t *st = ee->state;
 	rmt_tx_channel_config_t rc;
 	rmt_channel_handle_t rmt;
+	rmt_chnconf0_reg_t conf;
 	int id;
 
 	memset(&rc, 0, sizeof(rc));
@@ -552,8 +638,31 @@ rmt_init(const lws_epd_direct_esp32_t *ee)
 		return 1;
 
 	st->rmt_ch = id;
-	st->ckv_mem = (volatile uint32_t *)&RMTMEM +
-			(size_t)id * SOC_RMT_MEM_WORDS_PER_CHANNEL;
+	st->ckv_mem = &RMTMEM[(size_t)id * SOC_RMT_MEM_WORDS_PER_CHANNEL];
+
+	/* our symbol goes in word 0, this one after it ends the pulse */
+	st->ckv_mem[1] = 0;
+	st->ckv_sym = 0;
+	rmt_ll_clear_interrupt_status(&RMT, RMT_LL_EVENT_TX_DONE(id));
+
+	/*
+	 * The driver has configured the channel, and nothing else changes it
+	 * while we have it, so starting it is that config with the bits that
+	 * rewind it, or start it, set.  They clear themselves.
+	 */
+
+	conf.val = RMT.chnconf0[id].val;
+	conf.tx_start_chn = 0;
+	conf.mem_rd_rst_chn = 0;
+	conf.apb_mem_rst_chn = 0;
+	conf.conf_update_chn = 0;
+
+	conf.mem_rd_rst_chn = 1;
+	st->ckv_conf_rewind = conf.val;
+	conf.mem_rd_rst_chn = 0;
+	conf.conf_update_chn = 1;
+	conf.tx_start_chn = 1;
+	st->ckv_conf_go = conf.val;
 
 	return 0;
 }
@@ -574,6 +683,14 @@ lws_epd_direct_esp32_init(const lws_epd_direct_bus_ops_t *bus)
 
 	memset(st, 0, sizeof(*st));
 	st->cyc_per_us = esp_rom_get_cpu_ticks_per_us();
+	st->sr_edge_cyc = ns_to_cyc(st, EPDD_SR_EDGE_NS);
+
+	/* XLE is pulsed every row, if it's on a gpio we go straight to it */
+	st->le_gpio = -1;
+	if (ee->ctl[LWS_EPDD_CTL_LE].src == LWS_EPDD_CTLSRC_GPIO) {
+		st->le_gpio = ee->ctl[LWS_EPDD_CTL_LE].index;
+		st->le_level = (uint8_t)!ee->ctl[LWS_EPDD_CTL_LE].active_low;
+	}
 
 	/* the control lines start deasserted, unless the board says */
 
@@ -621,6 +738,16 @@ lws_epd_direct_esp32_init(const lws_epd_direct_bus_ops_t *bus)
 		lwsl_err("%s: RMT setup failed\n", __func__);
 		goto bail;
 	}
+
+	/* the waits each row needs, in cpu cycles */
+
+	st->le_delay_cyc = ns_to_cyc(st, (uint32_t)
+			(((uint64_t)ee->panel->le_min_delay_xcl_x2 *
+			  500000000ull + st->xcl_hz - 1) / st->xcl_hz));
+	st->le_width_cyc = ns_to_cyc(st, ee->panel->le_min_width_ns);
+	st->le_off_cyc = ns_to_cyc(st, ee->panel->le_min_off_ns);
+	st->prefill_cyc = ns_to_cyc(st, EPDD_PREFILL_NS);
+	ckv_timing(ee);
 
 	st->ready = 1;
 
@@ -675,10 +802,9 @@ lws_epd_direct_esp32_frame_start(const lws_epd_direct_bus_ops_t *bus)
 {
 	const lws_epd_direct_esp32_t *ee = to_ee(bus);
 	lws_epd_direct_esp32_state_t *st = ee->state;
-	uint32_t hi, lo;
+	uint32_t sym = ckv_sym(st->ckv_min_hi, st->ckv_min_lo);
 	uint8_t n;
 
-	ckv_min(ee, &hi, &lo);
 	ckv_wait(st);
 
 	/*
@@ -690,18 +816,18 @@ lws_epd_direct_esp32_frame_start(const lws_epd_direct_bus_ops_t *bus)
 	ctl_set(ee, LWS_EPDD_CTL_MODE, 1);
 	ctl_set(ee, LWS_EPDD_CTL_STV, 1);
 	spin_ns(st, EPDD_SPV_SETUP_NS);
-	ckv_pulse(st, hi, lo);
-	spin_ns(st, (hi * 1000u / EPDD_TICKS_PER_US) / 2);
+	ckv_pulse(st, sym);
+	spin_ns(st, ((uint32_t)st->ckv_min_hi * 1000u / EPDD_TICKS_PER_US) / 2);
 	ctl_set(ee, LWS_EPDD_CTL_STV, 0);
 
 	for (n = 0; n < ee->frame_lead_ckv; n++)
-		ckv_pulse(st, hi, lo);
+		ckv_pulse(st, sym);
 
 	ckv_wait(st);
 	ctl_set(ee, LWS_EPDD_CTL_OE, 1);
 }
 
-void
+void IRAM_ATTR
 lws_epd_direct_esp32_row_load(const lws_epd_direct_bus_ops_t *bus,
 			      const uint8_t *data, size_t len)
 {
@@ -720,47 +846,53 @@ lws_epd_direct_esp32_row_load(const lws_epd_direct_bus_ops_t *bus,
 	lcd_ll_fifo_reset(dev);
 	gdma_start((gdma_channel_handle_t)st->dma, (intptr_t)head);
 	/* let the DMA get something into the FIFO before it's sent from */
-	spin_ns(st, EPDD_PREFILL_NS);
+	spin_cyc(st->prefill_cyc);
 	lcd_ll_start(dev);
 	st->lcd_busy = 1;
 }
 
-void
+void IRAM_ATTR
 lws_epd_direct_esp32_row_drive(const lws_epd_direct_bus_ops_t *bus,
 			       uint32_t drive_us)
 {
 	const lws_epd_direct_esp32_t *ee = to_ee(bus);
 	lws_epd_direct_esp32_state_t *st = ee->state;
-	const lws_epd_direct_panel_t *p = ee->panel;
-	uint32_t hi, lo;
+	uint32_t sym = ckv_drive_sym(st, drive_us * EPDD_TICKS_PER_US);
 
 	lcd_wait(st);
 	/* XLE follows the last XCL by le_min_delay_xcl_x2 half cycles */
-	spin_ns(st, (uint32_t)(((uint64_t)p->le_min_delay_xcl_x2 *
-				 500000000ull + st->xcl_hz - 1) / st->xcl_hz));
+	spin_cyc(st->le_delay_cyc);
 
-	/* the previous row's gate pulse must end before we latch this one */
+	/*
+	 * The previous row's gate pulse must end before we latch this one.
+	 * Then the gate pulse for this row is made ready, so it can follow
+	 * XLE as closely as possible.
+	 */
 	ckv_wait(st);
+	ckv_arm(st, sym);
 
-	ctl_set(ee, LWS_EPDD_CTL_LE, 1);
-	spin_ns(st, p->le_min_width_ns);
-	ctl_set(ee, LWS_EPDD_CTL_LE, 0);
+	if (st->le_gpio >= 0) {
+		pin_set(st->le_gpio, st->le_level);
+		spin_cyc(st->le_width_cyc);
+		pin_set(st->le_gpio, !st->le_level);
+	} else {
+		ctl_set(ee, LWS_EPDD_CTL_LE, 1);
+		spin_cyc(st->le_width_cyc);
+		ctl_set(ee, LWS_EPDD_CTL_LE, 0);
+	}
 
-	ckv_min(ee, &hi, &lo);
-	ckv_pulse(st, drive_us * EPDD_TICKS_PER_US, lo);
+	ckv_go(st);
 
 	/* the next row's data mustn't start too soon after XLE */
-	spin_ns(st, p->le_min_off_ns);
+	spin_cyc(st->le_off_cyc);
 }
 
-void
+void IRAM_ATTR
 lws_epd_direct_esp32_row_skip(const lws_epd_direct_bus_ops_t *bus)
 {
-	const lws_epd_direct_esp32_t *ee = to_ee(bus);
-	uint32_t hi, lo;
+	lws_epd_direct_esp32_state_t *st = to_ee(bus)->state;
 
-	ckv_min(ee, &hi, &lo);
-	ckv_pulse(ee->state, hi, lo);
+	ckv_pulse(st, ckv_sym(st->ckv_min_hi, st->ckv_min_lo));
 }
 
 void
@@ -775,7 +907,7 @@ lws_epd_direct_esp32_frame_end(const lws_epd_direct_bus_ops_t *bus)
 
 #else
 
-/* this chip has no LCD_CAM i80 bus, or no RMT */
+/* not an ESP32-S3 */
 
 int
 lws_epd_direct_esp32_init(const lws_epd_direct_bus_ops_t *bus)

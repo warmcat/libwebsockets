@@ -107,13 +107,43 @@ typedef struct lws_epd_direct_esp32_state {
 	/**< the row buffer each one is for */
 	void			*rmt;
 	/**< the RMT channel for CKV */
+	uintptr_t		link_head[LWS_EPDD_ESP32_LINKS];
+	/**< the DMA address of each descriptor list */
 	volatile uint32_t	*ckv_mem;
 	/**< the RMT channel's symbol memory */
+	uint32_t		ckv_sym;
+	/**< the RMT symbol in the channel's memory */
+	uint32_t		ckv_conf_rewind;
+	/**< RMT channel config register value that rewinds it */
+	uint32_t		ckv_conf_go;
+	/**< RMT channel config register value that starts it */
 	uint32_t		cyc_per_us;
 	/**< cpu cycles per us, for the short waits */
+	uint32_t		le_delay_cyc;
+	/**< cpu cycles from the end of the data to XLE */
+	uint32_t		le_width_cyc;
+	/**< cpu cycles XLE is asserted for */
+	uint32_t		le_off_cyc;
+	/**< cpu cycles from XLE to the next data */
+	uint32_t		prefill_cyc;
+	/**< cpu cycles DMA is given to start filling the bus FIFO */
+	uint32_t		sr_edge_cyc;
+	/**< cpu cycles between shift register edges */
 	uint32_t		xcl_hz;
 	/**< the data clock we actually got */
+	uint16_t		ckv_min_hi;
+	/**< RMT ticks high, for the shortest CKV pulse */
+	uint16_t		ckv_min_lo;
+	/**< RMT ticks low, for the shortest CKV pulse */
+	uint16_t		ckv_low;
+	/**< the least RMT ticks low after any CKV pulse */
+	uint16_t		ckv_period;
+	/**< the least RMT ticks for a whole CKV pulse */
 	int			rmt_ch;
+	int			le_gpio;
+	/**< XLE's gpio if it's on one, else -1 */
+	uint8_t			le_level;
+	/**< the level XLE's gpio is at when asserted */
 	uint8_t			link_next;
 	/**< which link to reuse for a row buffer we haven't seen */
 	uint8_t			sr;
