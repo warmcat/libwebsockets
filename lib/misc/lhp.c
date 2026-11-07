@@ -943,6 +943,13 @@ lhp_fx_parse(lws_fx_t *fx, const char *str, size_t len)
 		fx->frac += ((*p++) - '0') * i;
 		i /= 10;
 	}
+
+	/*
+	 * lws_fx_t is sign-magnitude with the sign on both parts, and -0.5
+	 * has no sign in whole to carry it
+	 */
+	if (neg)
+		fx->frac = -fx->frac;
 }
 
 /*
