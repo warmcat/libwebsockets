@@ -22,6 +22,26 @@ in a settings store kept in memory, and checks
 
  - once nothing holds them, they are freed and the heap all comes back
 
+and for the hostname, `lws_netdev_hostname_get()` and
+`lws_netdev_hostname_set()`, that
+
+ - with none stored, and no netdev that knows its MAC, there is none
+
+ - with none stored, it's "lws-" and the last three bytes of the first
+   netdev's MAC, eg, "lws-a1b2c3"
+
+ - one that is set is stored in lower case, comes back, and the netdevs are
+   told it
+
+ - hostnames that aren't a single DNS label of a-z, 0-9 and '-', or are too
+   long, are refused, changing nothing, and what is in the settings is
+   ignored for the default if it isn't a hostname
+
+ - setting "" forgets it, back to the default
+
+and that `lws_netdev_wifi_rssi()` asks a wifi netdev, and other netdevs have
+none.
+
 It needs `LWS_WITH_DRIVERS`.
 
 ## build

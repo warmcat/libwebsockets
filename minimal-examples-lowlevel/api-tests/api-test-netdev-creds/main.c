@@ -27,6 +27,22 @@
  *    be escaped, can be stored
  *
  *  - once nothing holds them, they are freed, and the heap all comes back
+ *
+ * and for the hostname, that
+ *
+ *  - with none stored, and no netdev that knows its MAC, there is none
+ *
+ *  - with none stored, it's "lws-" and the end of the first netdev's MAC
+ *
+ *  - one set is stored in lower case, comes back, and the netdevs are told
+ *
+ *  - hostnames that aren't a single DNS label of a-z, 0-9 and '-' are
+ *    refused, and so is one that is too long, changing nothing, and one in
+ *    the settings that isn't a hostname is ignored for the default
+ *
+ *  - setting "" forgets it, back to the default
+ *
+ * and that a wifi netdev's rssi is asked of it, and other netdevs have none
  */
 
 #include <libwebsockets.h>
@@ -43,6 +59,33 @@ static struct {
 } blobs[BLOBS];
 
 static int fail;
+
+/* a netdev, as far as the hostname and rssi go */
+
+static char told[LWS_NETDEV_HOSTNAME_MAX + 1];
+static int told_count;
+
+static int
+fake_hostname(struct lws_netdev_instance *nd, const char *name)
+{
+	lws_strncpy(told, name, sizeof(told));
+	told_count++;
+
+	return 0;
+}
+
+static int
+fake_rssi(struct lws_netdev_instance *nd, int *rssi)
+{
+	*rssi = -55;
+
+	return 0;
+}
+
+static const lws_netdev_ops_t fake_ops = {
+	.hostname	= fake_hostname,
+	.rssi		= fake_rssi,
+};
 
 static int
 mem_get(lws_settings_instance_t *si, const char *name, uint8_t *dest,
@@ -243,6 +286,90 @@ main(int argc, const char **argv)
 	}
 	expect(stored(nds, ssid, pp, sizeof(pp)) == 22 && !strcmp(pp, big),
 	       "many stored");
+
+	/* the hostname, with no netdev yet, so no default */
+
+	{
+		static lws_netdev_instance_t ni;
+		char hn[LWS_NETDEV_HOSTNAME_MAX + 1];
+		int r;
+
+		expect(lws_netdev_hostname_get(nds, hn, sizeof(hn)) == -1 &&
+		       !hn[0], "no hostname");
+		expect(lws_netdev_hostname_get(nds, hn, 8) == -1,
+		       "hostname buffer too small");
+
+		/* a netdev that knows its MAC gives the default */
+
+		memset(&ni, 0, sizeof(ni));
+		ni.type = LWSNDTYP_WIFI;
+		ni.mac[3] = 0xa1;
+		ni.mac[4] = 0xb2;
+		ni.mac[5] = 0xc3;
+		ni.ops = &fake_ops;
+		ni.name = "fake";
+		lws_dll2_add_tail(&ni.list, &nds->owner);
+
+		r = lws_netdev_hostname_get(nds, hn, sizeof(hn));
+		expect(r == 1 && !strcmp(hn, "lws-a1b2c3"), "default hostname");
+
+		expect(!lws_netdev_hostname_set(nds, "Kitchen-Display2"),
+		       "set hostname");
+		r = lws_netdev_hostname_get(nds, hn, sizeof(hn));
+		expect(r == 0 && !strcmp(hn, "kitchen-display2"),
+		       "stored hostname");
+		expect(told_count == 1 && !strcmp(told, "kitchen-display2"),
+		       "netdev told hostname");
+
+		/* not a hostname, or too long: refused, nothing changed */
+
+		memset(big, 'a', LWS_NETDEV_HOSTNAME_MAX + 1);
+		big[LWS_NETDEV_HOSTNAME_MAX + 1] = '\0';
+		expect(lws_netdev_hostname_set(nds, "-front") &&
+		       lws_netdev_hostname_set(nds, "back-") &&
+		       lws_netdev_hostname_set(nds, "a_b") &&
+		       lws_netdev_hostname_set(nds, "a.b") &&
+		       lws_netdev_hostname_set(nds, "a b") &&
+		       lws_netdev_hostname_set(nds, "caf\xc3\xa9") &&
+		       lws_netdev_hostname_set(nds, big), "bad hostname refused");
+		big[LWS_NETDEV_HOSTNAME_MAX] = '\0';
+		r = lws_netdev_hostname_get(nds, hn, sizeof(hn));
+		expect(r == 0 && !strcmp(hn, "kitchen-display2") &&
+		       told_count == 1, "refused changed nothing");
+
+		/* the longest there can be */
+
+		expect(!lws_netdev_hostname_set(nds, big) &&
+		       !lws_netdev_hostname_get(nds, hn, sizeof(hn)) &&
+		       !strcmp(hn, big), "longest hostname");
+
+		/* what is in the settings is untrusted */
+
+		mem_set(nds->si, "netdev.hostname", (const uint8_t *)"a<b>", 5);
+		r = lws_netdev_hostname_get(nds, hn, sizeof(hn));
+		expect(r == 1 && !strcmp(hn, "lws-a1b2c3"),
+		       "bad stored hostname ignored");
+		mem_set(nds->si, "netdev.hostname", (const uint8_t *)"abc", 3);
+		r = lws_netdev_hostname_get(nds, hn, sizeof(hn));
+		expect(r == 1, "unterminated stored hostname ignored");
+
+		/* forgetting it */
+
+		expect(!lws_netdev_hostname_set(nds, "x") &&
+		       !lws_netdev_hostname_set(nds, ""), "forget hostname");
+		r = lws_netdev_hostname_get(nds, hn, sizeof(hn));
+		expect(r == 1 && !strcmp(hn, "lws-a1b2c3") &&
+		       !strcmp(told, "lws-a1b2c3"), "forgotten hostname");
+
+		/* rssi */
+
+		expect(!lws_netdev_wifi_rssi(&ni, &r) && r == -55, "rssi");
+		ni.type = LWSNDTYP_ETH;
+		expect(lws_netdev_wifi_rssi(&ni, &r) &&
+		       lws_netdev_wifi_rssi(NULL, &r), "no rssi");
+
+		lws_dll2_remove(&ni.list);
+	}
 
 	/* nothing holds them now */
 

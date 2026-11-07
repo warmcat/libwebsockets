@@ -333,6 +333,112 @@ lws_netdev_credentials_find(lws_netdevs_t *netdevs, const char *ssid,
 	return NULL;
 }
 
+/*
+ * The hostname is stored in the settings as it is, with its NUL, so that
+ * forgetting it stores something: it can only be made of characters that need
+ * nothing escaping.  The name is short enough to be an esp32 nvs key
+ */
+
+#define LWS_NETDEV_HOSTNAME_SETTING	"netdev.hostname"
+
+/* a single DNS label of a-z, 0-9 and '-', not starting or ending with '-' */
+
+static int
+hostname_valid(const char *name, size_t len)
+{
+	size_t n;
+
+	if (!len || len > LWS_NETDEV_HOSTNAME_MAX || name[0] == '-' ||
+	    name[len - 1] == '-')
+		return 0;
+
+	for (n = 0; n < len; n++)
+		if (!((name[n] >= 'a' && name[n] <= 'z') ||
+		      (name[n] >= '0' && name[n] <= '9') || name[n] == '-'))
+			return 0;
+
+	return 1;
+}
+
+int
+lws_netdev_hostname_get(lws_netdevs_t *nds, char *buf, size_t len)
+{
+	static const uint8_t none[LWS_ETH_ALEN];
+	size_t l = len;
+
+	if (len < LWS_NETDEV_HOSTNAME_MAX + 1)
+		return -1;
+
+	/* what is stored is untrusted until we see it is a hostname */
+
+	if (nds->si && !nds->si->so->get(nds->si, LWS_NETDEV_HOSTNAME_SETTING,
+					 (uint8_t *)buf, &l) &&
+	    l >= 2 && l <= len && !buf[l - 1] && hostname_valid(buf, l - 1))
+		return 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, p,
+			      lws_dll2_get_head(&nds->owner)) {
+		lws_netdev_instance_t *ni = lws_container_of(p,
+						lws_netdev_instance_t, list);
+
+		if (memcmp(ni->mac, none, sizeof(none))) {
+			lws_snprintf(buf, len, "lws-%02x%02x%02x", ni->mac[3],
+				     ni->mac[4], ni->mac[5]);
+			return 1;
+		}
+	} lws_end_foreach_dll(p);
+
+	buf[0] = '\0';
+
+	return -1;
+}
+
+int
+lws_netdev_hostname_set(lws_netdevs_t *nds, const char *name)
+{
+	char h[LWS_NETDEV_HOSTNAME_MAX + 1];
+	size_t n, len = name ? strlen(name) : 0;
+
+	if (len > LWS_NETDEV_HOSTNAME_MAX || !nds->si)
+		return 1;
+
+	for (n = 0; n < len; n++)
+		h[n] = (char)tolower((unsigned char)name[n]);
+	h[len] = '\0';
+
+	if (len && !hostname_valid(h, len))
+		return 1;
+
+	/* nothing stored, just the NUL, is the default */
+
+	if (nds->si->so->set(nds->si, LWS_NETDEV_HOSTNAME_SETTING,
+			     (const uint8_t *)h, len + 1))
+		return 1;
+
+	if (lws_netdev_hostname_get(nds, h, sizeof(h)) < 0)
+		return 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, p,
+			      lws_dll2_get_head(&nds->owner)) {
+		lws_netdev_instance_t *ni = lws_container_of(p,
+						lws_netdev_instance_t, list);
+
+		if (ni->ops->hostname)
+			ni->ops->hostname(ni, h);
+	} lws_end_foreach_dll(p);
+
+	return 0;
+}
+
+int
+lws_netdev_wifi_rssi(lws_netdev_instance_t *nd, int *rssi)
+{
+	if (!nd || nd->type != LWSNDTYP_WIFI || !nd->ops->rssi)
+		return 1;
+
+	return nd->ops->rssi(nd, rssi);
+}
+
 lws_netdev_instance_t *
 lws_netdev_find(lws_netdevs_t *netdevs, const char *ifname)
 {

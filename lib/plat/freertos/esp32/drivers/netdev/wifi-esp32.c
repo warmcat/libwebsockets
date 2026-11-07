@@ -46,6 +46,7 @@
 #include "esp_wifi.h"
 #include <nvs_flash.h>
 #include <esp_netif.h>
+#include <esp_mac.h>
 #include "lwip/stats.h"
 
 /*
@@ -207,7 +208,10 @@ lws_esp32_scan_update(lws_netdev_instance_wifi_t *wnd)
 				    lws_netdev_wifi_rssi_sort_compare);
 
 		w->ch = ar->primary;
-		w->authmode = ar->authmode;
+		/* only open must be LWS_WIFI_AUTHMODE_OPEN, the rest nonzero */
+		w->authmode = ar->authmode == WIFI_AUTH_OPEN ?
+				LWS_WIFI_AUTHMODE_OPEN :
+				(uint8_t)(ar->authmode ? ar->authmode : 0xff);
 		w->last_seen = now;
 
 next:
@@ -856,6 +860,9 @@ lws_netdev_wifi_create_plat(struct lws_context *ctx,
 		return NULL;
 
 	wnde32->wnd.inst.type = LWSNDTYP_WIFI;
+	/* eg, for the default hostname */
+	if (esp_read_mac(wnde32->wnd.inst.mac, ESP_MAC_WIFI_STA))
+		lwsl_warn("%s: unable to read MAC\n", __func__);
 	lws_netdev_instance_create(&wnde32->wnd.inst, ctx, ops, name, platinfo);
 
 	return &wnde32->wnd.inst;
@@ -881,6 +888,15 @@ lws_netdev_wifi_up_plat(struct lws_netdev_instance *nd)
 	/* created by esp_netif_create_default_wifi_sta() at wifi init */
 	wnde32->netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
 
+	/* DHCP gives it, eg, so the server can resolve it in its local DNS */
+	{
+		char hn[LWS_NETDEV_HOSTNAME_MAX + 1];
+
+		if (lws_netdev_hostname_get(lws_netdevs_from_ctx(ctx), hn,
+					    sizeof(hn)) >= 0)
+			lws_netdev_wifi_hostname_plat(nd, hn);
+	}
+
 	ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
 			  IP_EVENT_STA_GOT_IP, _event_handler_ip, nd,
 			  &wnde32->instance_got_ip));
@@ -903,6 +919,48 @@ lws_netdev_wifi_up_plat(struct lws_netdev_instance *nd)
 			   "{\"type\":\"up\",\"if\":\"%s\"}",
 			   wnde32->wnd.inst.name);
 #endif
+
+	return 0;
+}
+
+int
+lws_netdev_wifi_rssi_plat(lws_netdev_instance_t *nd, int *rssi)
+{
+	wifi_ap_record_t ap;
+
+	if (!(((lws_netdev_instance_wifi_t *)nd)->flags & LNDIW_UP) ||
+	    esp_wifi_sta_get_ap_info(&ap))
+		return 1;
+
+	*rssi = ap.rssi;
+
+	return 0;
+}
+
+/*
+ * lwIP gives the netif's hostname in each DHCP request, renewals too, so a
+ * change is told to the DHCP server the next time the lease is renewed
+ */
+
+int
+lws_netdev_wifi_hostname_plat(lws_netdev_instance_t *nd, const char *name)
+{
+	lws_netdev_instance_wifi_esp32_t *wnde32 =
+					(lws_netdev_instance_wifi_esp32_t *)nd;
+	esp_err_t e;
+
+	if (!wnde32->netif)
+		/* lws_netdev_wifi_up_plat() sets it when there is one */
+		return 0;
+
+	e = esp_netif_set_hostname(wnde32->netif, name);
+	if (e) {
+		lwsl_warn("%s: %s: unable to set hostname: %d\n", __func__,
+			  nd->name, (int)e);
+		return 1;
+	}
+
+	lwsl_notice("%s: %s: hostname %s\n", __func__, nd->name, name);
 
 	return 0;
 }
