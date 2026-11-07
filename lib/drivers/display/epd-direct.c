@@ -116,6 +116,30 @@ typedef struct epdd_priv {
 	uint16_t		updates;
 	/**< updates since the panel was last cleared */
 
+	/*
+	 * What the panel did since it was last idle, said when it's idle
+	 * again, to see how long updates take on the real thing
+	 */
+
+	lws_usec_t		st_start;
+	/**< the first pass started */
+	lws_usec_t		st_commit;
+	/**< 0, or the first update was committed */
+	lws_usec_t		st_scan_min;
+	lws_usec_t		st_scan_max;
+	lws_usec_t		st_scan_sum;
+	/**< how long passes took to scan the rows, not counting waiting
+	 * between passes for the panel's maximum frame rate */
+	uint32_t		st_passes;
+	uint32_t		st_rows_driven;
+	uint32_t		st_rows_skipped;
+	uint32_t		st_rows_none;
+	/**< rows not driven that had to be loaded to latch "no drive" */
+	uint32_t		st_px_black;
+	uint32_t		st_px_white;
+	uint16_t		st_updates;
+	uint16_t		st_clears;
+
 	uint8_t			powered:1;
 	uint8_t			latched_none:1;
 	/**< what's latched in the source drivers is no drive */
@@ -139,6 +163,16 @@ static uint32_t *
 plane_row(const epdd_priv_t *priv, uint32_t *plane, int row)
 {
 	return plane + (size_t)row * (size_t)priv->words;
+}
+
+static uint32_t
+popcount32(uint32_t v)
+{
+	v = v - ((v >> 1) & 0x55555555u);
+	v = (v & 0x33333333u) + ((v >> 2) & 0x33333333u);
+	v = (v + (v >> 4)) & 0x0f0f0f0fu;
+
+	return (v * 0x01010101u) >> 24;
 }
 
 static int
@@ -307,6 +341,7 @@ epdd_pass(epdd_priv_t *priv)
 	const lws_epd_direct_waveform_bw_t *wf = ed->wf_bw;
 	size_t len = priv->row_bytes + bus->row_tail_bytes;
 	int n, row, any = 0;
+	lws_usec_t t0;
 
 	/* updates made since the last pass join at this pass boundary */
 
@@ -331,6 +366,10 @@ epdd_pass(epdd_priv_t *priv)
 		priv->latched_none = 0;
 	}
 
+	t0 = lws_now_usecs();
+	if (!priv->st_passes++)
+		priv->st_start = t0;
+
 	bus->frame_start(bus);
 
 	for (row = 0; row < (int)ed->panel->gate_rows; row++) {
@@ -343,11 +382,13 @@ epdd_pass(epdd_priv_t *priv)
 			 */
 			if (priv->latched_none) {
 				bus->row_skip(bus);
+				priv->st_rows_skipped++;
 				continue;
 			}
 			bus->row_load(bus, priv->nonebuf, len);
 			bus->row_drive(bus, wf->row_drive_us);
 			priv->latched_none = 1;
+			priv->st_rows_none++;
 			continue;
 		}
 
@@ -355,9 +396,17 @@ epdd_pass(epdd_priv_t *priv)
 		bus->row_load(bus, priv->rowbuf, len);
 		bus->row_drive(bus, wf->row_drive_us);
 		priv->latched_none = 0;
+		priv->st_rows_driven++;
 	}
 
 	bus->frame_end(bus);
+
+	t0 = lws_now_usecs() - t0;
+	if (priv->st_passes == 1 || t0 < priv->st_scan_min)
+		priv->st_scan_min = t0;
+	if (t0 > priv->st_scan_max)
+		priv->st_scan_max = t0;
+	priv->st_scan_sum += t0;
 
 	for (n = 0; n < EPDD_SLOTS; n++) {
 		epdd_slot_t *s = &priv->slot[n];
@@ -416,6 +465,7 @@ start_clear(epdd_priv_t *priv, epdd_slot_t *s)
 	}
 
 	priv->updates = 0;
+	priv->st_clears++;
 	s->state = EPDD_SLOT_ARMED;
 }
 
@@ -518,6 +568,9 @@ epdd_start(epdd_priv_t *priv)
 			has_b |= !!tb[w];
 			has_w |= !!tw[w];
 
+			priv->st_px_black += popcount32(tb[w]);
+			priv->st_px_white += popcount32(tw[w]);
+
 			t[w] ^= take;
 			b[w] |= take;
 		}
@@ -531,6 +584,7 @@ epdd_start(epdd_priv_t *priv)
 	if (has_w && ed->wf_bw->to_white_len > s->len)
 		s->len = ed->wf_bw->to_white_len;
 
+	priv->st_updates++;
 	s->state = EPDD_SLOT_ARMED;
 	schedule_pass(priv, 0);
 }
@@ -639,6 +693,47 @@ epdd_power_off_cb(lws_sorted_usec_list_t *sul)
 	priv->powered = 0;
 }
 
+/*
+ * The panel has gone idle, say what it did since it was last idle
+ */
+
+static void
+epdd_stats(epdd_priv_t *priv)
+{
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	lws_usec_t now = lws_now_usecs();
+
+	if (!priv->st_passes)
+		return;
+
+	lwsl_notice("%s: %u passes in %dms, scans %d / %d / %dus "
+		    "(min / avg / max); rows %u driven, %u skipped, %u "
+		    "latched none; px %u to black, %u to white; %u updates, "
+		    "%u clears; settled %dms after commit\n", __func__,
+		    (unsigned int)priv->st_passes,
+		    (int)((now - priv->st_start) / LWS_US_PER_MS),
+		    (int)priv->st_scan_min,
+		    (int)(priv->st_scan_sum / priv->st_passes),
+		    (int)priv->st_scan_max,
+		    (unsigned int)priv->st_rows_driven,
+		    (unsigned int)priv->st_rows_skipped,
+		    (unsigned int)priv->st_rows_none,
+		    (unsigned int)priv->st_px_black,
+		    (unsigned int)priv->st_px_white,
+		    (unsigned int)priv->st_updates,
+		    (unsigned int)priv->st_clears,
+		    priv->st_commit ?
+			(int)((now - priv->st_commit) / LWS_US_PER_MS) : -1);
+#endif
+
+	priv->st_start = priv->st_commit = 0;
+	priv->st_scan_min = priv->st_scan_max = priv->st_scan_sum = 0;
+	priv->st_passes = priv->st_rows_driven = priv->st_rows_skipped =
+			  priv->st_rows_none = 0;
+	priv->st_px_black = priv->st_px_white = 0;
+	priv->st_updates = priv->st_clears = 0;
+}
+
 static void
 epdd_pass_cb(lws_sorted_usec_list_t *sul)
 {
@@ -662,6 +757,8 @@ epdd_pass_cb(lws_sorted_usec_list_t *sul)
 				 epdd_pass_cb, el < min_us ? min_us - el : 0);
 		return;
 	}
+
+	epdd_stats(priv);
 
 	if (priv->powered)
 		lws_sul_schedule(priv->lds->ctx, 0, &priv->sul_power,
@@ -921,11 +1018,16 @@ lws_display_epd_direct_blit(lws_display_state_t *lds, const uint8_t *src,
 		 * be started, the rest waits on pixels still moving
 		 */
 		priv->committed = 1;
+		if (!priv->st_commit)
+			priv->st_commit = lws_now_usecs();
 		if (ed->full_refresh_every &&
 		    ++priv->updates >= ed->full_refresh_every)
 			priv->full_pending = 1;
 		epdd_start(priv);
 		epdd_check_idle(priv);
+		if (slots_idle(priv))
+			/* nothing changed, so there's nothing to time */
+			priv->st_commit = 0;
 		break;
 
 	case 1:
