@@ -39,6 +39,37 @@ D1 - D7 are on 36 - 42, the 4094 data and clock on 34 and 35, and SPV on 47.
 The watch has no 4094, so what would be on its outputs (XOE, MODE1, the
 supply enables) isn't seen.  Its button is BOOT, on GPIO0.
 
+## How the passes are run
+
+Panel passes run on a FreeRTOS task of their own pinned to core 1, using the
+ESP32 runner in `lws-esp32-epd-direct.h`, so rendering and networking on the
+lws event loop don't stall them.  That's why `sdkconfig` is dual-core.
+Every 100ms of continuous passes, the runner sleeps for one FreeRTOS tick
+so core 1's idle task can run for the task watchdog; `sdkconfig` sets a
+1kHz tick so that gap is only 1ms.
+
+The transport drives the LCD_CAM i80 bus, its GDMA channel, the RMT channel
+for CKV and the control gpios at register level, with no IDF driver calls
+per row and no interrupts.  It uses IDF hal and private headers to do that,
+so it is written against esp-idf v6.1 and may need adapting for other IDF
+versions.
+
+XCL runs at 20MHz, the panel's typical rate.  A row then takes about 12us to
+send, but the next row can't be latched until the previous row's 20us CKV
+drive has ended, so rows come every 21.5 - 22us, about 12ms per pass.  On
+V2.3, XLE is on the 4094, so each row also costs two shift register writes.
+
+On the watch routing, what to look at on the scope is:
+
+ - the row period (rising XSTL to rising XSTL) should be about 22us, with
+   XLE straight after the data and CKV rising as XLE falls
+
+ - during an update, passes should follow each other without gaps, apart
+   from the 1ms one every 100ms
+
+ - at the start of each pass, SPV should fall while the first CKV pulse is
+   still high
+
 ## sdkconfig for the LilyGo boards
 
 `sdkconfig` is set up for the watch's 2MB quad PSRAM.  The LilyGo boards

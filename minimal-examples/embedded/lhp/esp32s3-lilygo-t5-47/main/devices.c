@@ -158,6 +158,23 @@ static const lws_epd_direct_esp32_step_t power_on[] = {
 
 static lws_epd_direct_esp32_state_t epd_state;
 
+/*
+ * The passes run on a task of their own on the second core, so they aren't
+ * held up by anything else, eg, rendering the next page on the first core
+ */
+
+static lws_epd_direct_esp32_runner_state_t epd_runner_state;
+
+static const lws_epd_direct_esp32_runner_t epd_runner = {
+	.runner = {
+		lws_epd_direct_esp32_runner_ops,
+	},
+	.state				= &epd_runner_state,
+	.stack_size			= 4096,
+	.core				= 1,
+	.priority			= 10,
+};
+
 static const lws_epd_direct_esp32_t epd_bus = {
 	.bus = {
 		lws_epd_direct_esp32_ops,
@@ -292,6 +309,7 @@ static const lws_display_epd_direct_t disp = {
 	.panel				= &lws_epd_direct_panel_ed047tc1,
 	.wf_bw				= &wf_bw,
 	.bus				= &epd_bus.bus,
+	.runner				= &epd_runner.runner,
 	.cb				= display_completion_cb,
 	.full_refresh_every		= 20,
 	.power_off_idle_ms		= 1000,
