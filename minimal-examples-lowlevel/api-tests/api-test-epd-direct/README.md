@@ -18,6 +18,10 @@ real panel would, if the waveforms suited it.  It checks
  - a row is only ever stepped over with "no drive" latched in the source
    driver, since stepping over drives what's latched onto the row
 
+ - a row's data isn't changed while it's being sent: the simulated transport
+   reads it when it's latched, as a DMA might, and the driver prepares the
+   next row in the meantime
+
  - two updates started passes apart are in flight at once
 
  - a pixel wanted back while it's still moving finishes moving, then moves

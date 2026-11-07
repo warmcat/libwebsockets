@@ -182,8 +182,9 @@ typedef struct lws_epd_direct_bus_ops {
 	void (*row_load)(const struct lws_epd_direct_bus_ops *bus,
 			 const uint8_t *data, size_t len);
 	/**< start clocking a row of drive codes into the source drivers.  It
-	 * may return before it has finished, the data must stay valid until
-	 * the following row_drive() returns */
+	 * should return as soon as it has started, since the next row is
+	 * prepared while it's being sent; the data stays valid until the
+	 * following row_drive() returns */
 	void (*row_drive)(const struct lws_epd_direct_bus_ops *bus,
 			  uint32_t drive_us);
 	/**< wait for the row_load() to finish, latch it into the source

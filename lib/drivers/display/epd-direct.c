@@ -40,6 +40,11 @@
  * the passes only reads the masks of slots handed to it, and only changes
  * their pass count and state, at pass boundaries.  At the moment the passes
  * are run from the event loop thread too, one pass per sul callback.
+ *
+ * In a pass, each row is encoded while the one before it is being sent to the
+ * source drivers, into the row buffer that isn't being sent, so the cpu time
+ * hides inside the bus time.  A row that encodes the same as the last one that
+ * was encoded, eg, every row of a clear, sends the same buffer again.
  */
 
 #include <private-lib-core.h>
@@ -49,6 +54,14 @@
 #define EPDD_NO_ROW		0xffff
 /* pixels in a bus byte: each has a 2-bit code */
 #define EPDD_PX_PER_BYTE	4
+
+/* what's done with a row in a pass */
+
+enum epdd_row_act {
+	EPDD_ROW_SKIP,		/* step over it, no drive is latched */
+	EPDD_ROW_NONE,		/* load and latch no drive, it has no drive */
+	EPDD_ROW_DATA,		/* load and latch its drive codes */
+};
 
 enum epdd_slot_state {
 	EPDD_SLOT_FREE,
@@ -89,13 +102,18 @@ typedef struct epdd_priv {
 	uint8_t			*dirty;
 	/**< per gate row, want may differ from tgt there */
 
-	uint8_t			*rowbuf;
-	/**< drive codes for a row, then its tail */
+	uint8_t			*rowbuf[2];
+	/**< drive codes for a row, then its tail: one can be sent while the
+	 * next row is encoded into the other */
 	uint8_t			*nonebuf;
 	/**< a row of "no drive", then its tail */
-	uint32_t		*drv_b;
-	uint32_t		*drv_w;
-	/**< the pixels of the row being encoded driven black, and white */
+	uint32_t		*drv;
+	/**< for each rowbuf, the pixels driven black, then white, that were
+	 * packed into it: words-wide each, so 4 x words */
+	uint8_t			cur;
+	/**< the rowbuf last packed, which may be being sent */
+	uint8_t			cur_valid;
+	/**< rowbuf[cur] has been packed in this pass */
 
 	epdd_slot_t		slot[EPDD_SLOTS];
 
@@ -234,21 +252,34 @@ build_luts(epdd_priv_t *priv, const lws_epd_direct_panel_t *panel)
 	}
 }
 
+static uint32_t *
+drv_b(const epdd_priv_t *priv, int buf)
+{
+	return priv->drv + (size_t)buf * 2u * (size_t)priv->words;
+}
+
+static uint32_t *
+drv_w(const epdd_priv_t *priv, int buf)
+{
+	return drv_b(priv, buf) + priv->words;
+}
+
 /*
- * Turn the row's drv_b / drv_w into bus bytes in priv->rowbuf
+ * Turn the drive masks for rowbuf[buf] into its bus bytes
  */
 
 static void
-pack_row(epdd_priv_t *priv)
+pack_row(epdd_priv_t *priv, int buf)
 {
-	uint8_t *p = priv->rowbuf;
+	const uint32_t *db = drv_b(priv, buf), *dw = drv_w(priv, buf);
+	uint8_t *p = priv->rowbuf[buf];
 	size_t left = priv->row_bytes;
 	int g, groups = (int)((priv->row_bytes + 1) / 2);
 
 	for (g = 0; g < groups; g++) {
 		int sh = (g & 3) * 8;
-		uint8_t b = (uint8_t)(priv->drv_b[g >> 2] >> sh),
-			w = (uint8_t)(priv->drv_w[g >> 2] >> sh);
+		uint8_t b = (uint8_t)(db[g >> 2] >> sh),
+			w = (uint8_t)(dw[g >> 2] >> sh);
 		uint16_t v = (uint16_t)(priv->lut_b[b] | priv->lut_w[w] |
 					priv->lut_n[(uint8_t)~(b | w)]);
 
@@ -261,18 +292,18 @@ pack_row(epdd_priv_t *priv)
 }
 
 /*
- * Work out what the slots running drive the row with into drv_b / drv_w.
- * Returns nonzero if any of it is driven.
+ * Work out what the slots running drive the row with, into the drive masks
+ * for rowbuf[buf].  Returns nonzero if any of it is driven.
  */
 
 static int
-encode_row(epdd_priv_t *priv, const lws_epd_direct_waveform_bw_t *wf, int row)
+encode_row(epdd_priv_t *priv, const lws_epd_direct_waveform_bw_t *wf, int row,
+	   int buf)
 {
-	uint32_t any = 0;
+	uint32_t *db = drv_b(priv, buf), *dw = drv_w(priv, buf), any = 0;
 	int n, w;
 
-	memset(priv->drv_b, 0, sizeof(uint32_t) * (size_t)priv->words);
-	memset(priv->drv_w, 0, sizeof(uint32_t) * (size_t)priv->words);
+	memset(db, 0, sizeof(uint32_t) * 2u * (size_t)priv->words);
 
 	for (n = 0; n < EPDD_SLOTS; n++) {
 		const epdd_slot_t *s = &priv->slot[n];
@@ -289,7 +320,7 @@ encode_row(epdd_priv_t *priv, const lws_epd_direct_waveform_bw_t *wf, int row)
 			if (cb == LWS_EPDD_NONE)
 				continue;
 
-			d = cb == LWS_EPDD_BLACK ? priv->drv_b : priv->drv_w;
+			d = cb == LWS_EPDD_BLACK ? db : dw;
 			for (w = 0; w < priv->words; w++)
 				d[w] = w == priv->words - 1 ?
 						priv->last_word_mask : 0xffffffffu;
@@ -309,21 +340,70 @@ encode_row(epdd_priv_t *priv, const lws_epd_direct_waveform_bw_t *wf, int row)
 
 		for (w = 0; w < priv->words; w++) {
 			if (cb == LWS_EPDD_BLACK)
-				priv->drv_b[w] |= tb[w];
+				db[w] |= tb[w];
 			else if (cb == LWS_EPDD_WHITE)
-				priv->drv_w[w] |= tb[w];
+				dw[w] |= tb[w];
 
 			if (cw == LWS_EPDD_BLACK)
-				priv->drv_b[w] |= tw[w];
+				db[w] |= tw[w];
 			else if (cw == LWS_EPDD_WHITE)
-				priv->drv_w[w] |= tw[w];
+				dw[w] |= tw[w];
 		}
 	}
 
 	for (w = 0; w < priv->words; w++)
-		any |= priv->drv_b[w] | priv->drv_w[w];
+		any |= db[w] | dw[w];
 
 	return !!any;
+}
+
+/*
+ * Decide what's done with the row and get its data ready, while the row
+ * before it may still be being sent from rowbuf[priv->cur].  What it's
+ * encoded into is the other rowbuf, which nothing is using.
+ *
+ * What's latched after the rows before it decides if a row with nothing to
+ * drive can be stepped over, so that's tracked as the rows are prepared, in
+ * the order they go to the panel.
+ */
+
+static int
+prepare_row(epdd_priv_t *priv, const lws_epd_direct_waveform_bw_t *wf,
+	    int row, const uint8_t **data)
+{
+	int nb = priv->cur ^ 1;
+
+	if (!encode_row(priv, wf, row, nb)) {
+		/*
+		 * Nothing to drive on this row.  Stepping over it drives
+		 * what's latched onto it, so it must be no drive.  If it
+		 * isn't, load and latch some, which costs this row the time
+		 * of a driven one.
+		 */
+		if (priv->latched_none) {
+			priv->st_rows_skipped++;
+			return EPDD_ROW_SKIP;
+		}
+		priv->latched_none = 1;
+		priv->st_rows_none++;
+		*data = priv->nonebuf;
+
+		return EPDD_ROW_NONE;
+	}
+
+	priv->latched_none = 0;
+	priv->st_rows_driven++;
+
+	if (!priv->cur_valid || memcmp(drv_b(priv, nb), drv_b(priv, priv->cur),
+			sizeof(uint32_t) * 2u * (size_t)priv->words)) {
+		pack_row(priv, nb);
+		priv->cur = (uint8_t)nb;
+		priv->cur_valid = 1;
+	}
+
+	*data = priv->rowbuf[priv->cur];
+
+	return EPDD_ROW_DATA;
 }
 
 /*
@@ -340,7 +420,8 @@ epdd_pass(epdd_priv_t *priv)
 	const lws_epd_direct_bus_ops_t *bus = ed->bus;
 	const lws_epd_direct_waveform_bw_t *wf = ed->wf_bw;
 	size_t len = priv->row_bytes + bus->row_tail_bytes;
-	int n, row, any = 0;
+	int n, row, rows = (int)ed->panel->gate_rows, any = 0, act, nact = 0;
+	const uint8_t *data = NULL, *ndata = NULL;
 	lws_usec_t t0;
 
 	/* updates made since the last pass join at this pass boundary */
@@ -370,33 +451,29 @@ epdd_pass(epdd_priv_t *priv)
 	if (!priv->st_passes++)
 		priv->st_start = t0;
 
+	/* the slots running have changed, what was packed is stale */
+	priv->cur_valid = 0;
+
 	bus->frame_start(bus);
 
-	for (row = 0; row < (int)ed->panel->gate_rows; row++) {
-		if (!encode_row(priv, wf, row)) {
-			/*
-			 * Nothing to drive on this row.  Stepping over it
-			 * drives what's latched onto it, so it must be no
-			 * drive.  If it isn't, load and latch some, which
-			 * costs this row the time of a driven one.
-			 */
-			if (priv->latched_none) {
-				bus->row_skip(bus);
-				priv->st_rows_skipped++;
-				continue;
-			}
-			bus->row_load(bus, priv->nonebuf, len);
-			bus->row_drive(bus, wf->row_drive_us);
-			priv->latched_none = 1;
-			priv->st_rows_none++;
+	act = prepare_row(priv, wf, 0, &data);
+
+	for (row = 0; row < rows; row++) {
+		if (act == EPDD_ROW_SKIP) {
+			bus->row_skip(bus);
+			if (row + 1 < rows)
+				act = prepare_row(priv, wf, row + 1, &data);
 			continue;
 		}
 
-		pack_row(priv);
-		bus->row_load(bus, priv->rowbuf, len);
+		bus->row_load(bus, data, len);
+		/* the next row is made ready while this one is sent */
+		if (row + 1 < rows)
+			nact = prepare_row(priv, wf, row + 1, &ndata);
 		bus->row_drive(bus, wf->row_drive_us);
-		priv->latched_none = 0;
-		priv->st_rows_driven++;
+
+		act = nact;
+		data = ndata;
 	}
 
 	bus->frame_end(bus);
@@ -829,16 +906,18 @@ epdd_free(const lws_display_epd_direct_t *ed, epdd_priv_t *priv)
 	for (n = 0; n < EPDD_SLOTS; n++)
 		lws_free_set_NULL(priv->slot[n].blk);
 
-	if (ed->bus->free_dma) {
-		if (priv->rowbuf)
-			ed->bus->free_dma(ed->bus, (void **)&priv->rowbuf);
-		if (priv->nonebuf)
-			ed->bus->free_dma(ed->bus, (void **)&priv->nonebuf);
-	} else {
-		lws_free_set_NULL(priv->rowbuf);
-		lws_free_set_NULL(priv->nonebuf);
+	for (n = 0; n < 3; n++) {
+		uint8_t **b = n < 2 ? &priv->rowbuf[n] : &priv->nonebuf;
+
+		if (!*b)
+			continue;
+		if (ed->bus->free_dma)
+			ed->bus->free_dma(ed->bus, (void **)b);
+		else
+			lws_free_set_NULL(*b);
 	}
 
+	lws_free_set_NULL(priv->drv);
 	lws_free_set_NULL(priv->u[0]);
 	lws_free_set_NULL(priv->want);
 	lws_free(priv);
@@ -870,21 +949,27 @@ lws_display_epd_direct_init(lws_display_state_t *lds)
 	pw = (size_t)priv->words * panel->gate_rows;
 	priv->plane_words = pw;
 
-	/*
-	 * want, tgt and busy planes, the per-row dirty flags, and the two
-	 * words-wide rows being encoded, in one allocation
-	 */
+	/* want, tgt and busy planes, and the per-row dirty flags */
 
-	priv->want = lws_zalloc((3 * pw + 2 * (size_t)priv->words) *
-				sizeof(uint32_t) + panel->gate_rows, __func__);
+	priv->want = lws_zalloc(3 * pw * sizeof(uint32_t) + panel->gate_rows,
+				__func__);
 	if (!priv->want)
 		goto bail;
 
 	priv->tgt = priv->want + pw;
 	priv->busy = priv->tgt + pw;
-	priv->drv_b = priv->busy + pw;
-	priv->drv_w = priv->drv_b + priv->words;
-	priv->dirty = (uint8_t *)(priv->drv_w + priv->words);
+	priv->dirty = (uint8_t *)(priv->busy + pw);
+
+	/*
+	 * The drive masks are worked on for every row of every pass, so they
+	 * are a small allocation of their own, apart from the planes, which
+	 * may have to go in slower memory
+	 */
+
+	priv->drv = lws_zalloc(4u * (size_t)priv->words * sizeof(uint32_t),
+			       __func__);
+	if (!priv->drv)
+		goto bail;
 
 	/* until told otherwise, white is wanted */
 
@@ -897,23 +982,27 @@ lws_display_epd_direct_init(lws_display_state_t *lds)
 	}
 
 	len = priv->row_bytes + ed->bus->row_tail_bytes;
-	if (ed->bus->alloc_dma) {
-		priv->rowbuf = ed->bus->alloc_dma(ed->bus, len);
-		priv->nonebuf = ed->bus->alloc_dma(ed->bus, len);
-	} else {
-		priv->rowbuf = lws_malloc(len, __func__);
-		priv->nonebuf = lws_malloc(len, __func__);
+	for (w = 0; w < 3; w++) {
+		uint8_t *b = ed->bus->alloc_dma ?
+				ed->bus->alloc_dma(ed->bus, len) :
+				lws_malloc(len, __func__);
+
+		if (!b)
+			goto bail;
+		if (w < 2)
+			priv->rowbuf[w] = b;
+		else
+			priv->nonebuf = b;
 	}
-	if (!priv->rowbuf || !priv->nonebuf)
-		goto bail;
 
 	build_luts(priv, panel);
 
 	/* the tail of every row, and all of the none row, are no drive */
 
 	memset(priv->nonebuf, priv->lut_n[0xff] >> 8, len);
-	memset(priv->rowbuf + priv->row_bytes, priv->lut_n[0xff] >> 8,
-	       ed->bus->row_tail_bytes);
+	for (w = 0; w < 2; w++)
+		memset(priv->rowbuf[w] + priv->row_bytes,
+		       priv->lut_n[0xff] >> 8, ed->bus->row_tail_bytes);
 
 	if (lws_display_alloc_diffusion(&ed->disp.ic, priv->u))
 		goto bail;

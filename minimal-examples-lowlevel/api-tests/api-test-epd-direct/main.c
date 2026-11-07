@@ -20,6 +20,8 @@
  *    nothing changing on them aren't driven
  *  - transitions of different lengths in an update end on the same pass
  *  - a row is only ever stepped over with "no drive" latched
+ *  - a row's data isn't changed while it's being sent, since the driver
+ *    prepares the next row then
  *  - two updates started passes apart are both in flight at once
  *  - a pixel changed back while it's still moving finishes moving, then
  *    moves back
@@ -67,7 +69,10 @@ static struct lws_context *cx;
 
 static struct {
 	uint8_t		ink[H][W];
+	const uint8_t	*sending;
+	/**< like a DMA, the data isn't read until it's latched */
 	uint8_t		loaded[ROW_BYTES + TAIL];
+	/**< what it was at row_load(), to see it isn't changed */
 	uint8_t		latched[ROW_BYTES + TAIL];
 	int		driven[MAX_PASSES][H];
 	/**< a pixel on the row was driven in that pass, 1 black, 2 white,
@@ -81,6 +86,7 @@ static struct {
 	int		bad_skips;
 	int		bad_frames;
 	int		bad_loads;
+	int		bad_buffers;
 } sim;
 
 static int
@@ -127,6 +133,7 @@ sim_row_load(const lws_epd_direct_bus_ops_t *bus, const uint8_t *data,
 		return;
 	}
 
+	sim.sending = data;
 	memcpy(sim.loaded, data, len);
 }
 
@@ -178,7 +185,14 @@ sim_row_drive(const lws_epd_direct_bus_ops_t *bus, uint32_t drive_us)
 	(void)bus;
 	(void)drive_us;
 
-	memcpy(sim.latched, sim.loaded, sizeof(sim.latched));
+	if (!sim.sending) {
+		sim.bad_loads++;
+		return;
+	}
+	if (memcmp(sim.sending, sim.loaded, sizeof(sim.loaded)))
+		sim.bad_buffers++;
+	memcpy(sim.latched, sim.sending, sizeof(sim.latched));
+	sim.sending = NULL;
 	sim_apply();
 	sim.row++;
 }
@@ -646,6 +660,8 @@ main(int argc, const char **argv)
 		      sim.bad_skips);
 		check(!sim.bad_frames, "%d bad passes\n", sim.bad_frames);
 		check(!sim.bad_loads, "%d bad row loads\n", sim.bad_loads);
+		check(!sim.bad_buffers, "%d rows changed while being sent\n",
+		      sim.bad_buffers);
 
 		lws_display_epd_direct_destroy(&lds);
 		check(!lds.priv, "destroy didn't clear\n");
