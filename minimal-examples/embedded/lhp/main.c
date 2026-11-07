@@ -15,19 +15,27 @@
  * From boot, a strip ui (lws-dlo-ui.h) titled "Boot" lists the boot stages
  * (see boot-ui.c) as they are reached.  Until the network is up it can only
  * use what is built in, a font and the stage icons, from the dlo filesystem.
- * If no wifi credentials are stored, once a scan has found some APs, it lists
- * those instead, titled "AP", strongest first, for the user to pick one on a
- * touch display.  Once the system is OPERATIONAL and the first update check
- * has told us we're on the latest firmware (or failed, or there's no OTA),
- * the ui comes down and the application html is shown instead.
+ * If no wifi credentials are stored, once a scan has found some APs, the
+ * settings' "WLAN" page (see settings-ui.c) lists them instead, for the user
+ * to pick one and type its passphrase.  Once the system is OPERATIONAL and
+ * the first update check has told us we're on the latest firmware (or failed,
+ * or there's no OTA), the boot list is replaced by the frame: the same title
+ * strip, saying which page is shown, over the application html.
+ *
+ * At the right of the title strip, a status capsule shows the wlan signal,
+ * and the battery on boards with one.  Pressing it, or a button named
+ * "settings", shows the settings: the APs we can join, and the hostname.
+ * They need a touch display, or buttons named "up", "down", "left", "right"
+ * and "enter" to move around them and the keyboard, and "esc" if there is
+ * one, to go back.
  *
  * The application is a placeholder for now: it visits each URL in the
  * board's carousel once, rendering it on the display via LHP, and showing
  * each for 10s once it is on the display, the last one too, then it ends.
  * On a touch display, the page shown can be dragged around, to see the rest
- * of one longer or wider than the display, or on a round display, what is in
- * the corners the circle doesn't show.  Each drag gives the page another 10s
- * before the carousel moves on.  Pressing a link stops the carousel.
+ * of one longer or wider than the display.  Each drag gives the page another
+ * 10s before the carousel moves on.  Pressing a link stops the carousel.
+ * While the settings are shown, the carousel waits.
  * An EPD keeps its image with no power, so it should be left white for
  * storage: there a white page is shown after the last one, and it ends once
  * that is on the display.
@@ -44,12 +52,13 @@
  */
 
 #include "main.h"
-#include <esp_wifi_types.h>
 #include "boot-ui.h"
+#include "settings-ui.h"
 #include "update-ui.h"
 
 struct lws_context *cx;
 struct lws_touch_state *tcs;
+lhp_battery_cb_t plat_battery;
 
 /* how long we wait after OPERATIONAL for the first update check to end */
 #define BOOT_OTA_WAIT_US	(90 * LWS_US_PER_SEC)
@@ -58,6 +67,10 @@ struct lws_touch_state *tcs;
  * from fetching and flashing the update
  */
 #define UPDATE_SHOW_US		(3 * LWS_US_PER_SEC)
+/* how often the status capsule is brought up to date */
+#define STATUS_US		(5 * LWS_US_PER_SEC)
+/* the longest the first page waits for the frame to be drawn before it */
+#define HANDOVER_WAIT_US	(5 * LWS_US_PER_SEC)
 
 static enum {
 	UI_BOOT,	/* the boot overlay */
@@ -92,13 +105,26 @@ static enum {
 	CAROUSEL_BLANKING,	/* on an EPD: the white page is being drawn */
 	CAROUSEL_DONE
 } carousel_phase;
-static int carousel, update_pc, update_pc_shown = -1;
-static lws_sorted_usec_list_t sul_app, sul_boot_timeout, sul_ui;
+static int carousel, page_no, update_pc, update_pc_shown = -1;
+static lws_sorted_usec_list_t sul_app, sul_boot_timeout, sul_ui, sul_status,
+			      sul_settings;
 /* when the update display was last shown */
 static lws_usec_t update_shown_us;
 static char display_ready, boot_dirty, boot_done, seen_operational,
 	    finished;
-static uint32_t scan_sig_shown;
+/* how many APs the boot list said were seen */
+static uint32_t scan_count_shown;
+/*
+ * The display update in progress is the application's, not the strip ui's:
+ * only the end of the application's moves the carousel on
+ */
+static char app_drawing;
+/* the frame is being drawn, before the first page */
+static char handover;
+/* the frame's title strip changed while the display was busy */
+static char frame_redraw_pending;
+/* the settings were shown at boot, because no AP was stored */
+static char settings_offered;
 /* a drag began on the application page: it moves the page */
 static char app_drag;
 /* how far drags moved the page while the display was busy */
@@ -112,22 +138,12 @@ static lhp_boot_t boot;
 static uint8_t flip;
 
 /*
- * The boot overlay, or the APs to pick from, are a strip ui: we say what its
- * title and list hold, and it draws them.  The APs are a copy of the scan
- * results as they were when the list was last set, so a row picked is the AP
- * that was shown there.
+ * The boot overlay, the settings, and the frame over the application's pages
+ * are a strip ui: we say what its title and list hold, and it draws them
  */
 
-#define AP_LIST_MAX		16
-
-static struct lws_dlo_ui *sui;
-static char sui_aps;	/* the list is of the APs, not the boot stages */
-static char sui_want_aps; /* the APs were asked for, by pressing the title */
-static char aps[AP_LIST_MAX][33];
-static char aps_open[AP_LIST_MAX];	/* needs no passphrase */
-static char aps_stored[AP_LIST_MAX];	/* we have credentials for it */
-static int ap_count;
-static char sui_ssid[33];	/* the AP picked, whose passphrase is typed */
+struct lws_dlo_ui *sui;
+static lhp_settings_t settings;
 
 /* the generated page in the dlo filesystem that is being shown, if any */
 static char *page;
@@ -252,236 +268,333 @@ page_show(const char *name, char *html, int len)
 
 	/* the display is brought up when the page is on it */
 	lws_snprintf(url, sizeof(url), "file://dlofs/%s", name);
-	if (init_browse(cx, &rs, url)) {
+	if (init_browse(cx, &rs, url, 0)) {
 		lwsl_err("%s: init_browse %s failed\n", __func__, url);
 		lds.display_busy = 0;
 		page_drop();
 		return 1;
 	}
+	app_drawing = 1;
 
 	return 0;
 }
 
-/*
- * Order-independent signature of the set of APs in the scan list, so we can
- * tell when what the boot overlay says about the APs seen while it looks for
- * one is stale, without redrawing on every
- * scan (the averaged rssi jitters, so rssi and ordering are deliberately left
- * out)
- */
-
-static uint32_t
-scan_sig(void)
-{
-	uint32_t sig = 0;
-
-	if (!wnd)
-		return 0;
-
-	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&wnd->scan)) {
-		lws_wifi_sta_t *w = lws_container_of(d, lws_wifi_sta_t, list);
-		uint32_t h = 2166136261u;
-		int n;
-
-		for (n = 0; n < 6; n++)
-			h = (h ^ w->bssid[n]) * 16777619u;
-		h = (h ^ (uint8_t)w->ch) * 16777619u;
-
-		sig += h;
-	} lws_end_foreach_dll(d);
-
-	return sig;
-}
-
-/*
- * The networks in the scan results, the strongest BSS of each, strongest
- * first as the scan is sorted.  Hidden ones, with no SSID, can't be picked.
- */
+/* browse url as the application's page, framed */
 
 static void
-aps_update(void)
+app_browse(const char *url)
 {
-	lws_netdevs_t *nds = lws_netdevs_from_ctx(cx);
-	int n;
-
-	ap_count = 0;
-	if (!wnd)
+	/* the display is brought up when the page is on it */
+	if (init_browse(cx, &rs, url, 1)) {
+		lwsl_err("%s: init_browse %s failed\n", __func__, url);
+		lds.display_busy = 0;
 		return;
+	}
 
-	/* which we have credentials for */
-	lws_netdev_credentials_hold(nds);
-
-	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      lws_dll2_get_head(&wnd->scan)) {
-		lws_wifi_sta_t *w = lws_container_of(d, lws_wifi_sta_t, list);
-		char ssid[33];
-
-		if (ap_count == AP_LIST_MAX)
-			break;
-
-		lws_strnncpy(ssid, w->ssid, w->ssid_len, sizeof(ssid));
-		if (!ssid[0])
-			continue;
-
-		for (n = 0; n < ap_count; n++)
-			if (!strcmp(aps[n], ssid))
-				break;
-
-		if (n < ap_count)
-			continue;
-
-		aps_open[ap_count] = w->authmode == WIFI_AUTH_OPEN;
-		aps_stored[ap_count] = 0;
-		lws_start_foreach_dll(struct lws_dll2 *, c,
-				      lws_dll2_get_head(&nds->owner_creds)) {
-			if (!strcmp(lws_container_of(c, lws_wifi_creds_t,
-						     list)->ssid, ssid))
-				aps_stored[ap_count] = 1;
-		} lws_end_foreach_dll(c);
-		memcpy(aps[ap_count++], ssid, sizeof(ssid));
-	} lws_end_foreach_dll(d);
-
-	lws_netdev_credentials_release(nds);
-}
-
-static int
-sui_row(void *opaque, int idx, lws_dlo_ui_row_t *row)
-{
-	if (!sui_aps)
-		return lhp_boot_row(&boot, idx, row);
-
-	if (idx < 0 || idx >= ap_count)
-		return 1;
-
-	lws_strncpy(row->text, aps[idx], sizeof(row->text));
-	/* the ones we can already join are highlighted */
-	if (aps_stored[idx])
-		row->state = LWS_DLO_UI_ROW_FOCUS;
-
-	return 0;
+	app_drawing = 1;
 }
 
 static int
 boot_have_creds(void);
 static void
 boot_changed(void);
+static void
+app_next(lws_sorted_usec_list_t *sul);
+static void
+app_reshow(lws_sorted_usec_list_t *sul);
 
 /*
- * Store the credentials for the AP that was picked.  The wifi netdev keeps
- * scanning while it has none, and joins it when it next sees it
+ * The settings need a way to move around them and the keyboard: a touch
+ * display, or buttons
+ */
+
+static int
+settings_usable(void)
+{
+	static const char * const nav[] = {
+		"up", "down", "left", "right", "enter"
+	};
+	size_t n;
+
+	if (tcs)
+		return 1;
+	if (!bcs)
+		return 0;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(nav); n++)
+		if (!lws_button_get_bit(bcs, nav[n]))
+			return 0;
+
+	return 1;
+}
+
+static void
+settings_open(lhp_settings_page_t page, unsigned int flags)
+{
+	if (!sui || lhp_settings_shown(&settings) || !settings_usable())
+		return;
+
+	if (ui == UI_APP) {
+		if (carousel_phase == CAROUSEL_BLANKING || finished)
+			/* it's ending */
+			return;
+
+		/* the carousel waits until they're finished with */
+		lws_sul_cancel(&sul_app);
+		handover = 0;
+	}
+
+	lwsl_notice("%s\n", __func__);
+	lhp_settings_open(&settings, sui, page, flags);
+}
+
+/*
+ * The settings were finished with.  We're told from inside the ui's
+ * callbacks, which go back to its list page after: decide what to show from
+ * the event loop instead.
  */
 
 static void
-sui_store(const char *passphrase)
+settings_exit_cb(lws_sorted_usec_list_t *sul)
 {
-	if (lws_netdev_credentials_add(lws_netdevs_from_ctx(cx), sui_ssid,
-				       passphrase)) {
-		lwsl_err("%s: unable to store credentials\n", __func__);
+	if (!sui || lhp_settings_shown(&settings))
+		/* they were shown again meanwhile */
+		return;
+
+	lwsl_notice("%s\n", __func__);
+
+	if (ui == UI_BOOT) {
+		/* the boot list again, showing any AP stored meanwhile */
+		lhp_boot_set(&boot, LHP_BOOT_SETUP, boot_have_creds());
+		boot_dirty = 1;
+		ui_kick();
 		return;
 	}
 
-	lwsl_user("%s: stored credentials for %s\n", __func__, sui_ssid);
+	/* the page that was shown, framed again, then the carousel goes on */
 
-	/* the boot overlay goes on to show it being joined */
-	sui_want_aps = 0;
-	lhp_boot_set(&boot, LHP_BOOT_SETUP, boot_have_creds());
-	boot_changed();
+	if (carousel_phase == CAROUSEL_SHOWING_LAST)
+		/* it's shown for as long again, once it's on the display */
+		carousel_phase = CAROUSEL_LAST;
+
+	lws_sul_schedule(cx, 0, &sul_app, app_reshow, 1);
+}
+
+static void
+settings_exit(void *opaque)
+{
+	lws_sul_schedule(cx, 0, &sul_settings, settings_exit_cb, 1);
+}
+
+/* the strip ui's callbacks: while the settings are shown, they're theirs */
+
+static int
+sui_row(void *opaque, int idx, lws_dlo_ui_row_t *row)
+{
+	if (lhp_settings_shown(&settings))
+		return lhp_settings_row(&settings, idx, row);
+
+	if (ui == UI_BOOT)
+		return lhp_boot_row(&boot, idx, row);
+
+	return 1;
 }
 
 static void
 sui_pick(void *opaque, int idx)
 {
-	if (!sui_aps || idx < 0 || idx >= ap_count)
-		return;
-
-	lws_strncpy(sui_ssid, aps[idx], sizeof(sui_ssid));
-
-	if (aps_open[idx]) {
-		sui_store("");
-		return;
-	}
-
-	/*
-	 * WPA passphrases are up to 63 characters.  It's shown as it's typed,
-	 * so typos can be seen on the small keyboard.  It starts empty, even
-	 * if one is stored for the AP: Done replaces that one
-	 */
-	if (lws_dlo_ui_edit(sui, "Passphrase", 63, 0))
-		lwsl_err("%s: unable to edit passphrase\n", __func__);
+	if (lhp_settings_shown(&settings))
+		lhp_settings_pick(&settings, idx);
 }
-
-/* the passphrase was typed, or text is NULL if it was abandoned */
 
 static int
 sui_done(void *opaque, const char *text)
 {
-	if (!text)
-		/* back to the list of APs */
-		return 0;
-
-	if (strlen(text) < 8)
-		/* WPA passphrases are at least 8 characters: keep typing */
-		return 1;
-
-	sui_store(text);
+	if (lhp_settings_shown(&settings))
+		return lhp_settings_done(&settings, text);
 
 	return 0;
 }
 
 /*
- * Pressing the title goes between the boot stages and the APs, eg, to add
- * credentials for another AP, or change them for one
+ * Pressing the title goes back a page in the settings.  On the boot list, it
+ * shows them, eg, to add credentials for another AP, or change them for one
  */
 
 static void
 sui_title(void *opaque)
 {
-	sui_want_aps = !sui_aps;
-	boot_changed();
+	if (lhp_settings_shown(&settings)) {
+		lhp_settings_title(&settings);
+		return;
+	}
+
+	if (ui == UI_BOOT)
+		settings_open(LHP_SET_TOP, 0);
+}
+
+/*
+ * The frame's title strip changed, on a display that can only take an update
+ * of all of it: draw the page again as it is, under it.  If the page wasn't
+ * kept to draw again, the change is shown with the next one.
+ */
+
+static void
+sui_frame_redraw(void *opaque)
+{
+	if (lds.display_busy) {
+		frame_redraw_pending = 1;
+		return;
+	}
+
+	frame_redraw_pending = 0;
+	if (ui == UI_APP && !redraw_page(&rs))
+		app_drawing = 1;
+}
+
+/*
+ * How many bars of the wlan icon an rssi is: strong enough for anything at
+ * -55dBm, and barely usable below -75dBm
+ */
+
+static int
+rssi_bars(int rssi)
+{
+	if (rssi >= -55)
+		return 4;
+	if (rssi >= -65)
+		return 3;
+	if (rssi >= -75)
+		return 2;
+
+	return 1;
+}
+
+/* say what the status capsule shows now: the ui draws it if it changed */
+
+static void
+status_update(void)
+{
+	lws_dlo_ui_status_t st;
+	int rssi, pc, chg = 0;
+
+	if (!sui)
+		return;
+
+	memset(&st, 0, sizeof(st));
+	st.wlan = LWS_DLO_UI_STATUS_NONE;
+	st.battery = LWS_DLO_UI_STATUS_NONE;
+
+	if (wnd)
+		st.wlan = (int8_t)(lws_netdev_wifi_rssi(&wnd->inst, &rssi) ?
+						0 : rssi_bars(rssi));
+
+	if (plat_battery && !plat_battery(&pc, &chg)) {
+		st.battery = (int8_t)(pc < 0 ? 0 : (pc > 100 ? 100 : pc));
+		st.charging = !!chg;
+	}
+
+	lws_dlo_ui_set_status(sui, &st);
+}
+
+static void
+status_cb(lws_sorted_usec_list_t *sul)
+{
+	status_update();
+	lws_sul_schedule(cx, 0, &sul_status, status_cb, STATUS_US);
+}
+
+static int
+sui_create(void)
+{
+	lws_dlo_ui_info_t i;
+
+	if (sui)
+		return 0;
+
+	memset(&i, 0, sizeof(i));
+	i.cx = cx;
+	i.lds = &lds;
+	i.row = sui_row;
+	i.pick = sui_pick;
+	i.title = sui_title;
+	i.done = sui_done;
+	i.frame_redraw = sui_frame_redraw;
+	/* pressing the status capsule is a "settings" button click */
+	i.status_button = "settings";
+	/* the title strip in the example's colours */
+	i.css = "#t { background-color: " LHP_UI_STRIP_BG " }"
+		"#tt { color: " LHP_UI_STRIP_FG " }";
+
+	sui = lws_dlo_ui_create(&i);
+	if (!sui) {
+		lwsl_err("%s: unable to create ui\n", __func__);
+		return 1;
+	}
+
+	/* the capsule shows the status from the start, and keeps up with it */
+	status_cb(&sul_status);
+
+	return 0;
 }
 
 static void
 sui_drop(void)
 {
+	lhp_settings_close(&settings);
+	lws_sul_cancel(&sul_status);
+	frame_redraw_pending = 0;
+	/* no frame is coming to start the first page after */
+	if (handover) {
+		handover = 0;
+		lws_sul_schedule(cx, 0, &sul_app, app_next, 1);
+	}
 	lws_dlo_ui_destroy(&sui);
 }
 
-/* say what the strip ui shows now: it draws it when the display is free */
+/*
+ * Show the frame over the application's page, titled with which page it is.
+ * With LWS_DLO_UI_FRAME_DRAW, the ui draws the frame at once, over a white
+ * body, otherwise it's drawn with the page.
+ */
+
+static int
+app_frame(unsigned int flags)
+{
+	char title[16];
+
+	if (sui_create())
+		return 1;
+
+	lws_snprintf(title, sizeof(title), "Page %d", page_no);
+	lws_dlo_ui_set_title(sui, title);
+	lws_dlo_ui_frame(sui, flags);
+
+	return 0;
+}
+
+/* say what the boot list shows now: it draws it when the display is free */
 
 static void
 sui_show(void)
 {
 	lhp_boot_stage_t f;
 
-	if (!sui) {
-		lws_dlo_ui_info_t i;
+	if (sui_create() || lhp_settings_shown(&settings))
+		return;
 
-		memset(&i, 0, sizeof(i));
-		i.cx = cx;
-		i.lds = &lds;
-		i.row = sui_row;
-		i.pick = sui_pick;
-		i.title = sui_title;
-		i.done = sui_done;
-		/* the title strip in the example's colours */
-		i.css = "#t { background-color: " LHP_UI_STRIP_BG " }"
-			"#tt { color: " LHP_UI_STRIP_FG " }";
+	scan_count_shown = wnd ? lws_dll2_count(&wnd->scan) : 0;
 
-		sui = lws_dlo_ui_create(&i);
-		if (!sui) {
-			lwsl_err("%s: unable to create ui\n", __func__);
-			return;
-		}
-	}
-
-	scan_sig_shown = scan_sig();
-	aps_update();
-
-	sui_aps = (sui_want_aps || !(boot.reached & (1u << LHP_BOOT_SETUP))) &&
-		  ap_count;
-	if (sui_aps) {
-		lws_dlo_ui_set_title(sui, "AP");
-		lws_dlo_ui_set_list(sui, ap_count, -1);
+	/*
+	 * With no AP stored, there's nothing to join: once some are seen, we
+	 * show them to pick one from, once.  Once it's stored, or the user
+	 * goes back from them, it's the boot list again.
+	 */
+	if (!settings_offered && scan_count_shown &&
+	    !(boot.reached & (1u << LHP_BOOT_SETUP)) && settings_usable()) {
+		settings_offered = 1;
+		lhp_settings_open(&settings, sui, LHP_SET_WLAN,
+				  LHP_SET_FL_EXIT_ON_STORE);
 		return;
 	}
 
@@ -608,24 +721,52 @@ app_next(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
-	if (!carousel_urls[carousel])
-		/* the one pass through the carousel already ended */
+	if (!carousel_urls[carousel] || lhp_settings_shown(&settings))
+		/* the one pass through the carousel already ended, or the
+		 * settings are shown: it goes on when they're finished with */
 		return;
 
 	lwsl_notice("%s: %s\n", __func__, carousel_urls[carousel]);
 
 	page_drop();
+	/* whether the frame was drawn before the first page or not */
+	handover = 0;
+	page_no = carousel + 1;
+	app_frame(0);
 #if defined(LWS_WITH_FOOTPRINT)
 	/* what holds the heap as the next page starts */
 	lws_footprint_dump(cx, 1);
 #endif
-	/* the display is brought up when the page is on it */
-	if (init_browse(cx, &rs, carousel_urls[carousel++])) {
-		lwsl_err("%s: init_browse failed\n", __func__);
-		lds.display_busy = 0;
-	}
+	app_browse(carousel_urls[carousel++]);
 	if (!carousel_urls[carousel])
 		carousel_phase = CAROUSEL_LAST;
+}
+
+/*
+ * After the settings, the page that was shown, framed again: drawn again as
+ * it was laid out if it was kept, otherwise browsed again
+ */
+
+static void
+app_reshow(lws_sorted_usec_list_t *sul)
+{
+	if (lds.display_busy) {
+		lws_sul_schedule(cx, 0, &sul_app, app_reshow, LWS_US_PER_SEC);
+		return;
+	}
+
+	if (app_frame(0) || !lds.current_url[0]) {
+		lws_sul_schedule(cx, 0, &sul_app, app_next, 1);
+		return;
+	}
+
+	if (!redraw_page(&rs)) {
+		app_drawing = 1;
+		return;
+	}
+
+	page_drop();
+	app_browse(lds.current_url);
 }
 
 /*
@@ -668,6 +809,8 @@ app_last_shown(lws_sorted_usec_list_t *sul)
 	memcpy(html, blank, sizeof(blank));
 
 	lwsl_notice("%s: leaving the display white\n", __func__);
+	/* all of it, the frame too */
+	sui_drop();
 	carousel_phase = CAROUSEL_BLANKING;
 	if (page_show("blank.html", html, (int)sizeof(blank) - 1)) {
 		carousel_phase = CAROUSEL_SHOWING_LAST;
@@ -722,12 +865,27 @@ ui_kick_cb(lws_sorted_usec_list_t *sul)
 		/* the application paces itself */
 		return;
 
-	if (boot_done) {
+	if (boot_done && !lhp_settings_shown(&settings)) {
 		lwsl_notice("%s: boot complete, starting application\n",
 			    __func__);
 		ui = UI_APP;
-		sui_drop();
-		lhp_boot_deinit(&boot);
+
+		/*
+		 * The boot list is replaced by the frame, titled with the
+		 * first page.  An EPD takes long enough to update that we
+		 * only show it with the first page, otherwise it's drawn
+		 * now, and the first page is browsed once it's on the display
+		 */
+		page_no = 1;
+		if (!lds.disp->bistable &&
+		    !app_frame(LWS_DLO_UI_FRAME_DRAW)) {
+			handover = 1;
+			/* in case the frame can't be drawn, eg, OOM */
+			lws_sul_schedule(cx, 0, &sul_app, app_next,
+					 HANDOVER_WAIT_US);
+			return;
+		}
+
 		lws_sul_schedule(cx, 0, &sul_app, app_next, 1);
 		return;
 	}
@@ -805,6 +963,8 @@ static lws_system_ops_t system_ops = {
 int
 display_completion_cb(lws_display_state_t *lds, int a)
 {
+	char was_app;
+
 	lwsl_info("%s: %d\n", __func__, a);
 
 	switch (a) {
@@ -816,6 +976,8 @@ display_completion_cb(lws_display_state_t *lds, int a)
 	case 2: /* display update finished */
 
 		lds->display_busy = 0;
+		was_app = app_drawing;
+		app_drawing = 0;
 
 		/*
 		 * Something new is on the display: bring it up to show it.
@@ -828,11 +990,25 @@ display_completion_cb(lws_display_state_t *lds, int a)
 
 		/* the strip ui draws anything that changed meanwhile */
 		lws_dlo_ui_kick(sui);
+		if (frame_redraw_pending)
+			sui_frame_redraw(NULL);
 		/* and the page is drawn where it was dragged to meanwhile */
 		pan_kick();
 
+		if (!was_app) {
+			/* it was the strip ui's */
+			if (handover && ui == UI_APP) {
+				/* the frame is on the display: the first page */
+				handover = 0;
+				lws_sul_schedule(lds->ctx, 0, &sul_app,
+						 app_next, 1);
+			}
+			break;
+		}
+
 		if (ui != UI_APP || carousel_phase == CAROUSEL_DONE ||
-		    update_pc_shown >= 0)
+		    update_pc_shown >= 0 || lhp_settings_shown(&settings))
+			/* the settings' exit draws it again, and goes on */
 			break;
 
 		if (carousel_phase == CAROUSEL_LAST) {
@@ -912,7 +1088,7 @@ app_page_shown(void)
 	lws_system_states_t st = (lws_system_states_t)
 				lws_system_get_state_manager(cx)->state;
 
-	return ui == UI_APP && rs.html == 2 &&
+	return ui == UI_APP && rs.html == 2 && !lhp_settings_shown(&settings) &&
 	       st != LWS_SYSTATE_AWAITING_MODAL_UPDATING &&
 	       st != LWS_SYSTATE_MODAL_UPDATING;
 }
@@ -940,8 +1116,10 @@ pan_kick(void)
 		return;
 	}
 
-	if (!redraw_page(&rs))
+	if (!redraw_page(&rs)) {
+		app_drawing = 1;
 		pan_dx = pan_dy = 0;
+	}
 }
 
 /* the page follows the finger, without being laid out again */
@@ -975,7 +1153,7 @@ touch_press(const void *buf, size_t len)
 {
 	char url[sizeof(lds.current_url)];
 	lws_dlo_hit_t *h;
-	int x, y;
+	int x, y, top = 0;
 
 	if (!app_page_shown() || lds.display_busy)
 		/* there's no settled application page to press on */
@@ -983,6 +1161,13 @@ touch_press(const void *buf, size_t len)
 
 	if (json_coord(buf, len, "\"x\":", &x) ||
 	    json_coord(buf, len, "\"y\":", &y))
+		return;
+
+	/* the page is below the frame's title strip */
+	if (sui)
+		lws_dlo_ui_frame_body(sui, &top);
+	y -= top;
+	if (y < 0)
 		return;
 
 	/* where it is on the page, wherever the page was dragged to */
@@ -1005,10 +1190,24 @@ touch_press(const void *buf, size_t len)
 	carousel_phase = CAROUSEL_DONE;
 
 	page_drop();
-	if (init_browse(cx, &rs, url)) {
-		lwsl_err("%s: init_browse %s failed\n", __func__, url);
-		lds.display_busy = 0;
-	}
+	app_browse(url);
+}
+
+/* is it an event from a button called name, eg, "bc/settings" or "ui/settings" */
+
+static int
+is_button(const void *buf, size_t len, const char *name)
+{
+	size_t al, nl = strlen(name);
+	const char *p;
+
+	if (lws_json_simple_strcmp(buf, len, "\"type\":", "button"))
+		return 0;
+
+	p = lws_json_simple_find((const char *)buf, len, "\"src\":", &al);
+
+	return p && al > nl && p[al - nl - 1] == '/' &&
+	       !memcmp(p + al - nl, name, nl);
 }
 
 static int
@@ -1026,34 +1225,69 @@ smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
 		flip++;
 	}
 
-	if ((_class & LWSSMDCL_INTERACTION) &&
-	    !lws_json_simple_strcmp(buf, len, "\"type\":", "touch")) {
-		/* while the strip ui is up, touches are for it */
-		if (sui)
-			lws_dlo_ui_touch(sui, buf, len);
-		else if (!lws_json_simple_strcmp(buf, len, "\"event\":",
-						 "down"))
-			/* a drag beginning now moves the page, if it's up */
-			app_drag = (char)app_page_shown();
-		else if (!lws_json_simple_strcmp(buf, len, "\"event\":",
-						 "scroll"))
-			page_drag(buf, len);
-		else if (!lws_json_simple_strcmp(buf, len, "\"event\":",
-						 "press"))
-			touch_press(buf, len);
-	}
+	if (_class & LWSSMDCL_INTERACTION) {
+		/*
+		 * The strip ui acts on touches on it, and buttons named for
+		 * moving around it, see lws_dlo_ui_interaction()
+		 */
+		int acted = sui && lws_dlo_ui_interaction(sui, buf, len);
 
-	if (_class & LWSSMDCL_INTERACTION)
+		if (!acted && !lws_json_simple_strcmp(buf, len, "\"type\":",
+						      "touch")) {
+			/* touches on the frame's body are on the page */
+			if (!lws_json_simple_strcmp(buf, len, "\"event\":",
+						    "down"))
+				/* a drag beginning now moves the page */
+				app_drag = (char)app_page_shown();
+			else if (!lws_json_simple_strcmp(buf, len,
+						"\"event\":", "scroll"))
+				page_drag(buf, len);
+			else if (!lws_json_simple_strcmp(buf, len,
+						"\"event\":", "press"))
+				touch_press(buf, len);
+		} else if (!acted &&
+			   !lws_json_simple_strcmp(buf, len, "\"event\":",
+						   "click") &&
+			   is_button(buf, len, "settings"))
+			/* a button, or pressing the status capsule */
+			settings_open(LHP_SET_TOP, 0);
+
 		/*
 		 * Any kind of user interaction brings the display back up and
 		 * resets the dimming / blanking timers
 		 */
 		lws_display_state_active(&lds);
+	}
 
-	if (!(_class & LWSSMDCL_NETWORK) || ui != UI_BOOT)
+	if (!(_class & LWSSMDCL_NETWORK))
 		return 0;
 
 	lwsl_hexdump_info(buf, len);
+
+	/*
+	 * platform-private wifi event 1 is WIFI_EVENT_SCAN_DONE on esp32: the
+	 * settings show the APs seen, and the boot list says how many there
+	 * are while we have none to join
+	 */
+
+	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "priv") &&
+	    !lws_json_simple_strcmp(buf, len, "\"ev\":", "1")) {
+		if (lhp_settings_shown(&settings))
+			lhp_settings_scan(&settings);
+		else if (ui == UI_BOOT &&
+			 lhp_boot_focus(&boot) <= LHP_BOOT_WLAN && wnd &&
+			 lws_dll2_count(&wnd->scan) != scan_count_shown)
+			boot_changed();
+		return 0;
+	}
+
+	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "linkup") ||
+	    !lws_json_simple_strcmp(buf, len, "\"type\":", "linkdown"))
+		/* the capsule shows it at once */
+		status_update();
+
+	if (ui != UI_BOOT)
+		return 0;
 
 	/* the network events the boot overlay shows */
 
@@ -1097,18 +1331,6 @@ smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
 		boot_changed();
 		return 0;
 	}
-
-	/*
-	 * platform-private wifi event 1 is WIFI_EVENT_SCAN_DONE on esp32: the
-	 * ui says how many APs it sees while we have none to join, and lists
-	 * them to pick from if none is stored
-	 */
-
-	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "priv") &&
-	    !lws_json_simple_strcmp(buf, len, "\"ev\":", "1") &&
-	    lhp_boot_focus(&boot) <= LHP_BOOT_WLAN &&
-	    scan_sig() != scan_sig_shown)
-		boot_changed();
 
 	return 0;
 }
@@ -1308,6 +1530,9 @@ app_main(void)
 
 	if (init_plat_devices(cx))
 		goto spin;
+
+	/* the settings, shown on the strip ui when asked for */
+	lhp_settings_init(&settings, cx, wnd, settings_exit, NULL);
 
 	/* the boot overlay, shown when the display is ready */
 

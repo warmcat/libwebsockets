@@ -22,6 +22,17 @@ extern struct lws_button_state *bcs;
 extern struct lws_touch_state *tcs; /* set by boards with a touch panel */
 extern lws_netdev_instance_wifi_t *wnd;
 extern struct lws_context *cx;
+/* the strip ui, if it exists: the boot overlay, settings, and the frame */
+extern struct lws_dlo_ui *sui;
+
+/*
+ * A board with a battery sets this in init_plat_devices(), to say how charged
+ * it is, 0 to 100 percent, and if it's being charged.  It returns 0 if it set
+ * them.  It's NULL on boards without one, and the status capsule doesn't show
+ * a battery.
+ */
+typedef int (*lhp_battery_cb_t)(int *percent, int *charging);
+extern lhp_battery_cb_t plat_battery;
 
 extern int
 init_plat_devices(struct lws_context *);
@@ -33,8 +44,10 @@ extern void
 show_demo_phase(int phase);
 extern void
 next_carousel(lws_sorted_usec_list_t *sul);
+/* frame: lay the page out below the strip ui's title strip, see sui */
 extern int
-init_browse(struct lws_context *cx, lws_display_render_state_t *rs, const char *url);
+init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
+	    const char *url, int frame);
 extern int
 redraw_page(lws_display_render_state_t *rs);
 

@@ -36,23 +36,13 @@ row of the stage being worked on, the first not reached, is highlighted, and
 kept in the middle of the list: when the display is too short for the whole
 list, eg, the 64px high heltec OLED, it scrolls as the boot moves on.
 
-If no wifi credentials are stored, once a scan has found some APs, the ui
-is titled "AP" instead and lists them, strongest first, one row per network.
-On a touch display, the list can be dragged to scroll it, and an AP picked by
-pressing it.  If the AP needs one, the ui then shows its edit page, titled
-"Passphrase", with its keyboard, to type it in, shown as it is typed:
-dragging the keyboard moves it around to reach the keys, and pressing the
-title goes back to the APs.  It starts empty, even if a passphrase is stored
-for the AP already.  When Done is pressed with at least the 8 characters WPA
-needs, the credentials are stored with `lws_netdev_credentials_add()`, the
-wifi netdev, which keeps scanning while it isn't joined, joins the AP when it
-next sees it, and the ui is titled "Boot" again.
-
-Credentials can be stored for any number of APs: the wifi netdev joins the
-strongest one it sees that it has credentials for.  While the overlay is up,
-pressing the "Boot" title shows the APs, the ones with credentials stored
-highlighted, to pick one to add, or to change its passphrase; pressing the
-"AP" title goes back.  This is only a stopgap until there is a settings ui.
+If no wifi credentials are stored, once a scan has found some APs, the
+settings' "WLAN" page is shown instead, once, to pick one and type its
+passphrase, see "Settings" below.  When its credentials are stored, the wifi
+netdev, which keeps scanning while it isn't joined, joins the AP when it next
+sees it, and the boot list is shown again; pressing the "WLAN" title goes
+back too.  While the boot list is up, pressing its "Boot" title shows the
+settings.
 
 The ui's title strip is given the example's own colours, by the css it
 passes the ui (`lws_dlo_ui_info_t .css`) to follow its default theme.
@@ -72,9 +62,9 @@ redrawn once the previous update has finished, showing the state as it is
 then.
 
 Once the system is OPERATIONAL and the first update check ended, saying
-we're up to date, or failing, the overlay comes down and the application
-html is shown.  If the update check doesn't end in 90s, we carry on
-anyway.  If an update is found, a modal update display with its progress
+we're up to date, or failing, the boot list is replaced by the frame, and the
+application html is shown in it, see "Frame and status" below.  If the update
+check doesn't end in 90s, we carry on anyway.  If an update is found, a modal update display with its progress
 takes over the display instead, whatever is on it.
 
 The update display, made by `update-ui.c`, which also has nothing
@@ -87,6 +77,77 @@ one, it goes in the middle of the space below the strip, with the update
 icon as big as there is room for.  Drawing it takes time from fetching
 and flashing the update, so after the first, it is only redrawn every 3s,
 showing the progress by then.
+
+## Frame and status
+
+After boot, the same title strip stays at the top of the display, saying
+which page of the carousel is shown, eg, "Page 1", over the application's
+page: the strip ui's frame page (`lws_dlo_ui_frame()`).  The page is laid out
+on the body below the strip (`lws_dlo_ui_frame_body()`), and `render()` in
+`lhp-ss.c` takes the strip's lines from the ui
+(`lws_dlo_ui_frame_line()`) before the page's, so the whole display is drawn
+in one update.
+
+On displays that aren't bistable, the frame is drawn by itself as the boot
+list goes, with a white body, and the first page is browsed once it's on the
+display, so it's clear booting is over.  An EPD, eg, the 7-colour one taking
+20s for an update, only shows the frame with the first page.
+
+At the right of the title strip, inside the circle on a round display, a
+status capsule shows the wlan's signal as up to four bars, and on boards
+with a battery, how charged it is.  It's brought up to date every 5s, and as
+the link goes up or down: the ui only draws it again when what it shows
+changed.  On a `.band` display, only the title strip is sent again.  On a
+display that isn't, but isn't bistable either, eg, the wrover-kit LCD, the
+page is drawn again under it if it was kept (`rs.retained`, on touch boards),
+otherwise the change is shown with the next page.  On an EPD it's shown with
+the next page.
+
+No board here has a battery wired up yet.  A board with one sets
+`plat_battery` (see `main.h`) in its `init_plat_devices()`, to a function
+saying how charged it is and whether it's charging.
+
+## Settings
+
+Pressing the status capsule on a touch display, or clicking a button named
+`settings`, shows the settings, made by `settings-ui.c`, which has nothing
+platform-specific in it, as pages of the strip ui:
+
+ - "Settings": "WLAN", and "Hostname: ..." saying the hostname
+ - "WLAN": the APs scanned, strongest first, one row per network, then
+   those we have credentials for that aren't in range, dimmed.  Those we
+   have credentials for are highlighted
+ - an AP we have credentials for, titled with its SSID: "Change passphrase",
+   or "Forget" to remove them with `lws_netdev_credentials_remove()`
+
+Pressing an AP we have no credentials for shows the edit page, titled
+"Passphrase", with its keyboard, to type it in, unless it is open.  It's
+shown as it is typed, so typos can be seen; dragging the keyboard moves it
+around to reach the keys.  It starts empty, even if a passphrase is stored
+for the AP: what is stored is never shown, not even its length.  When Done
+is pressed with at least the 8 characters WPA needs, the credentials are
+stored with `lws_netdev_credentials_add()`.  Credentials can be stored for
+any number of APs: the wifi netdev joins the strongest one it sees that it
+has credentials for.
+
+Pressing the hostname shows it on the edit page, to change it.  It's stored
+with `lws_netdev_hostname_set()` and given in DHCP from the next time an
+address is acquired: a single DNS label of up to 32 of a-z, 0-9 and '-', not
+starting or ending with '-'.  Done with nothing typed goes back to the
+default, `lws-` and the last three bytes of the MAC in hex.
+
+Pressing the title goes back a page, and from "Settings", back to what was
+shown before.  While the settings are shown, the carousel waits; after
+them, the page that was shown is drawn again, and it goes on.
+
+The settings need a way to move around them and the keyboard: a touch
+display, or buttons named `up`, `down`, `left`, `right` and `enter`, and
+optionally `esc` to go back.  Their clicks go to `lws_dlo_ui_interaction()`,
+which moves a cursor over the list and the keyboard.  The boards here only
+have a single `user` button, so for now only
+`esp32s3-waveshare-240-240-touch` can show the settings; a board given those
+buttons, and a `settings` one, in its `lws_button_map_t` needs no other
+changes.
 
 ## Application
 
@@ -122,9 +183,10 @@ a touch panel.
 
 ## Touch
 
-On boards with a touch panel (`esp32s3-waveshare-240-240-touch`), while the
-boot overlay is up, touches are for it, see above.  After that, pressing
-a link on the displayed page follows it, and stops the carousel: the user is
+On boards with a touch panel (`esp32s3-waveshare-240-240-touch`), touches
+on the strip ui, the boot list, the settings, or the frame's title strip, are
+for it, see above.  Pressing a link on the page in the frame's body follows
+it, and stops the carousel: the user is
 driving then, so it no longer ends by itself.  Dragging the page moves it
 around on the display, and gives it another 10s on the display before the
 carousel moves on.
@@ -132,10 +194,10 @@ carousel moves on.
 The whole page is laid out, as far down as 16384px (`rs.layout_h`), if there
 is the memory for it, so all of a page longer or wider than the display can be
 dragged into view, as far as its end, including anything positioned or
-overflowing outside the box it is in.  On a round display, the page can also be dragged a little beyond
-its edges, just far enough to bring each corner of it to the first pixel of
-the circle that can be seen there, so what is in the corners the circle
-doesn't show can be seen too.  Beyond the page is white.
+overflowing outside the box it is in.  Beyond the page is white.  The
+frame's body isn't round, even on a round display, so the page can't be
+dragged beyond its edges to see what is in the corners the circle doesn't
+show, as it could before there was a frame.
 
 Dragging the page doesn't lay it out again: it is drawn again from the display
 list it was laid out in, from where it was dragged to, with
@@ -148,7 +210,7 @@ don't, so moving a page with images on it is slower.
 The touch controller issues `{"type":"touch",...}` `LWSSMDCL_INTERACTION`
 events, see `lib/drivers/touch/README.md`.  A `press` is resolved to the
 link displayed under it with `lws_display_dl_hit_test()`, at where it is on
-the page wherever it was dragged to.  A `scroll` that began on the page
+the page, below the title strip, wherever it was dragged to.  A `scroll` that began on the page
 (after its `down`) moves the page.  Scrolls and long presses do not follow
 links.
 
@@ -190,8 +252,8 @@ chosen from the start.
 
 ## Setting up wifi
 
-On boards with a touch panel, pick the AP and type its passphrase on the
-device, see "Boot overlay" above.
+On boards that can show the settings, pick the AP and type its passphrase
+on the device, see "Settings" above.
 
 Other boards can't do that yet.  Edit ./main/devices.c in your
 platform-specific subdir, enable this section and set your wifi SSID and

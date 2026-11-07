@@ -35,6 +35,13 @@ static int relayout_tries;
 static int32_t relayout_pan_x, relayout_pan_y;
 /* render() is drawing a page laid out before again, eg, panned */
 static char redraw;
+/*
+ * The page is the body of the strip ui's frame page, below its title strip:
+ * the title strip's lines come from the ui, the page's after them
+ */
+static char framed;
+/* how many lines the title strip is, and how many of them were drawn */
+static int frame_top, frame_y;
 
 /*
  * Where the time of a display update went, logged when it ends: what isn't
@@ -75,7 +82,7 @@ relayout_browse(lws_sorted_usec_list_t *sul)
 		 rs->lds->current_url);
 
 	memset(&box, 0, sizeof(box));
-	box.w = rs->ic->wh_px[0];
+	box.w = rs->lds->disp->ic.wh_px[0];
 	rs->lds->disp->blit(rs->lds, NULL, &box, &rs->ids);
 	show_demo_phase(LWS_LHPCD_PHASE_IDLE);
 }
@@ -128,15 +135,38 @@ relayout(lws_display_render_state_t *rs)
 	relayout_browse(&sul_relayout);
 }
 
+/*
+ * The ids' boxes are where they are on the page: on the display, they are
+ * below the title strip
+ */
+
+static void
+ids_below_frame(lws_display_render_state_t *rs)
+{
+	lws_fx_t t;
+
+	lws_fx_set(t, frame_top, 0);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&rs->ids)) {
+		lws_display_id_t *id = lws_container_of(d, lws_display_id_t,
+							list);
+
+		lws_fx_add(&id->box.y, &id->box.y, &t);
+	} lws_end_foreach_dll(d);
+}
+
 static void
 render(lws_sorted_usec_list_t *sul)
 {
 	lws_display_render_state_t *rs = lws_container_of(sul,
 					lws_display_render_state_t, sul);
+	const lws_surface_info_t *dic = &rs->lds->disp->ic;
 	lws_stateful_ret_t r;
 	lws_usec_t t0, t1;
 	lws_box_t box;
 	int budget = 10;
+	size_t lb;
 
 	lws_fx_set(box.x, 0, 0);
 	lws_fx_set(box.y, 0, 0);
@@ -163,6 +193,8 @@ render(lws_sorted_usec_list_t *sul)
 			 */
 
 			lws_display_get_ids_boxes(rs);
+			if (frame_top)
+				ids_below_frame(rs);
 
 #if defined(LWS_WITH_FOOTPRINT)
 			/* the layout is complete: what holds the heap at its
@@ -193,7 +225,8 @@ render(lws_sorted_usec_list_t *sul)
 
 		/* allocate one line of output pixels to render into */
 
-		rs->line = malloc((size_t)rs->ic->wh_px[0].whole * (rs->ic->greyscale ? 1 : 3));
+		rs->line = malloc((size_t)dic->wh_px[0].whole *
+				  (dic->greyscale ? 1 : 3));
 		if (!rs->line) {
 			lwsl_err("%s: OOM\n", __func__);
 			/* !!! cleanup */
@@ -201,16 +234,18 @@ render(lws_sorted_usec_list_t *sul)
 		}
 
 		rs->curr = 0;
+		frame_y = 0;
 		memset(&upd, 0, sizeof(upd));
 		upd.start = lws_now_usecs();
 
 		/*
 		 * Initialize the blitter with the dimensions of the data we
-		 * will send.
+		 * will send: all of the display, the title strip too if the
+		 * page is framed
 		 */
 
-		box.w = rs->ic->wh_px[0];
-		box.h = rs->ic->wh_px[1];
+		box.w = dic->wh_px[0];
+		box.h = dic->wh_px[1];
 
 		rs->lds->disp->blit(rs->lds, (uint8_t *)rs, &box, &rs->ids);
 
@@ -223,9 +258,39 @@ render(lws_sorted_usec_list_t *sul)
 
 	/* single-line blits are line data */
 
-	box.w = rs->ic->wh_px[0];
+	box.w = dic->wh_px[0];
 	box.h.whole = 1;
 	upd.wakes++;
+	lb = (size_t)dic->wh_px[0].whole * (dic->greyscale ? 1 : 3);
+
+	/* the frame's title strip, as the ui has it now */
+
+	while (frame_y < frame_top) {
+
+		if (!budget--) {
+			lws_sul_schedule(rs->lds->ctx, 0, &rs->sul, render, 1);
+
+			return;
+		}
+
+		r = sui ? lws_dlo_ui_frame_line(sui, frame_y, rs->line) :
+			  LWS_SRET_FATAL;
+		if (r & (LWS_SRET_YIELD | LWS_SRET_WANT_INPUT)) {
+			/* eg, it's being laid out again: the same line again */
+			lws_sul_schedule(rs->lds->ctx, 0, &rs->sul, render,
+					 r & LWS_SRET_YIELD ? 1 : LWS_US_PER_MS);
+			return;
+		}
+		if (r)
+			/* there's no title strip to draw now, it's left white */
+			memset(rs->line, 0xff, lb);
+
+		box.y.whole = frame_y++;
+		rs->lds->disp->blit(rs->lds, (uint8_t *)rs->line, &box,
+				    &rs->ids);
+	}
+
+	/* then the page */
 
 	while (rs->curr != rs->lowest_id_y) {
 
@@ -257,7 +322,7 @@ render(lws_sorted_usec_list_t *sul)
 			lwsl_warn("%s: line %d: 0x%x\n", __func__,
 				  (int)rs->curr, (unsigned int)r);
 
-		box.y.whole = rs->curr;
+		box.y.whole = rs->curr + frame_top;
 
 		/* rs->line is a line of Y or RGB pixels, the blitter will
 		 * convert to the panel's packed format and deal with diffusion
@@ -271,7 +336,7 @@ render(lws_sorted_usec_list_t *sul)
 
 	lws_sul_cancel(sul);
 	lwsl_notice("%s: %d lines in %dms: drawing %dms, blitting %dms, "
-		    "%d wakes\n", __func__, (int)rs->curr,
+		    "%d wakes\n", __func__, (int)rs->curr + frame_top,
 		    (int)((lws_now_usecs() - upd.start) / LWS_US_PER_MS),
 		    (int)(upd.lines / LWS_US_PER_MS),
 		    (int)(upd.blit / LWS_US_PER_MS), upd.wakes);
@@ -296,7 +361,7 @@ render(lws_sorted_usec_list_t *sul)
 
 int
 init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
-	    const char *url)
+	    const char *url, int frame)
 {
         show_demo_phase(LWS_LHPCD_PHASE_FETCHING);
 
@@ -329,8 +394,16 @@ init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
 	rs->relayout_ok = 1;
 
 	lws_display_dl_init(&rs->displaylist, &lds);
-	rs->ic = &lds.disp->ic;
 	rs->lds = &lds;
+
+	/*
+	 * Framed, the page is laid out on the body of the strip ui's frame
+	 * page, below its title strip, otherwise on all of the display
+	 */
+	framed = (char)(frame && sui);
+	frame_top = 0;
+	rs->ic = framed ? lws_dlo_ui_frame_body(sui, &frame_top) :
+			  &lds.disp->ic;
 
 	/*
 	 * With a touch panel, the page can be dragged around on the display:
