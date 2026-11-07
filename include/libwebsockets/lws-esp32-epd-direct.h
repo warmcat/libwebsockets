@@ -21,12 +21,16 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- * The lws_epd_direct_bus_ops_t transport on esp32 chips with the i80 LCD
- * peripheral, eg, the ESP32-S3.  The source driver data bus and its clock
- * (XCL / CKH) are the i80 bus data lines and WR, its start pulse (XSTL / STH)
- * is the i80 D/C line, low while a row is sent, and the gate driver clock
- * (CKV) pulses come from an RMT channel, so the gate can be held on for a row
- * while the next one is being sent.
+ * The lws_epd_direct_bus_ops_t transport on the ESP32-S3, and a runner that
+ * runs the passes on a FreeRTOS task of their own, eg, on the second core.
+ *
+ * The source driver data bus and its clock (XCL / CKH) are the LCD_CAM i80
+ * data lines and WR, its start pulse (XSTL / STH) is the i80 D/C line, low
+ * while a row is sent, and the gate driver clock (CKV) pulses come from an RMT
+ * channel, so the gate can be held on for a row while the next one is being
+ * sent.  Each row costs a few register writes rather than calls into the IDF
+ * drivers, so it drives LCD_CAM, its GDMA channel and the RMT channel through
+ * the IDF's hal and private headers.  It was written against esp-idf v6.1.
  *
  * The other control lines and the panel supplies may each be on a gpio, or on
  * an output of a 74HC(T)4094 / 595 type shift register, since boards are short
@@ -92,17 +96,33 @@ typedef struct lws_epd_direct_esp32_step {
  * panel, it's opaque.
  */
 
+#define LWS_EPDD_ESP32_LINKS	3
+
 typedef struct lws_epd_direct_esp32_state {
-	void			*i80_bus;
-	void			*io;
+	void			*dma;
+	/**< the GDMA channel feeding LCD_CAM */
+	void			*link[LWS_EPDD_ESP32_LINKS];
+	/**< a DMA descriptor list for each row buffer we've been given */
+	const uint8_t		*link_buf[LWS_EPDD_ESP32_LINKS];
+	/**< the row buffer each one is for */
 	void			*rmt;
-	void			*rmt_enc;
-	volatile int		dma_busy;
-	uint32_t		ckv_sym;
-	/**< the RMT symbol for the gate clock pulse being sent */
+	/**< the RMT channel for CKV */
+	volatile uint32_t	*ckv_mem;
+	/**< the RMT channel's symbol memory */
+	uint32_t		cyc_per_us;
+	/**< cpu cycles per us, for the short waits */
+	uint32_t		xcl_hz;
+	/**< the data clock we actually got */
+	int			rmt_ch;
+	uint8_t			link_next;
+	/**< which link to reuse for a row buffer we haven't seen */
 	uint8_t			sr;
 	/**< what the shift register outputs are */
-	uint8_t			rmt_busy;
+	uint8_t			ckv_busy;
+	/**< a CKV pulse was started and we haven't seen it end */
+	uint8_t			lcd_busy;
+	/**< a row was started on the bus and we haven't seen it end */
+	uint8_t			lcd_acquired;
 	uint8_t			ready;
 } lws_epd_direct_esp32_state_t;
 
@@ -167,6 +187,43 @@ LWS_VISIBLE LWS_EXTERN void
 lws_epd_direct_esp32_row_skip(const lws_epd_direct_bus_ops_t *bus);
 LWS_VISIBLE LWS_EXTERN void
 lws_epd_direct_esp32_frame_end(const lws_epd_direct_bus_ops_t *bus);
+
+/*
+ * Runs the passes on a FreeRTOS task pinned to a core.  It doesn't hog the
+ * core: if it has been busy for a while, it sleeps a tick so the core's idle
+ * task can run.
+ */
+
+typedef struct lws_epd_direct_esp32_runner_state {
+	void			*task;
+	lws_display_state_t	*lds;
+	volatile uint8_t	ended;
+} lws_epd_direct_esp32_runner_state_t;
+
+typedef struct lws_epd_direct_esp32_runner {
+	lws_epd_direct_runner_t	runner;
+	/**< use lws_epd_direct_esp32_runner_ops to set the ops */
+	lws_epd_direct_esp32_runner_state_t *state;
+	uint32_t		stack_size;
+	/**< bytes of stack for the task */
+	uint8_t			core;
+	/**< the core to run it on */
+	uint8_t			priority;
+	/**< its FreeRTOS priority */
+} lws_epd_direct_esp32_runner_t;
+
+LWS_VISIBLE LWS_EXTERN int
+lws_epd_direct_esp32_runner_start(const lws_epd_direct_runner_t *r,
+				  lws_display_state_t *lds);
+LWS_VISIBLE LWS_EXTERN void
+lws_epd_direct_esp32_runner_kick(const lws_epd_direct_runner_t *r);
+LWS_VISIBLE LWS_EXTERN void
+lws_epd_direct_esp32_runner_stop(const lws_epd_direct_runner_t *r);
+
+#define lws_epd_direct_esp32_runner_ops \
+	.start		= lws_epd_direct_esp32_runner_start, \
+	.kick		= lws_epd_direct_esp32_runner_kick, \
+	.stop		= lws_epd_direct_esp32_runner_stop
 
 #define lws_epd_direct_esp32_ops \
 	.init		= lws_epd_direct_esp32_init, \

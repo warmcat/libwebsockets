@@ -1,5 +1,5 @@
 /*
- * lws directly-driven EPD transport for esp32
+ * lws directly-driven EPD transport for the ESP32-S3
  *
  * Copyright (C) 2026 Andy Green <andy@warmcat.com>
  *
@@ -25,16 +25,24 @@
  *
  * A row goes like this:
  *
- *  - row_load(): the i80 bus DMAs the row's codes into the source drivers,
- *    clocked by XCL, with XSTL (the bus D/C line) low while it does
+ *  - row_load(): GDMA feeds the row's codes to LCD_CAM, which clocks them into
+ *    the source drivers on XCL, with XSTL (its D/C line) low while it does
  *
- *  - row_drive(): when the DMA is done, and the previous row's gate pulse has
- *    finished, pulse XLE to latch the codes onto the source driver outputs,
- *    then start an RMT pulse on CKV to hold the gate on for the row for the
- *    drive time.  It returns without waiting for the pulse, so the next row
- *    can be encoded and sent while this one is driven.
+ *  - row_drive(): when the row has been sent, and the previous row's gate
+ *    pulse has ended, pulse XLE to latch the codes onto the source driver
+ *    outputs, then start an RMT pulse on CKV to hold the gate on for the row
+ *    for the drive time.  It returns without waiting for the pulse, so the
+ *    next row can be encoded and sent while this one is driven.
  *
  * so rows overlap, the next row being sent while the previous one is driven.
+ *
+ * The bus ops are called by whatever runs the passes, normally a task of its
+ * own on the second core, and they wait by spinning on the peripherals'
+ * status bits and the cpu cycle count, since the waits are a few us at most.
+ * Nothing here takes an interrupt.  The IDF drivers' per-transfer apis cost
+ * more than sending a row does, so LCD_CAM, its GDMA channel and the RMT
+ * channel are driven through the hal and private headers: the IDF drivers are
+ * only used to set things up.
  */
 
 #include <libwebsockets.h>
@@ -43,23 +51,77 @@
 #include <driver/gpio.h>
 #include <esp_heap_caps.h>
 #include <esp_rom_sys.h>
-#include <esp_attr.h>
 
-#if SOC_LCD_I80_SUPPORTED && SOC_RMT_SUPPORTED
+#if SOC_LCDCAM_I80_LCD_SUPPORTED && SOC_RMT_SUPPORTED
 
-#include <esp_lcd_io_i80.h>
-#include <esp_lcd_panel_io.h>
+#include <esp_cpu.h>
+#include <esp_clk_tree.h>
+#include <esp_rom_gpio.h>
+#include <esp_private/esp_clk_tree_common.h>
+#include <esp_private/periph_ctrl.h>
+#include <esp_private/gpio.h>
+#include <esp_private/gdma.h>
+#include <esp_private/gdma_link.h>
+#include <esp_private/rmt.h>
 #include <driver/rmt_tx.h>
-#include <driver/rmt_encoder.h>
+#include <hal/lcd_ll.h>
+#include <hal/lcd_periph.h>
+#include <hal/rmt_ll.h>
+#include <hal/gpio_ll.h>
+#include <soc/gpio_struct.h>
+#include <soc/rmt_struct.h>
 
 /* RMT resolution: 0.1us ticks */
 #define EPDD_RMT_HZ		10000000
 #define EPDD_TICKS_PER_US	(EPDD_RMT_HZ / 1000000)
 
+/* LCD_CAM's clock is divided by this before the pixel clock divider */
+#define EPDD_LCD_GROUP_DIV	2
+
+/*
+ * How long LCD_CAM's FIFO is given to fill from DMA before it starts sending.
+ * It's hidden inside the previous row's gate pulse.
+ */
+#define EPDD_PREFILL_NS		1000
+
+/* SPV before the CKV edge it's taken on: the datasheet wants 100ns */
+#define EPDD_SPV_SETUP_NS	200
+
+/* shortest time between edges we make on the shift register's lines */
+#define EPDD_SR_EDGE_NS		50
+
+/*
+ * The RMT channels' symbol memory, from the chip's linker script.  The RMT
+ * driver gives us the channel, we write the one pulse it sends ourselves.
+ */
+extern uint32_t RMTMEM;
+
+static lcd_cam_dev_t *
+lcd_dev(void)
+{
+	return LCD_LL_GET_HW(0);
+}
+
 static const lws_epd_direct_esp32_t *
 to_ee(const lws_epd_direct_bus_ops_t *bus)
 {
 	return lws_container_of(bus, lws_epd_direct_esp32_t, bus);
+}
+
+static void
+spin_ns(const lws_epd_direct_esp32_state_t *st, uint32_t ns)
+{
+	uint32_t t0 = esp_cpu_get_cycle_count(),
+		 cyc = (ns * st->cyc_per_us + 999) / 1000;
+
+	while (esp_cpu_get_cycle_count() - t0 < cyc)
+		;
+}
+
+static void
+pin_set(int gpio, int level)
+{
+	gpio_ll_set_level(&GPIO, (uint32_t)gpio, (uint32_t)level);
 }
 
 /*
@@ -70,42 +132,44 @@ to_ee(const lws_epd_direct_bus_ops_t *bus)
 static void
 sr_write(const lws_epd_direct_esp32_t *ee)
 {
+	lws_epd_direct_esp32_state_t *st = ee->state;
 	int n, out;
 
-	gpio_set_level(ee->sr_str_gpio, 0);
+	pin_set(ee->sr_str_gpio, 0);
 
 	for (n = 0; n < 8; n++) {
 		out = ee->sr_first_out ? 7 - n : n;
 
-		gpio_set_level(ee->sr_clk_gpio, 0);
-		gpio_set_level(ee->sr_data_gpio,
-			       (uint32_t)((ee->state->sr >> out) & 1));
-		gpio_set_level(ee->sr_clk_gpio, 1);
+		pin_set(ee->sr_clk_gpio, 0);
+		pin_set(ee->sr_data_gpio, (st->sr >> out) & 1);
+		spin_ns(st, EPDD_SR_EDGE_NS);
+		pin_set(ee->sr_clk_gpio, 1);
+		spin_ns(st, EPDD_SR_EDGE_NS);
 	}
 
-	gpio_set_level(ee->sr_clk_gpio, 0);
-	gpio_set_level(ee->sr_str_gpio, 1);
-	gpio_set_level(ee->sr_str_gpio, 0);
+	pin_set(ee->sr_clk_gpio, 0);
+	pin_set(ee->sr_str_gpio, 1);
+	spin_ns(st, EPDD_SR_EDGE_NS);
+	pin_set(ee->sr_str_gpio, 0);
 }
 
 static void
 ctl_set(const lws_epd_direct_esp32_t *ee, int ctl, int assert)
 {
 	const lws_epd_direct_esp32_ctl_t *c = &ee->ctl[ctl];
+	lws_epd_direct_esp32_state_t *st = ee->state;
 	int level = (!!assert) ^ (!!c->active_low);
 
 	switch (c->src) {
 	case LWS_EPDD_CTLSRC_GPIO:
-		gpio_set_level(c->index, (uint32_t)level);
+		pin_set(c->index, level);
 		break;
 
 	case LWS_EPDD_CTLSRC_SR:
 		if (level)
-			ee->state->sr = (uint8_t)(ee->state->sr |
-						  (1u << c->index));
+			st->sr = (uint8_t)(st->sr | (1u << c->index));
 		else
-			ee->state->sr = (uint8_t)(ee->state->sr &
-						  ~(1u << c->index));
+			st->sr = (uint8_t)(st->sr & ~(1u << c->index));
 		sr_write(ee);
 		break;
 
@@ -134,41 +198,34 @@ gpio_out(int gpio, int level)
 	return 0;
 }
 
-static bool IRAM_ATTR
-trans_done_cb(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t *ed,
-	      void *user_ctx)
-{
-	lws_epd_direct_esp32_state_t *st = (lws_epd_direct_esp32_state_t *)user_ctx;
-
-	st->dma_busy = 0;
-
-	return false;
-}
+/* wait for the gate pulse in flight, if any, including its low time */
 
 static void
-ckv_wait(const lws_epd_direct_esp32_t *ee)
+ckv_wait(lws_epd_direct_esp32_state_t *st)
 {
-	lws_epd_direct_esp32_state_t *st = ee->state;
+	uint32_t done = RMT_LL_EVENT_TX_DONE(st->rmt_ch);
 
-	if (st->rmt_busy) {
-		rmt_tx_wait_all_done((rmt_channel_handle_t)st->rmt, -1);
-		st->rmt_busy = 0;
-	}
+	if (!st->ckv_busy)
+		return;
+
+	while (!(rmt_ll_tx_get_interrupt_status_raw(&RMT,
+					(uint32_t)st->rmt_ch) & done))
+		;
+
+	rmt_ll_clear_interrupt_status(&RMT, done);
+	st->ckv_busy = 0;
 }
 
 /*
- * Start a CKV pulse, high for high_ticks then low for at least low_ticks, and
- * don't wait for it
+ * Start a gate pulse, high for high_ticks then low for low_ticks, after the
+ * one in flight
  */
 
 static void
-ckv_pulse(const lws_epd_direct_esp32_t *ee, uint32_t high_ticks,
+ckv_pulse(lws_epd_direct_esp32_state_t *st, uint32_t high_ticks,
 	  uint32_t low_ticks)
 {
-	lws_epd_direct_esp32_state_t *st = ee->state;
-	rmt_transmit_config_t tc;
-
-	ckv_wait(ee);
+	ckv_wait(st);
 
 	if (!high_ticks)
 		high_ticks = 1;
@@ -180,20 +237,20 @@ ckv_pulse(const lws_epd_direct_esp32_t *ee, uint32_t high_ticks,
 		low_ticks = 0x7fff;
 
 	/*
-	 * An rmt_symbol_word_t: duration0 in b0 - b14, level0 in b15, then
-	 * duration1 and level1 the same in the upper 16 bits
+	 * An RMT symbol: duration0 in b0 - b14, level0 in b15, then duration1
+	 * and level1 the same in the upper 16 bits.  A zero symbol ends it.
 	 */
-	st->ckv_sym = high_ticks | (1u << 15) | (low_ticks << 16);
+	st->ckv_mem[0] = high_ticks | (1u << 15) | (low_ticks << 16);
+	st->ckv_mem[1] = 0;
 
-	memset(&tc, 0, sizeof(tc));
-	if (rmt_transmit((rmt_channel_handle_t)st->rmt,
-			 (rmt_encoder_handle_t)st->rmt_enc, &st->ckv_sym,
-			 sizeof(st->ckv_sym), &tc) == ESP_OK)
-		st->rmt_busy = 1;
+	rmt_ll_clear_interrupt_status(&RMT, RMT_LL_EVENT_TX_DONE(st->rmt_ch));
+	rmt_ll_tx_reset_pointer(&RMT, (uint32_t)st->rmt_ch);
+	rmt_ll_tx_start(&RMT, (uint32_t)st->rmt_ch);
+	st->ckv_busy = 1;
 }
 
 /*
- * The shortest gate clock pulse the panel allows, as high and low ticks
+ * The shortest gate pulse the panel allows, high and low, in RMT ticks
  */
 
 static void
@@ -212,17 +269,73 @@ ckv_min(const lws_epd_direct_esp32_t *ee, uint32_t *hi, uint32_t *lo)
 	}
 }
 
+/* wait for the row being sent, if any, to have been sent */
+
+static void
+lcd_wait(lws_epd_direct_esp32_state_t *st)
+{
+	lcd_cam_dev_t *dev = lcd_dev();
+
+	if (!st->lcd_busy)
+		return;
+
+	while (!(dev->lc_dma_int_raw.val & LCD_LL_EVENT_TRANS_DONE))
+		;
+
+	lcd_ll_clear_interrupt_status(dev, LCD_LL_EVENT_TRANS_DONE);
+	st->lcd_busy = 0;
+}
+
+/*
+ * The DMA descriptor list for a row buffer.  We are only given a few row
+ * buffers, over and over, so each gets a list made once, that the DMA doesn't
+ * change, and is restarted for each row.
+ */
+
+static uintptr_t
+link_for(lws_epd_direct_esp32_state_t *st, const uint8_t *data, size_t len)
+{
+	gdma_buffer_mount_config_t mc;
+	int n;
+
+	for (n = 0; n < LWS_EPDD_ESP32_LINKS; n++)
+		if (st->link_buf[n] == data)
+			return gdma_link_get_head_addr(
+				(gdma_link_list_handle_t)st->link[n]);
+
+	n = st->link_next;
+	st->link_next = (uint8_t)((n + 1) % LWS_EPDD_ESP32_LINKS);
+
+	memset(&mc, 0, sizeof(mc));
+	mc.buffer = (void *)data;
+	mc.length = len;
+	mc.flags.mark_eof = 1;
+	mc.flags.mark_final = GDMA_FINAL_LINK_TO_NULL;
+
+	if (gdma_link_mount_buffers((gdma_link_list_handle_t)st->link[n], 0,
+				    &mc, 1, NULL) != ESP_OK)
+		return 0;
+
+	st->link_buf[n] = data;
+
+	return gdma_link_get_head_addr((gdma_link_list_handle_t)st->link[n]);
+}
+
 void *
 lws_epd_direct_esp32_alloc_dma(const lws_epd_direct_bus_ops_t *bus,
 			       size_t size)
 {
-	return heap_caps_malloc(size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL |
-				      MALLOC_CAP_8BIT);
+	(void)bus;
+
+	return heap_caps_aligned_alloc(4, size, MALLOC_CAP_DMA |
+					MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 }
 
 void
 lws_epd_direct_esp32_free_dma(const lws_epd_direct_bus_ops_t *bus, void **p)
 {
+	(void)bus;
+
 	if (*p) {
 		heap_caps_free(*p);
 		*p = NULL;
@@ -234,29 +347,215 @@ lws_epd_direct_esp32_deinit(const lws_epd_direct_bus_ops_t *bus)
 {
 	const lws_epd_direct_esp32_t *ee = to_ee(bus);
 	lws_epd_direct_esp32_state_t *st = ee->state;
+	lcd_cam_dev_t *dev = lcd_dev();
+	int n;
 
 	if (st->rmt) {
-		ckv_wait(ee);
+		ckv_wait(st);
 		rmt_disable((rmt_channel_handle_t)st->rmt);
 		rmt_del_channel((rmt_channel_handle_t)st->rmt);
 		st->rmt = NULL;
 	}
-	if (st->rmt_enc) {
-		rmt_del_encoder((rmt_encoder_handle_t)st->rmt_enc);
-		st->rmt_enc = NULL;
+
+	if (st->dma) {
+		lcd_wait(st);
+		gdma_disconnect((gdma_channel_handle_t)st->dma);
+		gdma_del_channel((gdma_channel_handle_t)st->dma);
+		st->dma = NULL;
 	}
-	if (st->io) {
-		while (st->dma_busy)
-			;
-		esp_lcd_panel_io_del((esp_lcd_panel_io_handle_t)st->io);
-		st->io = NULL;
-	}
-	if (st->i80_bus) {
-		esp_lcd_del_i80_bus((esp_lcd_i80_bus_handle_t)st->i80_bus);
-		st->i80_bus = NULL;
+
+	for (n = 0; n < LWS_EPDD_ESP32_LINKS; n++)
+		if (st->link[n]) {
+			gdma_del_link_list((gdma_link_list_handle_t)st->link[n]);
+			st->link[n] = NULL;
+		}
+
+	if (st->lcd_acquired) {
+		PERIPH_RCC_ATOMIC() {
+			lcd_ll_enable_clock(dev, false);
+		}
+		PERIPH_RCC_RELEASE_ATOMIC(soc_lcd_i80_signals[0].module, ref) {
+			if (!ref)
+				lcd_ll_enable_bus_clock(0, false);
+		}
+		esp_clk_tree_enable_src((soc_module_clk_t)LCD_CLK_SRC_DEFAULT,
+					false);
+		st->lcd_acquired = 0;
 	}
 
 	st->ready = 0;
+}
+
+/* LCD_CAM as an 8-bit i80 bus, sending only data phases */
+
+static int
+lcd_init(const lws_epd_direct_esp32_t *ee)
+{
+	lws_epd_direct_esp32_state_t *st = ee->state;
+	const soc_lcd_i80_signal_desc_t *sig = &soc_lcd_i80_signals[0];
+	lcd_cam_dev_t *dev = lcd_dev();
+	uint32_t src_hz = 0, res, pre;
+	int n;
+
+	if (esp_clk_tree_enable_src((soc_module_clk_t)LCD_CLK_SRC_DEFAULT,
+				    true) != ESP_OK ||
+	    esp_clk_tree_src_get_freq_hz((soc_module_clk_t)LCD_CLK_SRC_DEFAULT,
+				ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED,
+				&src_hz) != ESP_OK || !src_hz)
+		return 1;
+
+	/* the pixel clock divider is an integer, so round to not be faster */
+
+	res = src_hz / EPDD_LCD_GROUP_DIV;
+	pre = (res + ee->xcl_hz - 1) / ee->xcl_hz;
+	if (!pre || pre > LCD_LL_PCLK_DIV_MAX)
+		return 1;
+	st->xcl_hz = res / pre;
+
+	PERIPH_RCC_ACQUIRE_ATOMIC(sig->module, ref) {
+		if (!ref) {
+			lcd_ll_enable_bus_clock(0, true);
+			lcd_ll_reset_register(0);
+		}
+	}
+	st->lcd_acquired = 1;
+
+	PERIPH_RCC_ATOMIC() {
+		lcd_ll_enable_clock(dev, true);
+		lcd_ll_select_clk_src(dev, LCD_CLK_SRC_DEFAULT);
+		lcd_ll_set_group_clock_coeff(dev, EPDD_LCD_GROUP_DIV, 0, 0);
+	}
+
+	lcd_ll_reset(dev);
+	lcd_ll_fifo_reset(dev);
+
+	/* we look at the raw status, nothing goes to the cpu */
+	PERIPH_RCC_ATOMIC() {
+		lcd_ll_enable_interrupt(dev, LCD_LL_EVENT_I80, false);
+	}
+	lcd_ll_clear_interrupt_status(dev, UINT32_MAX);
+
+	lcd_ll_enable_rgb_mode(dev, false);
+	lcd_ll_enable_color_convert(dev, false);
+	lcd_ll_set_dma_read_stride(dev, 8);
+	lcd_ll_set_swizzle_mode(dev, LCD_LL_SWIZZLE_AB2BA);
+	lcd_ll_enable_swizzle(dev, false);
+	lcd_ll_reverse_dma_data_bit_order(dev, false);
+	/* how much is sent is set by the DMA */
+	lcd_ll_enable_output_always_on(dev, true);
+	lcd_ll_set_data_wire_width(dev, 8);
+
+	lcd_ll_set_pixel_clock_prescale(dev, pre);
+	/* XCL idles high, data changes on its falling edge */
+	lcd_ll_set_clock_idle_level(dev, true);
+	lcd_ll_set_pixel_clock_edge(dev, false);
+	/* XSTL is low while a row is sent, otherwise high */
+	lcd_ll_set_dc_level(dev, true, true, true, false);
+	lcd_ll_set_phase_cycles(dev, 0, 0, 1);
+	lcd_ll_set_blank_cycles(dev, 1, 1);
+
+	/* the pins */
+
+	for (n = 0; n < 8; n++) {
+		gpio_func_sel((gpio_num_t)ee->data_gpio[n], PIN_FUNC_GPIO);
+		esp_rom_gpio_connect_out_signal((uint32_t)ee->data_gpio[n],
+				(uint32_t)sig->data_sigs[n], false, false);
+	}
+	gpio_func_sel((gpio_num_t)ee->sth_gpio, PIN_FUNC_GPIO);
+	esp_rom_gpio_connect_out_signal((uint32_t)ee->sth_gpio,
+					(uint32_t)sig->dc_sig, false, false);
+	gpio_func_sel((gpio_num_t)ee->xcl_gpio, PIN_FUNC_GPIO);
+	esp_rom_gpio_connect_out_signal((uint32_t)ee->xcl_gpio,
+					(uint32_t)sig->wr_sig, false, false);
+
+	return 0;
+}
+
+/* a GDMA channel feeding LCD_CAM, and a reusable list for each row buffer */
+
+static int
+dma_init(lws_epd_direct_esp32_state_t *st)
+{
+	gdma_channel_alloc_config_t ac;
+	gdma_strategy_config_t sc;
+	gdma_transfer_config_t tc;
+	gdma_link_list_config_t lc;
+	gdma_channel_handle_t ch;
+	gdma_link_list_handle_t ll;
+	int n;
+
+	memset(&ac, 0, sizeof(ac));
+	if (gdma_new_ahb_channel(&ac, &ch, NULL) != ESP_OK)
+		return 1;
+	st->dma = ch;
+
+	if (gdma_connect(ch, GDMA_MAKE_TRIGGER(GDMA_TRIG_PERIPH_LCD, 0)) !=
+								ESP_OK)
+		return 1;
+
+	/*
+	 * The DMA doesn't take ownership of, or write back, the descriptors,
+	 * so a list can be started again without being made again
+	 */
+
+	memset(&sc, 0, sizeof(sc));
+	sc.owner_check = false;
+	sc.auto_update_desc = false;
+	memset(&tc, 0, sizeof(tc));
+	/* rows are small and sent at 20MB/s at most: no burst, no alignment */
+	tc.max_data_burst_size = 0;
+	if (gdma_apply_strategy(ch, &sc) != ESP_OK ||
+	    gdma_config_transfer(ch, &tc) != ESP_OK)
+		return 1;
+
+	memset(&lc, 0, sizeof(lc));
+	lc.num_items = 1;
+	lc.item_alignment = 4;
+	lc.flags.check_owner = 0;
+
+	for (n = 0; n < LWS_EPDD_ESP32_LINKS; n++) {
+		if (gdma_new_link_list(&lc, &ll) != ESP_OK)
+			return 1;
+		st->link[n] = ll;
+	}
+
+	return 0;
+}
+
+/* an RMT channel for CKV, that we only start and look at the end of */
+
+static int
+rmt_init(const lws_epd_direct_esp32_t *ee)
+{
+	lws_epd_direct_esp32_state_t *st = ee->state;
+	rmt_tx_channel_config_t rc;
+	rmt_channel_handle_t rmt;
+	int id;
+
+	memset(&rc, 0, sizeof(rc));
+	rc.gpio_num = ee->ckv_gpio;
+	rc.clk_src = RMT_CLK_SRC_DEFAULT;
+	rc.resolution_hz = EPDD_RMT_HZ;
+	rc.mem_block_symbols = SOC_RMT_MEM_WORDS_PER_CHANNEL;
+	rc.trans_queue_depth = 1;
+
+	if (rmt_new_tx_channel(&rc, &rmt) != ESP_OK)
+		return 1;
+	st->rmt = rmt;
+
+	/*
+	 * We never call rmt_transmit(), so the driver never enables the
+	 * channel's interrupts: we start it and see it end ourselves
+	 */
+
+	if (rmt_enable(rmt) != ESP_OK || rmt_get_channel_id(rmt, &id) != ESP_OK)
+		return 1;
+
+	st->rmt_ch = id;
+	st->ckv_mem = (volatile uint32_t *)&RMTMEM +
+			(size_t)id * SOC_RMT_MEM_WORDS_PER_CHANNEL;
+
+	return 0;
 }
 
 int
@@ -264,23 +563,17 @@ lws_epd_direct_esp32_init(const lws_epd_direct_bus_ops_t *bus)
 {
 	const lws_epd_direct_esp32_t *ee = to_ee(bus);
 	lws_epd_direct_esp32_state_t *st = ee->state;
-	esp_lcd_panel_io_i80_config_t ioc;
-	esp_lcd_i80_bus_config_t bc;
-	rmt_tx_channel_config_t rc;
-	rmt_copy_encoder_config_t ec;
-	esp_lcd_i80_bus_handle_t i80;
-	esp_lcd_panel_io_handle_t io;
-	rmt_channel_handle_t rmt;
-	rmt_encoder_handle_t enc;
 	int n, uses_sr = 0;
 
-	if (!st || !ee->panel || ee->xcl_hz > ee->panel->xcl_max_hz) {
+	if (!st || !ee->panel || !ee->xcl_hz ||
+	    ee->xcl_hz > ee->panel->xcl_max_hz) {
 		lwsl_err("%s: no state, or data clock too fast for panel\n",
 			 __func__);
 		return 1;
 	}
 
 	memset(st, 0, sizeof(*st));
+	st->cyc_per_us = esp_rom_get_cpu_ticks_per_us();
 
 	/* the control lines start deasserted, unless the board says */
 
@@ -316,70 +609,23 @@ lws_epd_direct_esp32_init(const lws_epd_direct_bus_ops_t *bus)
 		sr_write(ee);
 	}
 
-	/* the source driver bus */
-
-	memset(&bc, 0, sizeof(bc));
-	bc.dc_gpio_num = ee->sth_gpio;
-	bc.wr_gpio_num = ee->xcl_gpio;
-	bc.clk_src = LCD_CLK_SRC_DEFAULT;
-	for (n = 0; n < 8; n++)
-		bc.data_gpio_nums[n] = ee->data_gpio[n];
-	bc.bus_width = 8;
-	bc.max_transfer_bytes = ee->panel->source_px / 4u + bus->row_tail_bytes;
-
-	if (esp_lcd_new_i80_bus(&bc, &i80) != ESP_OK) {
-		lwsl_err("%s: i80 bus creation failed\n", __func__);
-		return 1;
-	}
-	st->i80_bus = i80;
-
-	memset(&ioc, 0, sizeof(ioc));
-	ioc.cs_gpio_num = -1;
-	ioc.pclk_hz = ee->xcl_hz;
-	ioc.trans_queue_depth = 2;
-	ioc.on_color_trans_done = trans_done_cb;
-	ioc.user_ctx = st;
-	ioc.lcd_cmd_bits = 8;
-	ioc.lcd_param_bits = 8;
-	/* XSTL is low while a row is sent, otherwise high */
-	ioc.dc_levels.dc_idle_level = 1;
-	ioc.dc_levels.dc_cmd_level = 1;
-	ioc.dc_levels.dc_dummy_level = 1;
-	ioc.dc_levels.dc_data_level = 0;
-
-	if (esp_lcd_new_panel_io_i80(i80, &ioc, &io) != ESP_OK) {
-		lwsl_err("%s: i80 io creation failed\n", __func__);
+	if (lcd_init(ee)) {
+		lwsl_err("%s: LCD_CAM setup failed\n", __func__);
 		goto bail;
 	}
-	st->io = io;
-
-	/* the gate driver clock */
-
-	memset(&rc, 0, sizeof(rc));
-	rc.gpio_num = ee->ckv_gpio;
-	rc.clk_src = RMT_CLK_SRC_DEFAULT;
-	rc.resolution_hz = EPDD_RMT_HZ;
-	rc.mem_block_symbols = SOC_RMT_MEM_WORDS_PER_CHANNEL;
-	rc.trans_queue_depth = 2;
-
-	if (rmt_new_tx_channel(&rc, &rmt) != ESP_OK) {
-		lwsl_err("%s: rmt channel creation failed\n", __func__);
+	if (dma_init(st)) {
+		lwsl_err("%s: GDMA setup failed\n", __func__);
 		goto bail;
 	}
-	st->rmt = rmt;
-
-	memset(&ec, 0, sizeof(ec));
-	if (rmt_new_copy_encoder(&ec, &enc) != ESP_OK ||
-	    rmt_enable(rmt) != ESP_OK) {
-		lwsl_err("%s: rmt encoder failed\n", __func__);
+	if (rmt_init(ee)) {
+		lwsl_err("%s: RMT setup failed\n", __func__);
 		goto bail;
 	}
-	st->rmt_enc = enc;
 
 	st->ready = 1;
 
 	lwsl_notice("%s: data clock %uHz\n", __func__,
-		    (unsigned int)ee->xcl_hz);
+		    (unsigned int)st->xcl_hz);
 
 	return 0;
 
@@ -398,15 +644,17 @@ int
 lws_epd_direct_esp32_power(const lws_epd_direct_bus_ops_t *bus, int on)
 {
 	const lws_epd_direct_esp32_t *ee = to_ee(bus);
+	lws_epd_direct_esp32_state_t *st = ee->state;
 	const lws_epd_direct_esp32_step_t *s = on ? ee->power_on : ee->power_off;
 	uint8_t n, count = on ? ee->power_on_count : ee->power_off_count;
 
-	if (!ee->state->ready)
+	if (!st->ready)
 		return 1;
 
 	if (!on) {
 		/* nothing may be driven while the supplies go */
-		ckv_wait(ee);
+		ckv_wait(st);
+		lcd_wait(st);
 		ctl_set(ee, LWS_EPDD_CTL_OE, 0);
 		ctl_set(ee, LWS_EPDD_CTL_MODE, 0);
 	}
@@ -426,26 +674,30 @@ void
 lws_epd_direct_esp32_frame_start(const lws_epd_direct_bus_ops_t *bus)
 {
 	const lws_epd_direct_esp32_t *ee = to_ee(bus);
+	lws_epd_direct_esp32_state_t *st = ee->state;
 	uint32_t hi, lo;
 	uint8_t n;
 
 	ckv_min(ee, &hi, &lo);
+	ckv_wait(st);
 
 	/*
-	 * The gate driver takes the start pulse on a CKV edge, then each CKV
-	 * moves it on a row
+	 * The gate driver takes the start pulse on a CKV rising edge, then each
+	 * CKV moves it on a row.  SPV has to be set up 100ns before the edge,
+	 * and go away at least 100ns after it, but before CKV falls.
 	 */
 
 	ctl_set(ee, LWS_EPDD_CTL_MODE, 1);
 	ctl_set(ee, LWS_EPDD_CTL_STV, 1);
-	ckv_pulse(ee, hi, lo);
-	ckv_wait(ee);
+	spin_ns(st, EPDD_SPV_SETUP_NS);
+	ckv_pulse(st, hi, lo);
+	spin_ns(st, (hi * 1000u / EPDD_TICKS_PER_US) / 2);
 	ctl_set(ee, LWS_EPDD_CTL_STV, 0);
 
 	for (n = 0; n < ee->frame_lead_ckv; n++)
-		ckv_pulse(ee, hi, lo);
+		ckv_pulse(st, hi, lo);
 
-	ckv_wait(ee);
+	ckv_wait(st);
 	ctl_set(ee, LWS_EPDD_CTL_OE, 1);
 }
 
@@ -455,16 +707,22 @@ lws_epd_direct_esp32_row_load(const lws_epd_direct_bus_ops_t *bus,
 {
 	const lws_epd_direct_esp32_t *ee = to_ee(bus);
 	lws_epd_direct_esp32_state_t *st = ee->state;
+	lcd_cam_dev_t *dev = lcd_dev();
+	uintptr_t head;
 
-	while (st->dma_busy)
-		;
+	lcd_wait(st);
 
-	st->dma_busy = 1;
-	if (esp_lcd_panel_io_tx_color((esp_lcd_panel_io_handle_t)st->io, -1,
-				      data, len) != ESP_OK) {
-		st->dma_busy = 0;
-		lwsl_err("%s: tx failed\n", __func__);
-	}
+	head = link_for(st, data, len);
+	if (!head)
+		return;
+
+	lcd_ll_reset(dev);
+	lcd_ll_fifo_reset(dev);
+	gdma_start((gdma_channel_handle_t)st->dma, (intptr_t)head);
+	/* let the DMA get something into the FIFO before it's sent from */
+	spin_ns(st, EPDD_PREFILL_NS);
+	lcd_ll_start(dev);
+	st->lcd_busy = 1;
 }
 
 void
@@ -472,21 +730,27 @@ lws_epd_direct_esp32_row_drive(const lws_epd_direct_bus_ops_t *bus,
 			       uint32_t drive_us)
 {
 	const lws_epd_direct_esp32_t *ee = to_ee(bus);
+	lws_epd_direct_esp32_state_t *st = ee->state;
+	const lws_epd_direct_panel_t *p = ee->panel;
 	uint32_t hi, lo;
 
-	while (ee->state->dma_busy)
-		;
+	lcd_wait(st);
+	/* XLE follows the last XCL by le_min_delay_xcl_x2 half cycles */
+	spin_ns(st, (uint32_t)(((uint64_t)p->le_min_delay_xcl_x2 *
+				 500000000ull + st->xcl_hz - 1) / st->xcl_hz));
 
 	/* the previous row's gate pulse must end before we latch this one */
-
-	ckv_wait(ee);
+	ckv_wait(st);
 
 	ctl_set(ee, LWS_EPDD_CTL_LE, 1);
-	esp_rom_delay_us(1);
+	spin_ns(st, p->le_min_width_ns);
 	ctl_set(ee, LWS_EPDD_CTL_LE, 0);
 
 	ckv_min(ee, &hi, &lo);
-	ckv_pulse(ee, drive_us * EPDD_TICKS_PER_US, lo);
+	ckv_pulse(st, drive_us * EPDD_TICKS_PER_US, lo);
+
+	/* the next row's data mustn't start too soon after XLE */
+	spin_ns(st, p->le_min_off_ns);
 }
 
 void
@@ -496,7 +760,7 @@ lws_epd_direct_esp32_row_skip(const lws_epd_direct_bus_ops_t *bus)
 	uint32_t hi, lo;
 
 	ckv_min(ee, &hi, &lo);
-	ckv_pulse(ee, hi, lo);
+	ckv_pulse(ee->state, hi, lo);
 }
 
 void
@@ -504,14 +768,14 @@ lws_epd_direct_esp32_frame_end(const lws_epd_direct_bus_ops_t *bus)
 {
 	const lws_epd_direct_esp32_t *ee = to_ee(bus);
 
-	ckv_wait(ee);
+	ckv_wait(ee->state);
 	ctl_set(ee, LWS_EPDD_CTL_OE, 0);
 	ctl_set(ee, LWS_EPDD_CTL_MODE, 0);
 }
 
 #else
 
-/* this chip has no i80 LCD peripheral or no RMT */
+/* this chip has no LCD_CAM i80 bus, or no RMT */
 
 int
 lws_epd_direct_esp32_init(const lws_epd_direct_bus_ops_t *bus)

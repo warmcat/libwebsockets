@@ -49,6 +49,14 @@ are on the panel, and several updates can be in flight at once, so a later
 one doesn't wait for an earlier one to finish.  The panel is cleared at
 start and, optionally, every `.full_refresh_every` updates.
 
+By default the passes are run from the lws event loop.  Panels need passes
+to follow each other without gaps, so a platform can instead give
+`.runner`, a `lws_epd_direct_runner_t` that runs the passes on a thread of
+its own by calling `lws_display_epd_direct_service()` until it returns
+`LWS_EPDD_SVC_STOP`, eg, the FreeRTOS one in
+`lib/plat/freertos/esp32/drivers/epd-direct-runner-esp32.c`.  The runner
+side never calls other lws apis.
+
 `minimal-examples-lowlevel/api-tests/api-test-epd-direct` checks the driver
 against a simulated panel, and
 `minimal-examples/embedded/lhp/esp32s3-lilygo-t5-47` uses it on hardware.
