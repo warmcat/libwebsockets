@@ -34,7 +34,7 @@ lws_i2c_command(const lws_i2c_ops_t *ctx, uint8_t ads7, uint8_t c)
 	if (ctx->start(ctx))
 		return 1;
 
-	if (ctx->write(ctx, ads7 << 1)) {
+	if (ctx->write(ctx, (uint8_t)(ads7 << 1))) {
 		ctx->stop(ctx);
 
 		return 1;

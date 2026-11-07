@@ -64,7 +64,7 @@ lws_bb_spi_write(lws_bb_spi_t *ctx, const uint8_t *buf, size_t len)
 			ctx->gpio->set(ctx->clk, inv);
 			ctx->gpio->set(ctx->mosi, !!(u & 0x40));
 			ctx->gpio->set(ctx->clk, !inv);
-			u <<= 2;
+			u = (uint8_t)(u << 2);
 		}
 	}
 
@@ -82,7 +82,7 @@ lws_bb_spi_read(lws_bb_spi_t *ctx, uint8_t *buf, size_t len)
 
 		for (n = 0; n < 8; n++) {
 			ctx->gpio->set(ctx->clk, inv);
-			u = (u << 1) | !!ctx->gpio->read(ctx->miso);
+			u = (uint8_t)((u << 1) | !!ctx->gpio->read(ctx->miso));
 			ctx->gpio->set(ctx->mosi, !!(u & 0x80));
 			ctx->gpio->set(ctx->clk, !inv);
 		}
