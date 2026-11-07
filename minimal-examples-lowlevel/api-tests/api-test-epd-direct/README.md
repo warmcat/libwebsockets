@@ -34,6 +34,13 @@ real panel would, if the waveforms suited it.  It checks
 
  - the panel supplies are turned off once the passes are done
 
+Where there are pthreads, it then runs all of it again with the passes run on
+a thread of their own, through `lws_epd_direct_runner_t`, the way a platform
+would run them on another core.  The runner can be held before a pass, so the
+tests that act between particular passes still see the same thing.  Built
+with `-fsanitize=thread`, this is what shows if the two sides of the driver
+share anything without the ordering they need.
+
 Requires `LWS_WITH_DRIVERS` and `LWS_WITH_SYS_SMD`.
 
 ## build

@@ -157,7 +157,8 @@ typedef struct lws_epd_direct_waveform_bw {
 /*
  * The transport, implemented by the platform.  The generic driver calls these
  * from whatever runs the passes, which isn't necessarily the lws event loop
- * thread, so they mustn't call lws apis.
+ * thread, so they mustn't call lws apis.  init() and deinit() are called from
+ * the lws event loop thread, when nothing else is.
  *
  * A pass is frame_start(), then for each row in turn either row_load() then
  * row_drive(), or row_skip(), then frame_end().
@@ -203,6 +204,38 @@ typedef struct lws_epd_direct_bus_ops {
 } lws_epd_direct_bus_ops_t;
 
 /*
+ * What runs the passes, optional.
+ *
+ * Passes are run by calling lws_display_epd_direct_service() until it says
+ * there's nothing to do.  Without a runner, it's called from a sul on the lws
+ * event loop thread, so the passes share that thread with everything else on
+ * it and are delayed by it.  A platform can instead give a runner that calls
+ * it from a thread of its own, eg, on another cpu core.
+ *
+ * The runner's thread calls only lws_display_epd_direct_service(), and the
+ * bus ops from inside it, never other lws apis.
+ */
+
+#define LWS_EPDD_SVC_IDLE	((lws_usec_t)-1)
+/**< nothing to do until the runner is kicked */
+#define LWS_EPDD_SVC_STOP	((lws_usec_t)-2)
+/**< the panel is unpowered, the runner's thread should end */
+
+typedef struct lws_epd_direct_runner {
+	int (*start)(const struct lws_epd_direct_runner *r,
+		     lws_display_state_t *lds);
+	/**< start a thread that calls lws_display_epd_direct_service(lds)
+	 * over and over, waiting between calls for as long as it says, or
+	 * until kicked.  0 = OK */
+	void (*kick)(const struct lws_epd_direct_runner *r);
+	/**< if the thread is waiting, have it call the service now.  Called
+	 * from the lws event loop thread. */
+	void (*stop)(const struct lws_epd_direct_runner *r);
+	/**< kick the thread, and return once it has seen LWS_EPDD_SVC_STOP
+	 * and ended */
+} lws_epd_direct_runner_t;
+
+/*
  * The display object, a subclass of lws_display_t.  The surface it presents
  * is the panel's source_px x gate_rows; give the lws_display_t .ic a 1-bit
  * greyscale palette, black then white.
@@ -214,6 +247,9 @@ typedef struct lws_display_epd_direct {
 	const lws_epd_direct_panel_t	*panel;
 	const lws_epd_direct_waveform_bw_t *wf_bw;
 	const lws_epd_direct_bus_ops_t	*bus;
+	const lws_epd_direct_runner_t	*runner;
+	/**< NULL to run the passes from the lws event loop, or what runs
+	 * them on a thread of its own */
 
 	lws_display_completion_t	cb;
 	/**< told 1 when the panel has been cleared after init, and 2 when an
@@ -238,6 +274,20 @@ lws_display_epd_direct_blit(lws_display_state_t *lds, const uint8_t *src,
 			    lws_box_t *box, lws_dll2_owner_t *ids);
 LWS_VISIBLE LWS_EXTERN int
 lws_display_epd_direct_power(lws_display_state_t *lds, int state);
+
+/**
+ * lws_display_epd_direct_service() - run what's due on the panel
+ *
+ * \param lds: the display state the driver was initialized on
+ *
+ * Called by what runs the passes, see lws_epd_direct_runner_t, and only by
+ * that.  Runs a pass if one is due, powers the panel off if it has been idle
+ * long enough, and returns how many us until it wants to be called again, or
+ * LWS_EPDD_SVC_IDLE if it doesn't until there's more to do, or
+ * LWS_EPDD_SVC_STOP when the driver is being destroyed.
+ */
+LWS_VISIBLE LWS_EXTERN lws_usec_t
+lws_display_epd_direct_service(lws_display_state_t *lds);
 
 /**
  * lws_display_epd_direct_destroy() - unpower the panel and free the driver

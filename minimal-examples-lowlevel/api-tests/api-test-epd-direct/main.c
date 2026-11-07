@@ -28,11 +28,26 @@
  *  - a full refresh clears the panel every so many updates
  *  - a line blitted without pixels is white
  *  - the supplies are turned off after the passes are done
+ *
+ * Where there are pthreads, it then does it all again with the passes run on
+ * a thread of their own, the way a platform's runner would, to check the two
+ * sides of the driver only share what they should.
  */
 
 #include <libwebsockets.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if defined(LWS_HAVE_PTHREAD_H) && (defined(__GNUC__) || defined(__clang__))
+#define TEST_THREADS
+#if defined(WIN32)
+/* the ucrt time.h already defined it, don't let pthreads-win32 do it again */
+#define HAVE_STRUCT_TIMESPEC
+#endif
+#include <pthread.h>
+#include <errno.h>
+#include <time.h>
+#endif
 
 static int fails;
 static struct lws_context *cx;
@@ -64,6 +79,21 @@ static struct lws_context *cx;
  */
 
 #define wake() lws_cancel_service(cx)
+
+/*
+ * With a runner thread, its side writes some of the simulated panel's counts
+ * while the test reads them
+ */
+
+#if defined(TEST_THREADS)
+#define aget(_p)	__atomic_load_n(_p, __ATOMIC_ACQUIRE)
+#define aset(_p, _v)	__atomic_store_n(_p, _v, __ATOMIC_RELEASE)
+#define ainc(_p)	__atomic_fetch_add(_p, 1, __ATOMIC_ACQ_REL)
+#else
+#define aget(_p)	(*(_p))
+#define aset(_p, _v)	(*(_p) = (_v))
+#define ainc(_p)	((*(_p))++)
+#endif
 
 /* the simulated panel */
 
@@ -102,11 +132,11 @@ sim_power(const lws_epd_direct_bus_ops_t *bus, int on)
 {
 	(void)bus;
 
-	sim.powered = on;
+	aset(&sim.powered, on);
 	if (on)
-		sim.power_ons++;
+		ainc(&sim.power_ons);
 	else
-		sim.power_offs++;
+		ainc(&sim.power_offs);
 	wake();
 
 	return 0;
@@ -117,7 +147,7 @@ sim_frame_start(const lws_epd_direct_bus_ops_t *bus)
 {
 	(void)bus;
 
-	if (!sim.powered)
+	if (!aget(&sim.powered))
 		sim.bad_frames++;
 	sim.row = 0;
 }
@@ -221,7 +251,7 @@ sim_frame_end(const lws_epd_direct_bus_ops_t *bus)
 
 	if (sim.row != H)
 		sim.bad_frames++;
-	sim.passes++;
+	ainc(&sim.passes);
 	wake();
 }
 
@@ -312,19 +342,186 @@ static lws_display_epd_direct_t disp = {
 
 static lws_display_state_t lds;
 
+static int
+lds_runner(void)
+{
+	return disp.runner != NULL;
+}
+
 /* what we last blitted, 0 black or 1 white */
 static uint8_t want[H][W];
+
+static int
+lds_runner(void);
 
 static void
 service_until(int *what, int count)
 {
 	lws_usec_t until = lws_now_usecs() + 5 * LWS_US_PER_SEC;
 
-	while (*what < count && lws_now_usecs() < until)
+	while (aget(what) < count && lws_now_usecs() < until)
 		if (lws_service(cx, 0) < 0)
 			break;
 
-	check(*what >= count, "timed out waiting\n");
+	check(aget(what) >= count, "timed out waiting\n");
+}
+
+#if defined(TEST_THREADS)
+
+/*
+ * A runner on a thread of its own, like a platform's.  So the tests can do
+ * things between particular passes, it can be held before a pass.
+ */
+
+static struct {
+	lws_epd_direct_runner_t	r;
+	pthread_t		thread;
+	pthread_mutex_t		lock;
+	pthread_cond_t		cond;
+	lws_display_state_t	*lds;
+	int			kicked;
+	int			hold_at;
+	/**< -1, or don't start a pass once there have been this many */
+	int			held;
+} tr;
+
+static void *
+tr_thread(void *a)
+{
+	lws_usec_t us;
+	struct timespec ts;
+
+	(void)a;
+
+	pthread_mutex_lock(&tr.lock);
+
+	for (;;) {
+		while (tr.hold_at >= 0 && aget(&sim.passes) >= tr.hold_at) {
+			tr.held = 1;
+			wake();
+			pthread_cond_wait(&tr.cond, &tr.lock);
+		}
+		tr.held = 0;
+		tr.kicked = 0;
+
+		pthread_mutex_unlock(&tr.lock);
+		us = lws_display_epd_direct_service(tr.lds);
+		pthread_mutex_lock(&tr.lock);
+
+		if (us == LWS_EPDD_SVC_STOP)
+			break;
+		if (tr.kicked)
+			continue;
+
+		if (us == LWS_EPDD_SVC_IDLE) {
+			pthread_cond_wait(&tr.cond, &tr.lock);
+			continue;
+		}
+
+		clock_gettime(CLOCK_REALTIME, &ts);
+		ts.tv_sec += (time_t)(us / LWS_US_PER_SEC);
+		ts.tv_nsec += (long)(us % LWS_US_PER_SEC) * 1000;
+		if (ts.tv_nsec >= 1000000000) {
+			ts.tv_sec++;
+			ts.tv_nsec -= 1000000000;
+		}
+		pthread_cond_timedwait(&tr.cond, &tr.lock, &ts);
+	}
+
+	pthread_mutex_unlock(&tr.lock);
+
+	return NULL;
+}
+
+static int
+tr_start(const lws_epd_direct_runner_t *r, lws_display_state_t *l)
+{
+	(void)r;
+
+	tr.lds = l;
+	tr.hold_at = -1;
+
+	return pthread_create(&tr.thread, NULL, tr_thread, NULL);
+}
+
+static void
+tr_kick(const lws_epd_direct_runner_t *r)
+{
+	(void)r;
+
+	pthread_mutex_lock(&tr.lock);
+	tr.kicked = 1;
+	pthread_cond_signal(&tr.cond);
+	pthread_mutex_unlock(&tr.lock);
+}
+
+static void
+tr_stop(const lws_epd_direct_runner_t *r)
+{
+	pthread_mutex_lock(&tr.lock);
+	tr.hold_at = -1;
+	pthread_mutex_unlock(&tr.lock);
+
+	tr_kick(r);
+	pthread_join(tr.thread, NULL);
+}
+
+static const lws_epd_direct_runner_t tr_runner = {
+	.start		= tr_start,
+	.kick		= tr_kick,
+	.stop		= tr_stop,
+};
+
+#endif
+
+/*
+ * Wait until there have been a number of passes, with the next one not started
+ * until release() is called
+ */
+
+static void
+hold_at(int passes)
+{
+#if defined(TEST_THREADS)
+	lws_usec_t until = lws_now_usecs() + 5 * LWS_US_PER_SEC;
+	int held = 0;
+
+	if (lds_runner()) {
+		pthread_mutex_lock(&tr.lock);
+		tr.hold_at = passes;
+		pthread_cond_signal(&tr.cond);
+		pthread_mutex_unlock(&tr.lock);
+
+		while (!held && lws_now_usecs() < until) {
+			pthread_mutex_lock(&tr.lock);
+			held = tr.held;
+			pthread_mutex_unlock(&tr.lock);
+			if (!held && lws_service(cx, 0) < 0)
+				break;
+		}
+		check(held, "runner not held\n");
+		check(aget(&sim.passes) == passes, "held at pass %d, not %d\n",
+		      aget(&sim.passes), passes);
+
+		return;
+	}
+#endif
+
+	/* without a runner, a pass is one lws_service() */
+	service_until(&sim.passes, passes);
+}
+
+static void
+release(void)
+{
+#if defined(TEST_THREADS)
+	if (lds_runner()) {
+		pthread_mutex_lock(&tr.lock);
+		tr.hold_at = -1;
+		pthread_cond_signal(&tr.cond);
+		pthread_mutex_unlock(&tr.lock);
+	}
+#endif
 }
 
 static void
@@ -452,7 +649,7 @@ test_boot(void)
 	/* after the idle time, the supplies go off */
 
 	service_until(&sim.power_offs, 1);
-	check(!sim.powered, "still powered\n");
+	check(!aget(&sim.powered), "still powered\n");
 }
 
 static void
@@ -525,11 +722,12 @@ test_overlap(void)
 
 	/* two passes later, rows 8 - 9 go black too */
 
-	target = sim.passes + 2;
-	service_until(&sim.passes, target);
+	target = aget(&sim.passes) + 2;
+	hold_at(target);
 	set_rect(10, 8, 30, 10, 0);
 	blit_all();
 	commit();
+	release();
 
 	service_until(&cb2, c + 1);
 	check_panel("overlap");
@@ -556,13 +754,14 @@ test_collision(void)
 
 	/* ... and is wanted white again while it's still going */
 
-	target = sim.passes + 3;
-	service_until(&sim.passes, target);
+	target = aget(&sim.passes) + 3;
+	hold_at(target);
 	check(sim.ink[6][50] != 0 && sim.ink[6][50] != INK_STEPS,
 	      "pixel not in between (%d)\n", sim.ink[6][50]);
 	want[6][50] = 1;
 	blit_all();
 	commit();
+	release();
 
 	service_until(&cb2, c + 1);
 	check_panel("collision");
@@ -628,6 +827,43 @@ test_full_refresh(void)
 	disp.full_refresh_every = 0;
 }
 
+static void
+run_tests(const lws_epd_direct_runner_t *runner)
+{
+	memset(&sim, 0, sizeof(sim));
+	memset(&lds, 0, sizeof(lds));
+	cb1 = cb2 = 0;
+	disp.runner = runner;
+
+	lwsl_user("passes run %s\n", runner ? "on their own thread" :
+					      "from the event loop");
+
+	test_boot();
+	if (!lds.priv)
+		return;
+
+	test_update();
+	test_aligned();
+	test_overlap();
+	test_collision();
+	test_null_line();
+	test_full_refresh();
+
+	service_until(&sim.power_offs, aget(&sim.power_ons));
+	check(!aget(&sim.powered), "still powered at the end\n");
+	check(!sim.bad_skips, "%d rows stepped over with drive latched\n",
+	      sim.bad_skips);
+	check(!sim.bad_frames, "%d bad passes\n", sim.bad_frames);
+	check(!sim.bad_loads, "%d bad row loads\n", sim.bad_loads);
+	check(!sim.bad_buffers, "%d rows changed while being sent\n",
+	      sim.bad_buffers);
+
+	lwsl_user("%d passes\n", aget(&sim.passes));
+
+	lws_display_epd_direct_destroy(&lds);
+	check(!lds.priv, "destroy didn't clear\n");
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -645,32 +881,19 @@ main(int argc, const char **argv)
 		return 1;
 	}
 
-	test_boot();
-	if (lds.priv) {
-		test_update();
-		test_aligned();
-		test_overlap();
-		test_collision();
-		test_null_line();
-		test_full_refresh();
+	run_tests(NULL);
 
-		service_until(&sim.power_offs, sim.power_ons);
-		check(!sim.powered, "still powered at the end\n");
-		check(!sim.bad_skips, "%d rows stepped over with drive latched\n",
-		      sim.bad_skips);
-		check(!sim.bad_frames, "%d bad passes\n", sim.bad_frames);
-		check(!sim.bad_loads, "%d bad row loads\n", sim.bad_loads);
-		check(!sim.bad_buffers, "%d rows changed while being sent\n",
-		      sim.bad_buffers);
-
-		lws_display_epd_direct_destroy(&lds);
-		check(!lds.priv, "destroy didn't clear\n");
-	}
+#if defined(TEST_THREADS)
+	pthread_mutex_init(&tr.lock, NULL);
+	pthread_cond_init(&tr.cond, NULL);
+	run_tests(&tr_runner);
+	pthread_cond_destroy(&tr.cond);
+	pthread_mutex_destroy(&tr.lock);
+#endif
 
 	lws_context_destroy(cx);
 
-	lwsl_user("Completed: %s (%d passes)\n", fails ? "FAIL" : "PASS",
-		  sim.passes);
+	lwsl_user("Completed: %s\n", fails ? "FAIL" : "PASS");
 
 	return !!fails;
 }

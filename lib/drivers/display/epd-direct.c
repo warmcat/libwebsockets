@@ -38,8 +38,24 @@
  * count of the passes it has run.  Slots are made and freed by the side of
  * the driver on the lws event loop thread, which owns the planes.  What runs
  * the passes only reads the masks of slots handed to it, and only changes
- * their pass count and state, at pass boundaries.  At the moment the passes
- * are run from the event loop thread too, one pass per sul callback.
+ * their pass count and state, at pass boundaries.
+ *
+ * The passes are run from lws_display_epd_direct_service().  By default it's
+ * called from a sul on the event loop thread, but a platform can give us a
+ * runner that calls it from a thread of its own, see lws_epd_direct_runner_t.
+ * The two sides then share only the slots' states, which are published with
+ * release and read with acquire ordering, and a few flags done the same way.
+ * Everything else belongs to one side or the other:
+ *
+ *  - event loop side: the planes, the dirty flags, making slots and freeing
+ *    them, telling the caller about completions, logging
+ *
+ *  - runner side: the bus and everything it's given, the row buffers and
+ *    drive masks, whether the panel is powered, the pass timing
+ *
+ * When there's a runner, the event loop side looks at the slots at the pass
+ * rate while any are in flight, to collect the ones that finished.  The
+ * runner never calls into lws.
  *
  * In a pass, each row is encoded while the one before it is being sent to the
  * source drivers, into the row buffer that isn't being sent, so the cpu time
@@ -63,6 +79,31 @@ enum epdd_row_act {
 	EPDD_ROW_DATA,		/* load and latch its drive codes */
 };
 
+/*
+ * The few things the two sides share are only accessed with these.  With
+ * MSVC, volatile accesses already have acquire / release ordering.
+ */
+
+static uint8_t
+epdd_get(const uint8_t *p)
+{
+#if defined(__GNUC__) || defined(__clang__)
+	return __atomic_load_n(p, __ATOMIC_ACQUIRE);
+#else
+	return *(const volatile uint8_t *)p;
+#endif
+}
+
+static void
+epdd_set(uint8_t *p, uint8_t v)
+{
+#if defined(__GNUC__) || defined(__clang__)
+	__atomic_store_n(p, v, __ATOMIC_RELEASE);
+#else
+	*(volatile uint8_t *)p = v;
+#endif
+}
+
 enum epdd_slot_state {
 	EPDD_SLOT_FREE,
 	EPDD_SLOT_ARMED,	/* made, waiting for the next pass to start */
@@ -83,15 +124,41 @@ typedef struct epdd_slot {
 	uint16_t		len;
 	/**< passes it needs */
 	uint8_t			state;
-	/**< enum epdd_slot_state */
+	/**< enum epdd_slot_state, shared, use epdd_get() / epdd_set() */
 	uint8_t			clear;
 	/**< it's the clear waveform on every pixel, it has no masks */
 } epdd_slot_t;
 
+/*
+ * What the runner side counts about the passes, handed over to the event loop
+ * side to log when the panel goes idle
+ */
+
+typedef struct epdd_rstats {
+	lws_usec_t		start;
+	/**< the first pass started */
+	lws_usec_t		end;
+	/**< the last pass ended */
+	lws_usec_t		scan_min;
+	lws_usec_t		scan_max;
+	lws_usec_t		scan_sum;
+	/**< how long passes took to scan the rows, not counting waiting
+	 * between passes for the panel's maximum frame rate */
+	uint32_t		passes;
+	uint32_t		rows_driven;
+	uint32_t		rows_skipped;
+	uint32_t		rows_none;
+	/**< rows not driven that had to be loaded to latch "no drive" */
+} epdd_rstats_t;
+
 typedef struct epdd_priv {
 	lws_display_state_t	*lds;
 	lws_sorted_usec_list_t	sul_pass;
-	lws_sorted_usec_list_t	sul_power;
+	/**< without a runner, calls lws_display_epd_direct_service() */
+	lws_sorted_usec_list_t	sul_poll;
+	/**< with a runner, collects what it finished */
+	lws_usec_t		sul_pass_due;
+	/**< when sul_pass is due, if it's scheduled */
 
 	lws_surface_error_t	*u[2];
 	/**< error diffusion for two lines */
@@ -139,28 +206,40 @@ typedef struct epdd_priv {
 	 * again, to see how long updates take on the real thing
 	 */
 
-	lws_usec_t		st_start;
-	/**< the first pass started */
+	epdd_rstats_t		rst;
+	/**< runner side: what it's counting now */
+	epdd_rstats_t		rst_pub;
+	/**< what the runner side handed over, when rst_ready */
 	lws_usec_t		st_commit;
 	/**< 0, or the first update was committed */
-	lws_usec_t		st_scan_min;
-	lws_usec_t		st_scan_max;
-	lws_usec_t		st_scan_sum;
-	/**< how long passes took to scan the rows, not counting waiting
-	 * between passes for the panel's maximum frame rate */
-	uint32_t		st_passes;
-	uint32_t		st_rows_driven;
-	uint32_t		st_rows_skipped;
-	uint32_t		st_rows_none;
-	/**< rows not driven that had to be loaded to latch "no drive" */
 	uint32_t		st_px_black;
 	uint32_t		st_px_white;
 	uint16_t		st_updates;
 	uint16_t		st_clears;
 
-	uint8_t			powered:1;
-	uint8_t			latched_none:1;
+	/* runner side */
+
+	lws_usec_t		last_pass;
+	/**< 0, or when the last pass started */
+	lws_usec_t		idle_since;
+	/**< 0, or when the runner found nothing to drive while powered */
+	uint8_t			powered;
+	uint8_t			latched_none;
 	/**< what's latched in the source drivers is no drive */
+
+	/* shared, use epdd_get() / epdd_set() */
+
+	uint8_t			rst_ready;
+	/**< the runner side handed over rst_pub, for the event loop side */
+	uint8_t			power_off_req;
+	/**< the event loop side wants the panel unpowered when it's idle */
+	uint8_t			power_failed;
+	/**< the runner side couldn't power the panel */
+	uint8_t			stopping;
+	/**< the runner side should unpower the panel and stop */
+
+	/* event loop side */
+
 	uint8_t			full_pending:1;
 	/**< clear the panel when nothing is in flight */
 	uint8_t			booting:1;
@@ -176,6 +255,8 @@ typedef struct epdd_priv {
 
 static void
 epdd_pass_cb(lws_sorted_usec_list_t *sul);
+static void
+epdd_poll_cb(lws_sorted_usec_list_t *sul);
 
 static uint32_t *
 plane_row(const epdd_priv_t *priv, uint32_t *plane, int row)
@@ -193,16 +274,50 @@ popcount32(uint32_t v)
 	return (v * 0x01010101u) >> 24;
 }
 
+/* every slot is free, so nothing is in flight or waiting to be collected */
+
 static int
 slots_idle(const epdd_priv_t *priv)
 {
 	int n;
 
 	for (n = 0; n < EPDD_SLOTS; n++)
-		if (priv->slot[n].state != EPDD_SLOT_FREE)
+		if (epdd_get(&priv->slot[n].state) != EPDD_SLOT_FREE)
 			return 0;
 
 	return 1;
+}
+
+/* a slot that wasn't running in this pass is waiting for passes now */
+
+static int
+slots_active_other(const epdd_priv_t *priv, const uint8_t *st)
+{
+	int n;
+
+	for (n = 0; n < EPDD_SLOTS; n++)
+		if (st[n] != EPDD_SLOT_RUNNING &&
+		    epdd_get(&priv->slot[n].state) == EPDD_SLOT_ARMED)
+			return 1;
+
+	return 0;
+}
+
+/* some slot is waiting for passes or having them */
+
+static int
+slots_active(const epdd_priv_t *priv)
+{
+	uint8_t st;
+	int n;
+
+	for (n = 0; n < EPDD_SLOTS; n++) {
+		st = epdd_get(&priv->slot[n].state);
+		if (st == EPDD_SLOT_ARMED || st == EPDD_SLOT_RUNNING)
+			return 1;
+	}
+
+	return 0;
 }
 
 /*
@@ -310,7 +425,7 @@ encode_row(epdd_priv_t *priv, const lws_epd_direct_waveform_bw_t *wf, int row,
 		const uint32_t *tb, *tw;
 		uint8_t cb, cw;
 
-		if (s->state != EPDD_SLOT_RUNNING)
+		if (epdd_get(&s->state) != EPDD_SLOT_RUNNING)
 			continue;
 
 		if (s->clear) {
@@ -381,18 +496,18 @@ prepare_row(epdd_priv_t *priv, const lws_epd_direct_waveform_bw_t *wf,
 		 * of a driven one.
 		 */
 		if (priv->latched_none) {
-			priv->st_rows_skipped++;
+			priv->rst.rows_skipped++;
 			return EPDD_ROW_SKIP;
 		}
 		priv->latched_none = 1;
-		priv->st_rows_none++;
+		priv->rst.rows_none++;
 		*data = priv->nonebuf;
 
 		return EPDD_ROW_NONE;
 	}
 
 	priv->latched_none = 0;
-	priv->st_rows_driven++;
+	priv->rst.rows_driven++;
 
 	if (!priv->cur_valid || memcmp(drv_b(priv, nb), drv_b(priv, priv->cur),
 			sizeof(uint32_t) * 2u * (size_t)priv->words)) {
@@ -407,8 +522,9 @@ prepare_row(epdd_priv_t *priv, const lws_epd_direct_waveform_bw_t *wf,
 }
 
 /*
- * One pass over every row, driving the slots that are running.  This side
- * only reads the slots' masks, and changes their pass counts and states.
+ * Runner side: one pass over every row, driving the slots that are running.
+ * This side only reads the slots' masks, and changes their pass counts and
+ * states.
  *
  * Returns nonzero if anything was driven.
  */
@@ -420,26 +536,16 @@ epdd_pass(epdd_priv_t *priv)
 	const lws_epd_direct_bus_ops_t *bus = ed->bus;
 	const lws_epd_direct_waveform_bw_t *wf = ed->wf_bw;
 	size_t len = priv->row_bytes + bus->row_tail_bytes;
-	int n, row, rows = (int)ed->panel->gate_rows, any = 0, act, nact = 0;
+	int n, row, rows = (int)ed->panel->gate_rows, any = 0, act, nact = 0,
+	    left = 0;
 	const uint8_t *data = NULL, *ndata = NULL;
+	uint8_t st[EPDD_SLOTS];
 	lws_usec_t t0;
 
-	/* updates made since the last pass join at this pass boundary */
-
-	for (n = 0; n < EPDD_SLOTS; n++) {
-		if (priv->slot[n].state == EPDD_SLOT_ARMED)
-			priv->slot[n].state = EPDD_SLOT_RUNNING;
-		if (priv->slot[n].state == EPDD_SLOT_RUNNING)
-			any = 1;
-	}
-
-	if (!any)
-		return 0;
-
 	if (!priv->powered) {
-		lws_sul_cancel(&priv->sul_power);
 		if (bus->power(bus, 1)) {
-			lwsl_err("%s: unable to power panel\n", __func__);
+			/* the event loop side says so, we try again later */
+			epdd_set(&priv->power_failed, 1);
 			return 0;
 		}
 		priv->powered = 1;
@@ -447,9 +553,28 @@ epdd_pass(epdd_priv_t *priv)
 		priv->latched_none = 0;
 	}
 
+	/*
+	 * Updates made since the last pass join at this pass boundary.  The
+	 * slots running stay running, and nothing else changes them, until we
+	 * say they're done.
+	 */
+
+	for (n = 0; n < EPDD_SLOTS; n++) {
+		st[n] = epdd_get(&priv->slot[n].state);
+		if (st[n] == EPDD_SLOT_ARMED) {
+			st[n] = EPDD_SLOT_RUNNING;
+			epdd_set(&priv->slot[n].state, st[n]);
+		}
+		if (st[n] == EPDD_SLOT_RUNNING)
+			any = 1;
+	}
+
+	if (!any)
+		return 0;
+
 	t0 = lws_now_usecs();
-	if (!priv->st_passes++)
-		priv->st_start = t0;
+	if (!priv->rst.passes++)
+		priv->rst.start = t0;
 
 	/* the slots running have changed, what was packed is stale */
 	priv->cur_valid = 0;
@@ -478,18 +603,41 @@ epdd_pass(epdd_priv_t *priv)
 
 	bus->frame_end(bus);
 
-	t0 = lws_now_usecs() - t0;
-	if (priv->st_passes == 1 || t0 < priv->st_scan_min)
-		priv->st_scan_min = t0;
-	if (t0 > priv->st_scan_max)
-		priv->st_scan_max = t0;
-	priv->st_scan_sum += t0;
+	priv->rst.end = lws_now_usecs();
+	t0 = priv->rst.end - t0;
+	if (priv->rst.passes == 1 || t0 < priv->rst.scan_min)
+		priv->rst.scan_min = t0;
+	if (t0 > priv->rst.scan_max)
+		priv->rst.scan_max = t0;
+	priv->rst.scan_sum += t0;
 
 	for (n = 0; n < EPDD_SLOTS; n++) {
 		epdd_slot_t *s = &priv->slot[n];
 
-		if (s->state == EPDD_SLOT_RUNNING && ++s->pass >= s->len)
-			s->state = EPDD_SLOT_DONE;
+		if (st[n] != EPDD_SLOT_RUNNING)
+			continue;
+		if (++s->pass < s->len)
+			left = 1;
+	}
+
+	/*
+	 * If this was the last pass of everything, hand over what we counted
+	 * before saying the slots are done, so the event loop side has it
+	 * when it sees them done
+	 */
+
+	if (!left && !slots_active_other(priv, st) &&
+	    !epdd_get(&priv->rst_ready)) {
+		priv->rst_pub = priv->rst;
+		memset(&priv->rst, 0, sizeof(priv->rst));
+		epdd_set(&priv->rst_ready, 1);
+	}
+
+	for (n = 0; n < EPDD_SLOTS; n++) {
+		epdd_slot_t *s = &priv->slot[n];
+
+		if (st[n] == EPDD_SLOT_RUNNING && s->pass >= s->len)
+			epdd_set(&s->state, EPDD_SLOT_DONE);
 	}
 
 	return 1;
@@ -501,19 +649,64 @@ free_slot(epdd_priv_t *priv)
 	int n;
 
 	for (n = 0; n < EPDD_SLOTS; n++)
-		if (priv->slot[n].state == EPDD_SLOT_FREE)
+		if (epdd_get(&priv->slot[n].state) == EPDD_SLOT_FREE)
 			return &priv->slot[n];
 
 	return NULL;
 }
 
+/*
+ * Without a runner, have lws_display_epd_direct_service() called in us,
+ * unless it's already going to be called sooner
+ */
+
 static void
 schedule_pass(epdd_priv_t *priv, lws_usec_t us)
 {
-	if (!lws_dll2_is_detached(&priv->sul_pass.list))
+	lws_usec_t due = lws_now_usecs() + us;
+
+	if (!lws_dll2_is_detached(&priv->sul_pass.list) &&
+	    priv->sul_pass_due <= due)
 		return;
 
+	priv->sul_pass_due = due;
 	lws_sul_schedule(priv->lds->ctx, 0, &priv->sul_pass, epdd_pass_cb, us);
+}
+
+/*
+ * Event loop side: there's something new for the runner side to look at
+ */
+
+static void
+epdd_kick(epdd_priv_t *priv)
+{
+	const lws_display_epd_direct_t *ed = lds_to_disp(priv->lds);
+
+	if (!ed->runner) {
+		schedule_pass(priv, 0);
+		return;
+	}
+
+	ed->runner->kick(ed->runner);
+
+	/* look for what it finished at the pass rate while it's busy */
+
+	if (lws_dll2_is_detached(&priv->sul_poll.list))
+		lws_sul_schedule(priv->lds->ctx, 0, &priv->sul_poll,
+				 epdd_poll_cb, ed->panel->min_pass_us);
+}
+
+/* a free slot back to how it started, the runner side isn't looking at it */
+
+static void
+slot_reset(epdd_slot_t *s)
+{
+	s->blk = NULL;
+	s->row_idx = NULL;
+	s->masks = NULL;
+	s->pass = 0;
+	s->len = 0;
+	s->clear = 0;
 }
 
 /*
@@ -527,7 +720,7 @@ start_clear(epdd_priv_t *priv, epdd_slot_t *s)
 	const lws_display_epd_direct_t *ed = lds_to_disp(priv->lds);
 	int row, w;
 
-	memset(s, 0, sizeof(*s));
+	slot_reset(s);
 	s->clear = 1;
 	s->len = ed->wf_bw->clear_len;
 
@@ -543,7 +736,8 @@ start_clear(epdd_priv_t *priv, epdd_slot_t *s)
 
 	priv->updates = 0;
 	priv->st_clears++;
-	s->state = EPDD_SLOT_ARMED;
+	/* everything about the slot is written before the runner can see it */
+	epdd_set(&s->state, EPDD_SLOT_ARMED);
 }
 
 /*
@@ -567,7 +761,7 @@ epdd_start(epdd_priv_t *priv)
 
 		priv->full_pending = 0;
 		start_clear(priv, &priv->slot[0]);
-		schedule_pass(priv, 0);
+		epdd_kick(priv);
 
 		return;
 	}
@@ -603,7 +797,7 @@ epdd_start(epdd_priv_t *priv)
 	sz = sizeof(uint16_t) * ed->panel->gate_rows;
 	sz = (sz + 3) & ~(size_t)3;
 
-	memset(s, 0, sizeof(*s));
+	slot_reset(s);
 	s->blk = lws_malloc(sz + (size_t)rows * 2u * (size_t)priv->words *
 						sizeof(uint32_t), __func__);
 	if (!s->blk) {
@@ -662,13 +856,14 @@ epdd_start(epdd_priv_t *priv)
 		s->len = ed->wf_bw->to_white_len;
 
 	priv->st_updates++;
-	s->state = EPDD_SLOT_ARMED;
-	schedule_pass(priv, 0);
+	/* everything about the slot is written before the runner can see it */
+	epdd_set(&s->state, EPDD_SLOT_ARMED);
+	epdd_kick(priv);
 }
 
 /*
- * The slots that finished give their pixels back.  Only the event loop side
- * frees slots.  Returns nonzero if any finished.
+ * Event loop side: the slots that finished give their pixels back.  Only the
+ * event loop side frees slots.  Returns nonzero if any finished.
  */
 
 static int
@@ -680,7 +875,8 @@ epdd_collect(epdd_priv_t *priv)
 	for (n = 0; n < EPDD_SLOTS; n++) {
 		epdd_slot_t *s = &priv->slot[n];
 
-		if (s->state != EPDD_SLOT_DONE)
+		/* the runner is done with it, and with the rows it drove */
+		if (epdd_get(&s->state) != EPDD_SLOT_DONE)
 			continue;
 
 		done = 1;
@@ -709,11 +905,58 @@ epdd_collect(epdd_priv_t *priv)
 					b[w] &= ~(tb[w] | tw[w]);
 			}
 
-		lws_free_set_NULL(s->blk);
-		memset(s, 0, sizeof(*s));
+		lws_free(s->blk);
+		slot_reset(s);
+		epdd_set(&s->state, EPDD_SLOT_FREE);
 	}
 
 	return done;
+}
+
+/*
+ * Event loop side: the panel has gone idle, say what it did since it was last
+ * idle, from what the runner side handed over and what we counted
+ */
+
+static void
+epdd_stats(epdd_priv_t *priv)
+{
+	const epdd_rstats_t *r = &priv->rst_pub;
+
+	if (!epdd_get(&priv->rst_ready))
+		return;
+
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	if (r->passes)
+		lwsl_notice("%s: %u passes in %dms, scans %d / %d / %dus "
+			    "(min / avg / max); rows %u driven, %u skipped, "
+			    "%u latched none; px %u to black, %u to white; "
+			    "%u updates, %u clears; settled %dms after "
+			    "commit\n", __func__,
+			    (unsigned int)r->passes,
+			    (int)((r->end - r->start) / LWS_US_PER_MS),
+			    (int)r->scan_min,
+			    (int)(r->scan_sum / r->passes),
+			    (int)r->scan_max,
+			    (unsigned int)r->rows_driven,
+			    (unsigned int)r->rows_skipped,
+			    (unsigned int)r->rows_none,
+			    (unsigned int)priv->st_px_black,
+			    (unsigned int)priv->st_px_white,
+			    (unsigned int)priv->st_updates,
+			    (unsigned int)priv->st_clears,
+			    priv->st_commit ? (int)((lws_now_usecs() -
+				priv->st_commit) / LWS_US_PER_MS) : -1);
+#else
+	(void)r;
+#endif
+
+	priv->st_commit = 0;
+	priv->st_px_black = priv->st_px_white = 0;
+	priv->st_updates = priv->st_clears = 0;
+
+	/* the runner side can hand over the next lot */
+	epdd_set(&priv->rst_ready, 0);
 }
 
 static int
@@ -750,6 +993,8 @@ epdd_check_idle(epdd_priv_t *priv)
 	    any_dirty(priv, ed->panel->gate_rows))
 		return;
 
+	epdd_stats(priv);
+
 	if (priv->committed) {
 		priv->committed = 0;
 		if (ed->cb)
@@ -757,68 +1002,77 @@ epdd_check_idle(epdd_priv_t *priv)
 	}
 }
 
-static void
-epdd_power_off_cb(lws_sorted_usec_list_t *sul)
+lws_usec_t
+lws_display_epd_direct_service(lws_display_state_t *lds)
 {
-	epdd_priv_t *priv = lws_container_of(sul, epdd_priv_t, sul_power);
-	const lws_display_epd_direct_t *ed = lds_to_disp(priv->lds);
+	const lws_display_epd_direct_t *ed = lds_to_disp(lds);
+	epdd_priv_t *priv = lds_to_priv(lds);
+	lws_usec_t now = lws_now_usecs(),
+		   min_us = (lws_usec_t)ed->panel->min_pass_us,
+		   idle_us = (lws_usec_t)ed->power_off_idle_ms * LWS_US_PER_MS;
 
-	if (!priv->powered || !slots_idle(priv))
-		return;
+	if (epdd_get(&priv->stopping)) {
+		if (priv->powered) {
+			ed->bus->power(ed->bus, 0);
+			priv->powered = 0;
+		}
+
+		return LWS_EPDD_SVC_STOP;
+	}
+
+	if (slots_active(priv)) {
+		/* the panel can't be scanned faster than its datasheet says */
+		if (priv->last_pass && now - priv->last_pass < min_us)
+			return min_us - (now - priv->last_pass);
+
+		priv->last_pass = now;
+		priv->idle_since = 0;
+		epdd_pass(priv);
+
+		if (slots_active(priv)) {
+			now = lws_now_usecs() - priv->last_pass;
+
+			return now < min_us ? min_us - now : 0;
+		}
+	}
+
+	/* nothing to drive */
+
+	if (!priv->powered) {
+		epdd_set(&priv->power_off_req, 0);
+
+		return LWS_EPDD_SVC_IDLE;
+	}
+
+	/* keep the panel powered for a while, in case more is coming */
+
+	if (!priv->idle_since)
+		priv->idle_since = now;
+
+	if (!epdd_get(&priv->power_off_req) &&
+	    now - priv->idle_since < idle_us)
+		return idle_us - (now - priv->idle_since);
 
 	ed->bus->power(ed->bus, 0);
 	priv->powered = 0;
+	epdd_set(&priv->power_off_req, 0);
+
+	return LWS_EPDD_SVC_IDLE;
 }
 
 /*
- * The panel has gone idle, say what it did since it was last idle
+ * Event loop side: collect what the runner side finished, start what was
+ * waiting on it, and tell the caller about it.  Returns nonzero while
+ * anything is in flight.
  */
 
-static void
-epdd_stats(epdd_priv_t *priv)
+static int
+epdd_poll(epdd_priv_t *priv)
 {
-#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
-	lws_usec_t now = lws_now_usecs();
-
-	if (!priv->st_passes)
-		return;
-
-	lwsl_notice("%s: %u passes in %dms, scans %d / %d / %dus "
-		    "(min / avg / max); rows %u driven, %u skipped, %u "
-		    "latched none; px %u to black, %u to white; %u updates, "
-		    "%u clears; settled %dms after commit\n", __func__,
-		    (unsigned int)priv->st_passes,
-		    (int)((now - priv->st_start) / LWS_US_PER_MS),
-		    (int)priv->st_scan_min,
-		    (int)(priv->st_scan_sum / priv->st_passes),
-		    (int)priv->st_scan_max,
-		    (unsigned int)priv->st_rows_driven,
-		    (unsigned int)priv->st_rows_skipped,
-		    (unsigned int)priv->st_rows_none,
-		    (unsigned int)priv->st_px_black,
-		    (unsigned int)priv->st_px_white,
-		    (unsigned int)priv->st_updates,
-		    (unsigned int)priv->st_clears,
-		    priv->st_commit ?
-			(int)((now - priv->st_commit) / LWS_US_PER_MS) : -1);
-#endif
-
-	priv->st_start = priv->st_commit = 0;
-	priv->st_scan_min = priv->st_scan_max = priv->st_scan_sum = 0;
-	priv->st_passes = priv->st_rows_driven = priv->st_rows_skipped =
-			  priv->st_rows_none = 0;
-	priv->st_px_black = priv->st_px_white = 0;
-	priv->st_updates = priv->st_clears = 0;
-}
-
-static void
-epdd_pass_cb(lws_sorted_usec_list_t *sul)
-{
-	epdd_priv_t *priv = lws_container_of(sul, epdd_priv_t, sul_pass);
-	const lws_display_epd_direct_t *ed = lds_to_disp(priv->lds);
-	lws_usec_t t0 = lws_now_usecs(), el, min_us;
-
-	epdd_pass(priv);
+	if (epdd_get(&priv->power_failed)) {
+		epdd_set(&priv->power_failed, 0);
+		lwsl_err("%s: unable to power panel\n", __func__);
+	}
 
 	if (epdd_collect(priv))
 		/* the pixels that were waiting on them can move now */
@@ -826,22 +1080,30 @@ epdd_pass_cb(lws_sorted_usec_list_t *sul)
 
 	epdd_check_idle(priv);
 
-	if (!slots_idle(priv)) {
-		/* the panel can't be scanned faster than its datasheet says */
-		el = lws_now_usecs() - t0;
-		min_us = (lws_usec_t)ed->panel->min_pass_us;
-		lws_sul_schedule(priv->lds->ctx, 0, &priv->sul_pass,
-				 epdd_pass_cb, el < min_us ? min_us - el : 0);
-		return;
-	}
+	return !slots_idle(priv);
+}
 
-	epdd_stats(priv);
+static void
+epdd_pass_cb(lws_sorted_usec_list_t *sul)
+{
+	epdd_priv_t *priv = lws_container_of(sul, epdd_priv_t, sul_pass);
+	lws_usec_t us = lws_display_epd_direct_service(priv->lds);
 
-	if (priv->powered)
-		lws_sul_schedule(priv->lds->ctx, 0, &priv->sul_power,
-				 epdd_power_off_cb,
-				 (lws_usec_t)ed->power_off_idle_ms *
-							LWS_US_PER_MS);
+	epdd_poll(priv);
+
+	if (us >= 0)
+		schedule_pass(priv, us);
+}
+
+static void
+epdd_poll_cb(lws_sorted_usec_list_t *sul)
+{
+	epdd_priv_t *priv = lws_container_of(sul, epdd_priv_t, sul_poll);
+	const lws_display_epd_direct_t *ed = lds_to_disp(priv->lds);
+
+	if (epdd_poll(priv))
+		lws_sul_schedule(priv->lds->ctx, 0, &priv->sul_poll,
+				 epdd_poll_cb, ed->panel->min_pass_us);
 }
 
 static int
@@ -1019,6 +1281,14 @@ lws_display_epd_direct_init(lws_display_state_t *lds)
 	 * else.  We tell the caller the display is ready when it's done.
 	 */
 
+	if (ed->runner && ed->runner->start(ed->runner, lds)) {
+		lwsl_err("%s: runner start failed\n", __func__);
+		lds->priv = NULL;
+		if (ed->bus->deinit)
+			ed->bus->deinit(ed->bus);
+		goto bail;
+	}
+
 	priv->booting = 1;
 	priv->full_pending = 1;
 	epdd_start(priv);
@@ -1143,13 +1413,13 @@ lws_display_epd_direct_power(lws_display_state_t *lds, int state)
 
 	/*
 	 * The panel keeps what it shows without power.  We power it for the
-	 * passes ourselves, but if we are told it's off and nothing is in
+	 * passes ourselves, but if we are told it's off, once nothing is in
 	 * flight, there's no need to wait out the idle time
 	 */
 
-	if (priv && !state && priv->powered && slots_idle(priv)) {
-		lws_sul_cancel(&priv->sul_power);
-		epdd_power_off_cb(&priv->sul_power);
+	if (priv && !state) {
+		epdd_set(&priv->power_off_req, 1);
+		epdd_kick(priv);
 	}
 
 	return 0;
@@ -1164,11 +1434,20 @@ lws_display_epd_direct_destroy(lws_display_state_t *lds)
 	if (!priv)
 		return;
 
-	lws_sul_cancel(&priv->sul_pass);
-	lws_sul_cancel(&priv->sul_power);
+	/*
+	 * The runner side unpowers the panel and stops.  Without a runner, we
+	 * are the runner side.
+	 */
 
-	if (priv->powered)
-		ed->bus->power(ed->bus, 0);
+	epdd_set(&priv->stopping, 1);
+	if (ed->runner)
+		ed->runner->stop(ed->runner);
+	else
+		lws_display_epd_direct_service(lds);
+
+	lws_sul_cancel(&priv->sul_pass);
+	lws_sul_cancel(&priv->sul_poll);
+
 	if (ed->bus->deinit)
 		ed->bus->deinit(ed->bus);
 
