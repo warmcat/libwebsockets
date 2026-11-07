@@ -230,6 +230,19 @@ main(int argc, const char **argv)
 	CHK(lws_fx_rounddown(&a) == 5, "rounddown 5.5 = %d",
 							lws_fx_rounddown(&a));
 
+	/* saturated values stay saturated rather than overflowing */
+
+	lws_fx_set(a, INT32_MAX, 50000000);
+	CHK(lws_fx_roundup(&a) == INT32_MAX, "roundup sat = %d",
+							lws_fx_roundup(&a));
+	lws_fx_set(a, -INT32_MAX, 50000000);
+	CHK(lws_fx_roundup(&a) == -INT32_MAX, "roundup -sat = %d",
+							lws_fx_roundup(&a));
+	lws_fx_set(a, 10000000, 0);
+	lws_fx_set(b, 255, 0);
+	lws_fx_mul(&r, &a, &b);
+	CHK(r.whole == INT32_MAX, "mul sat = %d", r.whole);
+
 	/* sin / cos against references */
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(fx_trig_ref); n++) {
