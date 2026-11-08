@@ -24,6 +24,8 @@ require_lws_config(LWS_WITH_SYS_SMD 1 requirements)
 # the frame's body fetches from a raw server of the test's own
 require_lws_config(LWS_WITH_SERVER 1 requirements)
 require_lws_config(LWS_ROLE_RAW 1 requirements)
+# ...over tls, which the default policy's __default streamtype mandates
+require_lws_config(LWS_WITH_TLS 1 requirements)
 # lhp fetches its assets through a secure stream from the JSON policy
 require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
 

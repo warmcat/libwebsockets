@@ -103,7 +103,9 @@ static const lws_dlo_filesystem_t fs_icon = {
 /*
  * The body's page, for the frame: its image is on a server of ours that takes
  * the connection and never says anything, so it is still being fetched for as
- * long as the test needs, which lws_dlo_ss_find() tells us
+ * long as the test needs, which lws_dlo_ss_find() tells us.  lhp fetches with
+ * the default policy's __default streamtype, which mandates tls: a url's
+ * scheme can't turn that off, so the url is https
  */
 
 static char body_html[192], body_img[64];
@@ -1250,7 +1252,7 @@ main(int argc, const char **argv)
 		lws_context_destroy(cx);
 		return 1;
 	}
-	lws_snprintf(body_img, sizeof(body_img), "http://127.0.0.1:%d/x.png",
+	lws_snprintf(body_img, sizeof(body_img), "https://127.0.0.1:%d/x.png",
 		     lws_get_vhost_listen_port(vh));
 	fs_body.len = (size_t)lws_snprintf(body_html, sizeof(body_html),
 			"<!doctype html><html><head><meta charset=\"utf-8\">"
