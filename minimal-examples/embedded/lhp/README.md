@@ -69,13 +69,21 @@ takes over the display instead, whatever is on it.
 The update display, made by `update-ui.c`, which also has nothing
 platform-specific in it, follows the overlay's look: the same title strip
 saying "Updating", in the same colours, then what is being updated and a
-bar filling up as it arrives, with the percentage.  Everything on it is
-placed for the display: on a round one, the bar is across the middle where
-the circle is widest and all of it is inside the circle; on a rectangular
-one, it goes in the middle of the space below the strip, with the update
-spinner as big as there is room for.  Drawing it takes time from fetching
-and flashing the update, so after the first, it is only redrawn every 3s,
-showing the progress by then.
+bar filling up as it arrives, with the percentage in the middle of it.  The
+bar is a capsule with `overflow: hidden`, which clips what is in it to its
+rounded ends, so the start of the fill is the capsule's own rounded end,
+filled in.  The percentage is in it twice, dark on the bar and light inside
+the fill, so where the fill ends inside the text, its colour changes there.
+On a display too small for the text to fit in the bar, it goes below it.
+
+Everything on it is placed for the display: on a round one, the bar is
+across the middle where the circle is widest and all of it is inside the
+circle; on a rectangular one, it goes in the middle of the space below the
+strip, with the update spinner as big as there is room for.  Drawing it
+takes time from fetching and flashing the update, so after the first, it is
+redrawn every 0.5s, moving the spinner on and showing the progress by then.
+A bistable display, eg, an EPD, is only redrawn every 3s, and only if the
+progress changed.
 
 The spinner is an svg animated with SMIL,
 `contrib/assets/update/update-1-spinner.svg`, built in by `boot-icons.cmake`

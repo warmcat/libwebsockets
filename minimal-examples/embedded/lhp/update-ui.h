@@ -9,6 +9,9 @@
  * While an update is downloaded, the display shows a page titled "Updating"
  * in a strip like the boot overlay's (lws-dlo-ui.h), what is being updated,
  * and a bar filling up with how much of it has arrived, with a spinner.
+ * The percentage is in the middle of the bar, dark where the bar is empty
+ * and light where it has filled, changing where the fill ends inside it; on
+ * a display too small for that, it's below the bar.
  * Everything on it is placed for the display it is shown on, so on a round
  * display it is all inside the circle.
  *
@@ -33,6 +36,9 @@
 #define LHP_UPDATE_ICON		"update-spinner.svg"
 /* ... and its size in px, it's drawn smaller if it doesn't fit */
 #define LHP_UPDATE_ICON_PX	96
+
+/* the bar must be this tall for the percentage to go in it, not below it */
+#define LHP_UPDATE_BAR_TEXT_MIN_PX	14
 
 /*
  * lhp_update_init() - register the update spinner in the dlo filesystem

@@ -123,8 +123,8 @@ lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
 		const char *variant, int pc)
 {
 	int w = ic->wh_px[0].whole, h = ic->wh_px[1].whole, th, fs, tl, pad,
-	    bh, by, bx0, bx1, bw, bx, fw, gap, vl, vfs, vy, py, is = 0, iy = 0,
-	    a, ay, b, by2;
+	    bh, by, bx0, bx1, bw, bx, fw, gap, vl, vfs, vy, py = 0, is = 0,
+	    iy = 0, a, ay, b, by2, inside, pfs, pl;
 	uw_t uw;
 
 	uw.p = buf;
@@ -157,28 +157,40 @@ lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
 	tl = (fs * 6) / 5;
 	gap = h / 40 > 2 ? h / 40 : 2;
 
-	bh = h / 12;
+	bh = h / 10;
 	if (bh < 10)
 		bh = 10;
-	if (bh > 28)
-		bh = 28;
+	if (bh > 32)
+		bh = 32;
 	vfs = (fs * 3) / 4 > 10 ? (fs * 3) / 4 : 10;
 	vl = (vfs * 6) / 5;
+
+	/*
+	 * The percentage goes in the middle of the bar, if it's tall enough
+	 * to read there, otherwise below it
+	 */
+
+	inside = bh >= LHP_UPDATE_BAR_TEXT_MIN_PX;
+	pfs = inside ? (bh * 3) / 4 : fs;
+	pl = (pfs * 6) / 5;
 
 	if (ic->round) {
 		/*
 		 * The bar is across the middle, where the circle is widest,
-		 * what is being updated above it and the percentage below it.
-		 * The icon goes where it can be biggest, between the strip and
-		 * what is being updated, or below the percentage.
+		 * what is being updated above it and any percentage that
+		 * isn't in it below it.  The icon goes where it can be
+		 * biggest, between the strip and what is being updated, or
+		 * below the bar and percentage.
 		 */
 
 		by = h / 2 - bh / 2;
 		vy = by - gap - vl;
-		py = by + bh + gap;
+		if (!inside)
+			py = by + bh + gap;
 
 		a = icon_fit(ic, th + gap, vy - gap, &ay);
-		b = icon_fit(ic, py + tl + gap, h - gap, &by2);
+		b = icon_fit(ic, inside ? by + bh + gap : py + pl + gap,
+			     h - gap, &by2);
 		if (a >= b) {
 			is = a;
 			iy = ay;
@@ -188,12 +200,12 @@ lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
 		}
 	} else {
 		/*
-		 * The icon, what is being updated, the bar and the percentage
-		 * go one under the other, in the middle of the space below the
-		 * strip, the icon as big as there is room for
+		 * The icon, what is being updated, the bar and any percentage
+		 * that isn't in it go one under the other, in the middle of the
+		 * space below the strip, the icon as big as there is room for
 		 */
 
-		a = vl + gap + bh + gap + tl;
+		a = vl + gap + bh + (inside ? 0 : gap + pl);
 		is = h - th - 3 * gap - a;
 		if (is > LHP_UPDATE_ICON_PX)
 			is = LHP_UPDATE_ICON_PX;
@@ -205,7 +217,8 @@ lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
 		iy = th + (h - th - a - (is ? is + gap : 0)) / 2;
 		vy = iy + (is ? is + gap : 0);
 		by = vy + vl + gap;
-		py = by + bh + gap;
+		if (!inside)
+			py = by + bh + gap;
 	}
 
 	/* the bar is three quarters of the width that can be seen there */
@@ -215,31 +228,48 @@ lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
 	bx = bx0 + (bx1 - bx0 - bw) / 2;
 	fw = (bw * pc) / 100;
 
+	/*
+	 * The bar is a capsule that clips what is in it to its rounded ends:
+	 * the fill in it is only a plain box, so a little of it is the
+	 * capsule's rounded end, filled in.  The percentage is in it twice,
+	 * dark on the bar, and light on the fill, in the fill: each is clipped
+	 * to its part of the bar, so where the fill ends inside the text, it
+	 * changes there.
+	 */
+
 	uw_printf(&uw, "<!doctype html><html><head><meta charset=\"utf-8\">"
 		       "<style>"
 		       "* { margin: 0; padding: 0 }"
 		       "body { background-color: #fff; color: #000;"
 		       " font-family: sans }"
-		       "#t, #tt, #v, #b, #f, #p, #i { position: absolute }"
-		       "#tt, #v, #p { text-align: center; white-space: nowrap;"
+		       "#t, #tt, #v, #b, #f, .p, #i { position: absolute }"
+		       "#tt, #v, .p { text-align: center; white-space: nowrap;"
 		       " overflow: hidden }"
 		       "#t { left: 0; top: 0; width: %dpx; height: %dpx;"
 		       " background-color: " LHP_UI_STRIP_BG " }"
 		       "#tt { color: " LHP_UI_STRIP_FG " }"
 		       "#v { color: " LHP_UI_STRIP_BG " }"
 		       "#b { left: %dpx; top: %dpx; width: %dpx; height: %dpx;"
-		       " background-color: #ddd; border-radius: %dpx }"
+		       " background-color: #ddd; border-radius: %dpx;"
+		       " overflow: hidden }"
 		       "#f { left: 0; top: 0; width: %dpx; height: %dpx;"
 		       " background-color: " LHP_UI_STRIP_BG ";"
-		       " border-radius: %dpx }",
-		       w, th, bx, by, bw, bh, bh / 2, fw, bh,
-		       fw < bh ? fw / 2 : bh / 2);
+		       " overflow: hidden }"
+		       "#pf { color: #fff }",
+		       w, th, bx, by, bw, bh, bh / 2, fw, bh);
 
 	/* the title's line sits at the bottom of its strip */
 
 	text_box(&uw, ic, "tt", th - tl - pad, tl, fs);
 	text_box(&uw, ic, "v", vy, vl, vfs);
-	text_box(&uw, ic, "p", py, tl, fs);
+
+	if (inside)
+		/* across the bar, in the middle of it */
+		uw_printf(&uw, ".p { left: 0; top: %dpx; width: %dpx;"
+			       " height: %dpx; font-size: %dpx }",
+			       (bh - pl) / 2, bw, pl, pfs);
+	else
+		text_box(&uw, ic, "p", py, pl, pfs);
 
 	if (is)
 		uw_printf(&uw, "#i { left: %dpx; top: %dpx; width: %dpx;"
@@ -262,9 +292,18 @@ lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
 	}
 
 	uw_printf(&uw, "</div><div id=\"b\">");
-	if (fw)
-		uw_printf(&uw, "<div id=\"f\"></div>");
-	uw_printf(&uw, "</div><div id=\"p\">%d%%</div>", pc);
+	if (inside)
+		uw_printf(&uw, "<div class=\"p\">%d%%</div>", pc);
+	if (fw) {
+		uw_printf(&uw, "<div id=\"f\">");
+		if (inside)
+			uw_printf(&uw, "<div class=\"p\" id=\"pf\">%d%%</div>",
+				  pc);
+		uw_printf(&uw, "</div>");
+	}
+	uw_printf(&uw, "</div>");
+	if (!inside)
+		uw_printf(&uw, "<div class=\"p\" id=\"p\">%d%%</div>", pc);
 
 	if (is)
 		uw_printf(&uw, "<div id=\"i\"><img src=\"file://dlofs/"

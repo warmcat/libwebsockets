@@ -64,10 +64,13 @@ lhp_battery_cb_t plat_battery;
 /* how long we wait after OPERATIONAL for the first update check to end */
 #define BOOT_OTA_WAIT_US	(90 * LWS_US_PER_SEC)
 /*
- * How often the update display shows the progress: drawing it takes time
- * from fetching and flashing the update
+ * How often the update display is drawn again, to move its spinner on and
+ * show the progress: drawing it takes time from fetching and flashing the
+ * update.  A bistable display, eg, an EPD, taking seconds to update, is only
+ * drawn again when the progress changed, and less often.
  */
-#define UPDATE_SHOW_US		(3 * LWS_US_PER_SEC)
+#define UPDATE_SHOW_US		(LWS_US_PER_SEC / 2)
+#define UPDATE_SHOW_BISTABLE_US	(3 * LWS_US_PER_SEC)
 /* how often the status capsule is brought up to date */
 #define STATUS_US		(5 * LWS_US_PER_SEC)
 /* the longest the first page waits for the frame to be drawn before it */
@@ -820,15 +823,19 @@ ui_kick_cb(lws_sorted_usec_list_t *sul)
 	    st == LWS_SYSTATE_MODAL_UPDATING) {
 		/* the update display takes over, whatever else is going on */
 		sui_drop();
-		if (update_pc_shown == update_pc)
+		if (lds.disp->bistable && update_pc_shown == update_pc)
 			return;
 
 		/*
 		 * The first is shown at once, then no more often than
-		 * UPDATE_SHOW_US, showing the progress by then
+		 * UPDATE_SHOW_US, with the spinner moved on and the progress
+		 * by then
 		 */
 		if (update_pc_shown >= 0) {
-			lws_usec_t due = update_shown_us + UPDATE_SHOW_US,
+			lws_usec_t due = update_shown_us +
+					 (lds.disp->bistable ?
+						UPDATE_SHOW_BISTABLE_US :
+						UPDATE_SHOW_US),
 				   now = lws_now_usecs();
 
 			if (now < due) {
