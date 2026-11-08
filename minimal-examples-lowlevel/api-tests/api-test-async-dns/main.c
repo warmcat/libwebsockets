@@ -2738,6 +2738,13 @@ main(int argc, const char **argv)
 	info.async_dns_servers = dns;
 	info.early_smd_cb = smd_dns_cb;
 	info.early_smd_class_filter = LWSSMDCL_DNS;
+	/*
+	 * The watcher leg needs the server list the context publishes while it
+	 * is being created, which waits for the first service.  Creating the
+	 * tls contexts can take longer than the default 2s ttl on a loaded box,
+	 * so the message timed out before smd_dns_cb() could see it
+	 */
+	info.smd_ttl_us = 20 * LWS_USEC_PER_SEC;
 
 	context = lws_create_context(&info);
 	if (!context) {
