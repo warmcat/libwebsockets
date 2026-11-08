@@ -8,9 +8,13 @@
  *
  * While an update is downloaded, the display shows a page titled "Updating"
  * in a strip like the boot overlay's (lws-dlo-ui.h), what is being updated,
- * and a bar filling up with how much of it has arrived.  Everything on it is
- * placed for the display it is shown on, so on a round display it is all
- * inside the circle.
+ * and a bar filling up with how much of it has arrived, with a spinner.
+ * Everything on it is placed for the display it is shown on, so on a round
+ * display it is all inside the circle.
+ *
+ * The spinner is an animated svg, contrib/assets/update/update-1-spinner.svg:
+ * it's drawn as it is at the render state's .anim_t, so each time the page is
+ * drawn, it has moved on.
  *
  * Nothing here is platform-specific: the caller says what display it is for,
  * and shows the html however it shows pages.
@@ -25,10 +29,28 @@
 #define LHP_UI_STRIP_BG		"#1a5c3a"
 #define LHP_UI_STRIP_FG		"#ffe680"
 
-/* the name the update icon is registered with in the dlo filesystem */
-#define LHP_UPDATE_ICON		"update-icon.png"
+/* the name the update spinner is registered with in the dlo filesystem */
+#define LHP_UPDATE_ICON		"update-spinner.svg"
 /* ... and its size in px, it's drawn smaller if it doesn't fit */
 #define LHP_UPDATE_ICON_PX	96
+
+/*
+ * lhp_update_init() - register the update spinner in the dlo filesystem
+ *
+ * \param cx: the lws context
+ *
+ * Returns 0 if it was registered, else nonzero.
+ */
+int
+lhp_update_init(struct lws_context *cx);
+
+/*
+ * lhp_update_deinit() - unregister the update spinner
+ *
+ * \param cx: the lws context
+ */
+void
+lhp_update_deinit(struct lws_context *cx);
 
 /*
  * lhp_update_html() - the html of the update page

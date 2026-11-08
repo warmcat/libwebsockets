@@ -73,9 +73,17 @@ bar filling up as it arrives, with the percentage.  Everything on it is
 placed for the display: on a round one, the bar is across the middle where
 the circle is widest and all of it is inside the circle; on a rectangular
 one, it goes in the middle of the space below the strip, with the update
-icon as big as there is room for.  Drawing it takes time from fetching
+spinner as big as there is room for.  Drawing it takes time from fetching
 and flashing the update, so after the first, it is only redrawn every 3s,
 showing the progress by then.
+
+The spinner is an svg animated with SMIL,
+`contrib/assets/update/update-1-spinner.svg`, built in by `boot-icons.cmake`
+like the stage icons.  `lhp-ss.c` sets the render state's `.anim_t` to the
+time each page is drawn, so each time the update display is redrawn, the
+spinner has moved on.  It is not animated between redraws: the whole page
+is drawn each time, and there's no way yet to redraw only the spinner's
+part of the display.
 
 ## Frame and status
 

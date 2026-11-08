@@ -162,15 +162,6 @@ static const uint8_t jit_trust_blob[] = {
 #include "./trust_blob.h"
 };
 
-static const uint8_t update_icon[] = {
-#include "update-icon.png.h"
-};
-static const lws_dlo_filesystem_t fs_update_icon = {
-	.name			= "update-icon.png",
-	.data			= &update_icon,
-	.len			= sizeof(update_icon)
-};
-
 static const char * const ui_css =
 	"body { font-family: sun; font-size: 12pt; background-color: #fff; }";
 
@@ -1443,6 +1434,7 @@ teardown(uint32_t heap_before)
 	sui_drop();
 	lhp_settings_deinit(&settings);
 	lhp_boot_deinit(&boot);
+	lhp_update_deinit(cx);
 
 	lws_display_state_off(&lds);
 	deinit_plat_devices(cx);
@@ -1532,7 +1524,8 @@ app_main(void)
 	dlo_fops.next = lws_get_fops(cx)->next; /* insert after plat */
 	lws_get_fops(cx)->next = &dlo_fops;
 
-	lws_dlo_file_register(cx, &fs_update_icon);
+	if (lhp_update_init(cx))
+		lwsl_warn("%s: no update spinner\n", __func__);
 	fs_ui_css.len = strlen((const char *)fs_ui_css.data);
 	lws_dlo_file_register(cx, &fs_ui_css);
 

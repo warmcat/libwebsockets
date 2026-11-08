@@ -16,6 +16,27 @@
 #include <string.h>
 #include <stdarg.h>
 
+#include "boot-icons.h"
+
+int
+lhp_update_init(struct lws_context *cx)
+{
+	lws_dlo_filesystem_t f;
+
+	memset(&f, 0, sizeof(f));
+	f.name = LHP_UPDATE_ICON;
+	f.data = update_icon_spinner;
+	f.len = sizeof(update_icon_spinner);
+
+	return !lws_dlo_file_register(cx, &f);
+}
+
+void
+lhp_update_deinit(struct lws_context *cx)
+{
+	lws_dlo_file_unregister_by_name(cx, LHP_UPDATE_ICON);
+}
+
 typedef struct {
 	char			*p;
 	char			*end;

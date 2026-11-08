@@ -416,6 +416,9 @@ init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
 	rs->lds->display_busy = 1;
 	lws_strncpy(rs->lds->current_url, url, sizeof(rs->lds->current_url));
 
+	/* animated svg, eg, the update spinner, are drawn as they are now */
+	rs->anim_t = lws_now_usecs();
+
 	return lws_lhp_ss_browse(cx, rs, url, render);
 }
 
@@ -437,6 +440,7 @@ redraw_page(lws_display_render_state_t *rs)
 	memset(rs->st, 0, sizeof(rs->st));
 	rs->sp = 0;
 	redraw = 1;
+	rs->anim_t = lws_now_usecs();
 
 	rs->lds->display_busy = 1;
 	lws_sul_schedule(rs->lds->ctx, 0, &rs->sul, render, 1);
