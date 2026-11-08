@@ -96,6 +96,22 @@ possibility of messages arriving timestamped with the period they were active.
 A grace period (default 2s) is used to ensure departing peers correctly account
 for message refcounts before being destroyed.
 
+## Queue limits
+
+Messages wait in a queue until every participant that wants them has had them
+delivered.  Two things stop a participant that's slow, or not being serviced,
+from holding on to everything:
+
+ - the queue holds at most `smd_queue_depth` messages (in the context creation
+   info), sending another fails until some are delivered;
+
+ - a message that has waited longer than `smd_ttl_us` is dropped, delivered or
+   not.
+
+Nothing can be delivered until the context first services, so messages sent
+before that, eg, the ones lws sends while the context is being created, only
+start to age from then.  A slow context creation doesn't lose them.
+
 ## Message creation
 
 Messages may contain arbitrary text or binary data depending on the class.  JSON

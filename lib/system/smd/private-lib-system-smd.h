@@ -88,6 +88,12 @@ typedef struct lws_smd {
 	/* union of peer class filters, suppress creation of msg classes not set */
 	lws_smd_class_t			_class_filter;
 
+	/*
+	 * When the context first serviced smd, ie, could deliver anything at
+	 * all; 0 until then.  Queued messages only start to age from here.
+	 */
+	lws_usec_t			ttl_epoch;
+
 	char				delivering;
 	lws_tid_t			tid_holding;
 } lws_smd_t;

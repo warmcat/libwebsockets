@@ -790,6 +790,18 @@ int
 lws_smd_message_pending(struct lws_context *ctx)
 {
 	int ret = 1, locked_peers = 0;
+	lws_usec_t now = lws_now_usecs();
+
+	/*
+	 * Only the context's service calls this, and is where messages get
+	 * delivered.  Until it first can, eg, while a slow context creation
+	 * sends the system state and dns servers, a message's waiting isn't
+	 * the participants being slow, so it doesn't count against the ttl.
+	 * The queue depth limit still bounds the heap meanwhile.
+	 */
+
+	if (!ctx->smd.ttl_epoch)
+		ctx->smd.ttl_epoch = now;
 
 	/*
 	 * First cheaply check the common case no messages pending, so there's
@@ -801,7 +813,7 @@ lws_smd_message_pending(struct lws_context *ctx)
 
 	/*
 	 * If there are any messages, check their age and expire ones that
-	 * have been hanging around too long
+	 * have been hanging around too long since they could be delivered
 	 */
 
 	if (!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding)) {
@@ -815,8 +827,10 @@ lws_smd_message_pending(struct lws_context *ctx)
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
 				   lws_dll2_get_head(&ctx->smd.owner_messages)) {
 		lws_smd_msg_t *msg = lws_container_of(p, lws_smd_msg_t, list);
+		lws_usec_t since = msg->timestamp > ctx->smd.ttl_epoch ?
+					msg->timestamp : ctx->smd.ttl_epoch;
 
-		if ((lws_now_usecs() - msg->timestamp) > ctx->smd_ttl_us) {
+		if (now - since > ctx->smd_ttl_us) {
 			lwsl_cx_warn(ctx, "timing out queued message %p",
 					msg);
 
