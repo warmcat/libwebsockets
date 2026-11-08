@@ -495,6 +495,51 @@ next:
 	return 0;
 }
 
+/*
+ * RFC 6265bis 5.6.2: a Max-Age is longer than anyone should keep a cookie
+ * past 400 days.  Capping it there also keeps now + Max-Age from overflowing.
+ */
+#define LWS_COOKIE_MAX_AGE_CAP	(400ll * 24 * 3600)
+
+/*
+ * RFC 6265 5.2.2: a Max-Age value is an optional '-' and then one or more
+ * digits.  Anything else means the attribute is ignored, which we report by
+ * returning nonzero.  On success *delta is the value in seconds, capped to
+ * the range -1 .. LWS_COOKIE_MAX_AGE_CAP: zero or less means the cookie has
+ * already expired, and how much less doesn't matter.
+ */
+static int
+lws_cookie_parse_max_age(const char *s, size_t len, int64_t *delta)
+{
+	int neg = 0;
+	int64_t v = 0;
+
+	if (len && *s == '-') {
+		neg = 1;
+		s++;
+		len--;
+	}
+
+	if (!len)
+		return 1;
+
+	while (len--) {
+		if (*s < '0' || *s > '9')
+			return 1;
+		/* stop accumulating once past the cap, so v can't overflow */
+		if (v <= LWS_COOKIE_MAX_AGE_CAP)
+			v = (v * 10) + (*s - '0');
+		s++;
+	}
+
+	if (neg)
+		*delta = v ? -1 : 0;
+	else
+		*delta = v > LWS_COOKIE_MAX_AGE_CAP ? LWS_COOKIE_MAX_AGE_CAP : v;
+
+	return 0;
+}
+
 static void
 lws_cookie_rm_sws(const char **buf_p, size_t *len_p)
 {
@@ -663,6 +708,7 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 	size_t size = 6 + 20 + 10 + 1, cnl, psize;
 	time_t expires = 0, now_s;
 	lws_usec_t expiry_us = 0;
+	int64_t max_age = 0;
 	int ret = 0;
 
 	if (!wsi || !c)
@@ -722,28 +768,39 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 		goto exit;
 	}
 
-	if (c->f[CE_EXPIRES] &&
-	    lws_cookie_parse_date(c->f[CE_EXPIRES], c->l[CE_EXPIRES], &expires)) {
-		lwsl_err("%s: can't parse date %.*s\n", __func__,
-			 (int)c->l[CE_EXPIRES], c->f[CE_EXPIRES]);
-		ret = -1;
-		goto exit;
+	/*
+	 * RFC 6265 5.2.1, 5.2.2: a Max-Age or Expires attribute whose value
+	 * does not parse is ignored, the cookie is not.  And 5.3 step 3: if
+	 * both are usable, Max-Age decides the expiry.  Without either, it is
+	 * a session cookie, expires == 0.
+	 */
+	if (c->f[CE_MAXAGE] &&
+	    lws_cookie_parse_max_age(c->f[CE_MAXAGE], c->l[CE_MAXAGE],
+				     &max_age)) {
+		lwsl_notice("%s: ignoring unusable Max-Age\n", __func__);
+		c->f[CE_MAXAGE] = NULL;
 	}
 
-	if (c->f[CE_EXPIRES])
-		lwsl_cookie("%s: name=%s expires='%.*s'@ t=%lld now=%lld\n", __func__, cache_name,
-			    (int)c->l[CE_EXPIRES], c->f[CE_EXPIRES],
-			    (long long)expires, (long long)now_s);
-	else
-		lwsl_cookie("%s: name=%s expires='<unset>'@ t=%lld now=%lld\n", __func__, cache_name,
-			    (long long)expires, (long long)now_s);
+	if (!c->f[CE_MAXAGE] && c->f[CE_EXPIRES] &&
+	    lws_cookie_parse_date(c->f[CE_EXPIRES], c->l[CE_EXPIRES],
+				  &expires)) {
+		lwsl_notice("%s: ignoring unusable Expires\n", __func__);
+		c->f[CE_EXPIRES] = NULL;
+	}
+
+	if (c->f[CE_MAXAGE])
+		/* zero or less is already expired: make it in the past */
+		expires = max_age > 0 ? now_s + (time_t)max_age : now_s;
+
+	lwsl_cookie("%s: name=%s expiry t=%lld now=%lld\n", __func__,
+		    cache_name, (long long)expires, (long long)now_s);
 
 	/*
-	 * RFC 6265 treats a past-dated Expires as a delete signal for the
-	 * cookie. Ensure we handle expires=0 (PARSED at actual UNIX epoch, t=0)
-	 * as a delete signal as well.
+	 * RFC 6265 treats a cookie that has already expired as a delete signal
+	 * for it.  Expires at exactly the UNIX epoch (t=0) is one too, so check
+	 * the attribute and not expires, which is 0 for a session cookie.
 	 */
-	if (c->f[CE_EXPIRES] && (expires <= now_s)) {
+	if ((c->f[CE_MAXAGE] || c->f[CE_EXPIRES]) && expires <= now_s) {
 		lwsl_cookie("%s: dropping already-expired cookie\n", __func__);
 		(void)lws_cache_item_remove(l1, cache_name);
 		ret = 0;
