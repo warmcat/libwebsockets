@@ -22,6 +22,21 @@ It checks the RFC 6265 scoping the jar applies to what a server sets:
 and that a cookie set with an empty value (`name=`) is sent back as `name=`,
 without stopping the other cookies at its level from being sent.
 
+It also checks what the jar does with the cookies it stored (issue #3688):
+
+ - a `Path=/` cookie is sent to every path on its host, and a `Path=/api/`
+   one to the paths under `/api/` but not to `/api` itself, even when an empty
+   result was cached for that path before the cookie was set
+ - `Max-Age` sets the expiry and wins over `Expires`, in both directions
+ - `Max-Age=0`, or a negative `Max-Age`, deletes the cookie
+ - a `Max-Age` or `Expires` that does not parse is ignored, not the cookie
+ - a cookie with `Max-Age=2` stops being sent once it runs out (the test waits
+   2.5s for it)
+ - a single-label host (`myhost`) gets its host-only cookies back, including
+   one set with `Domain=myhost`, and `localhost` does not get them
+ - so does an IPv6 literal host (`[::1]`), which has no dot either, and
+   `[::2]` does not get them
+
 Needs `LWS_WITH_CACHE_NSCOOKIEJAR` (Linux), client and server support.
 
 |option|meaning|

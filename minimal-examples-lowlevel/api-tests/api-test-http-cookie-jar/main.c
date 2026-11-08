@@ -23,6 +23,16 @@
  * and that a cookie with an empty value ("name=") is sent back as it was
  * set, without stopping the others at its level from being sent.
  *
+ * It also checks what the jar does with what it stored (issue #3688):
+ *
+ *  - a Path=/ cookie is sent to every path on its host, and a Path=/a/ one
+ *    to the paths under /a/, but not to /a itself (RFC 6265 5.1.4)
+ *  - Max-Age sets the expiry, and wins over Expires (RFC 6265 5.3 step 3)
+ *  - Max-Age=0 or less deletes the cookie, the usual way a server does it
+ *  - a Max-Age or Expires that does not parse is ignored, not the cookie
+ *  - a cookie with a short Max-Age stops being sent when it runs out
+ *  - a single-label host, like "localhost", gets its host-only cookies back
+ *
  * With --l1-max-items, the jar's heap L1 is limited to that many items, so
  * sending the cookies for a request keeps filling L1 from the jar file and
  * evicting, while the result set of the lookup is being walked.
@@ -46,7 +56,7 @@ static int port = 7700, cur = -1, done, fail;
  * What the server sets on /set, whoever asks.  The request doing it is to
  * a.example.com over plaintext.
  */
-static const char * const set_cookies[] = {
+static const char * const set_scope[] = {
 	"empty=; Path=/",				/* empty value */
 	"host1=a; Path=/",				/* host-only */
 	"dom1=b; Domain=example.com; Path=/",		/* parent domain */
@@ -60,25 +70,112 @@ static const char * const set_cookies[] = {
 	"defpath=j",					/* default-path "/" */
 };
 
+/* a login, then requests to other paths on the same host */
+static const char * const set_login[] = {
+	"sess=1; Path=/; Expires=Thu, 01 Jan 2037 00:00:00 GMT",
+	"api=2; Path=/api/",
+};
+
+/* cookies that stay, cookies that will be deleted, and cookies that expire */
+static const char * const set_age[] = {
+	"keep=1; Path=/",
+	"gone=2; Path=/",
+	"neg=3; Path=/",
+	"both=4; Path=/",
+	/* Max-Age wins over an Expires that would have deleted it */
+	"maxwins=6; Expires=Wed, 01 Jan 2020 00:00:00 GMT; Max-Age=3600; Path=/",
+	/* unparseable attributes are ignored: these are session cookies */
+	"badexp=7; Expires=notadate; Path=/",
+	"badma=8; Max-Age=soon; Path=/",
+};
+
+/* how servers delete cookies */
+static const char * const set_age_del[] = {
+	"gone=; Max-Age=0; Path=/",
+	"neg=x; Max-Age=-1; Path=/",
+	/* Max-Age wins over an Expires that would have kept it */
+	"both=y; Expires=Thu, 01 Jan 2037 00:00:00 GMT; Max-Age=0; Path=/",
+};
+
+/* set on its own, just before the check that it is still sent */
+static const char * const set_short[] = {
+	"short=5; Max-Age=2; Path=/",
+};
+
+/* for a single-label host: Domain= of the host itself makes it host-only */
+static const char * const set_label[] = {
+	"lbl=1; Path=/",
+	"lbldom=2; Domain=myhost; Path=/",
+};
+
+/* which Set-Cookie: headers the server adds for a request path */
+static const struct setter {
+	const char		*path;
+	const char * const	*cookies;
+	size_t			count;
+} setters[] = {
+	{ "/set",	set_scope,	LWS_ARRAY_SIZE(set_scope) },
+	{ "/login",	set_login,	LWS_ARRAY_SIZE(set_login) },
+	{ "/age-set",	set_age,	LWS_ARRAY_SIZE(set_age) },
+	{ "/age-del",	set_age_del,	LWS_ARRAY_SIZE(set_age_del) },
+	{ "/short-set",	set_short,	LWS_ARRAY_SIZE(set_short) },
+	{ "/label-set",	set_label,	LWS_ARRAY_SIZE(set_label) },
+};
+
 static const struct step {
 	const char	*host;
 	const char	*path;
-	const char	*want; /* space-separated cookies, NULL for /set */
+	const char	*want; /* space-separated cookies, NULL: don't check */
+	unsigned int	delay_ms; /* wait before making the request */
 } steps[] = {
-	{ "a.example.com",	"/set",		NULL },
+	{ "a.example.com",	"/set",		NULL, 0 },
 	{ "a.example.com",	"/get",
-		"empty= host1=a dom1=b dotdom=c upper=d defpath=j" },
+		"empty= host1=a dom1=b dotdom=c upper=d defpath=j", 0 },
 	/* the host-only cookies stay with a.example.com */
-	{ "b.example.com",	"/get",		"dom1=b dotdom=c upper=d" },
+	{ "b.example.com",	"/get",		"dom1=b dotdom=c upper=d", 0 },
 	/* and so do the Domain= ones: example.com is not other.example */
-	{ "other.example",	"/get",		"" },
+	{ "other.example",	"/get",		"", 0 },
 	/* the Domain= cookies go to the domain itself too */
-	{ "example.com",	"/get",		"dom1=b dotdom=c upper=d" },
+	{ "example.com",	"/get",		"dom1=b dotdom=c upper=d", 0 },
 	/* the Path=/deeper one joins in at and below /deeper */
 	{ "a.example.com",	"/deeper/get",
-		"empty= host1=a dom1=b dotdom=c upper=d defpath=j deep=i" },
+		"empty= host1=a dom1=b dotdom=c upper=d defpath=j deep=i", 0 },
 	{ "b.example.com",	"/deeper/get",
-		"dom1=b dotdom=c upper=d" },
+		"dom1=b dotdom=c upper=d", 0 },
+
+	/*
+	 * a Path=/ cookie goes to every path, Path=/api/ to those under it,
+	 * even where the empty result of looking before the login was cached
+	 */
+	{ "login.example.net",	"/socket",	"", 0 },
+	{ "login.example.net",	"/login",	NULL, 0 },
+	{ "login.example.net",	"/socket",	"sess=1", 0 },
+	{ "login.example.net",	"/api/v1",	"sess=1 api=2", 0 },
+	{ "login.example.net",	"/api",		"sess=1", 0 },
+
+	{ "age.example.net",	"/age-set",	NULL, 0 },
+	{ "age.example.net",	"/get",
+		"keep=1 gone=2 neg=3 both=4 maxwins=6 badexp=7 badma=8", 0 },
+	{ "age.example.net",	"/age-del",	NULL, 0 },
+	{ "age.example.net",	"/get",
+		"keep=1 maxwins=6 badexp=7 badma=8", 0 },
+	{ "age.example.net",	"/short-set",	NULL, 0 },
+	{ "age.example.net",	"/get",
+		"keep=1 short=5 maxwins=6 badexp=7 badma=8", 0 },
+	/* and once short=5's Max-Age=2 has run out */
+	{ "age.example.net",	"/get",
+		"keep=1 maxwins=6 badexp=7 badma=8", 2500 },
+
+	/* a single-label host gets its own cookies, and nobody else does */
+	{ "myhost",		"/label-set",	NULL, 0 },
+	{ "myhost",		"/get",		"lbl=1 lbldom=2", 0 },
+	{ "localhost",		"/get",		"", 0 },
+	/* an IPv6 literal host has no dot either */
+	{ "[::1]",		"/label-set",	NULL, 0 },
+	{ "[::1]",		"/get",		"lbl=1", 0 },
+	{ "[::2]",		"/get",		"", 0 },
+	{ "a.example.com",	"/get",
+		"empty= host1=a dom1=b dotdom=c upper=d defpath=j", 0 },
 };
 
 /* ------------------------------------------------------------- server */
@@ -95,12 +192,15 @@ callback_jar_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	struct pss_srv *pss = (struct pss_srv *)user;
 	uint8_t buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
 		*end = &buf[sizeof(buf) - 1];
-	int n, is_set;
+	const struct setter *set = NULL;
 	size_t m;
+	int n;
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
-		is_set = !strcmp((const char *)in, "/set");
+		for (m = 0; m < LWS_ARRAY_SIZE(setters); m++)
+			if (!strcmp((const char *)in, setters[m].path))
+				set = &setters[m];
 
 		/* the body is the Cookie: header the request came with */
 		m = (size_t)lws_snprintf(pss->body, sizeof(pss->body),
@@ -120,13 +220,12 @@ callback_jar_srv(struct lws *wsi, enum lws_callback_reasons reason,
 						&p, end))
 			return 1;
 
-		if (is_set)
-			for (m = 0; m < LWS_ARRAY_SIZE(set_cookies); m++)
-				if (lws_add_http_header_by_token(wsi,
+		for (m = 0; set && m < set->count; m++)
+			if (lws_add_http_header_by_token(wsi,
 					WSI_TOKEN_HTTP_SET_COOKIE,
-					(const uint8_t *)set_cookies[m],
-					(int)strlen(set_cookies[m]), &p, end))
-					return 1;
+					(const uint8_t *)set->cookies[m],
+					(int)strlen(set->cookies[m]), &p, end))
+				return 1;
 
 		if (lws_finalize_write_http_header(wsi, start, &p, end))
 			return 1;
@@ -209,6 +308,7 @@ step_finish(int completed)
 {
 	const struct step *s = &steps[cur];
 	const char *got, *w, *e;
+	lws_usec_t delay = LWS_US_PER_MS;
 	int ok = 1, n = 0;
 	size_t l;
 
@@ -254,7 +354,10 @@ step_finish(int completed)
 	if (!ok)
 		fail++;
 
-	lws_sul_schedule(context, 0, &sul_next, next_step, LWS_US_PER_MS);
+	if (cur + 1 < (int)LWS_ARRAY_SIZE(steps))
+		delay += (lws_usec_t)steps[cur + 1].delay_ms * LWS_US_PER_MS;
+
+	lws_sul_schedule(context, 0, &sul_next, next_step, delay);
 }
 
 /* only the connection of the current step may conclude it */
