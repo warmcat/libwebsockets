@@ -79,21 +79,21 @@ lws_display_dlo_hit_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 
 /*
  * Walk the whole display list in paint order, summing the box offsets, and
- * return the last hit region containing (x, y), which is the topmost one.
- * A region that fills its parent takes the parent's size, so it follows an
- * image whose dimensions arrive after it was made.
+ * tell cb about each hit region, with its absolute box.  A region that fills
+ * its parent takes the parent's size, so it follows an image whose dimensions
+ * arrive after it was made.
  */
 
-lws_dlo_hit_t *
-lws_display_dl_hit_test(lws_displaylist_t *dl, int x, int y, lws_box_t *abox)
+int
+lws_display_dl_hit_foreach(lws_displaylist_t *dl, lws_dlo_hit_cb_t cb,
+			   void *opaque)
 {
 	lws_display_render_stack_t st[LWS_DLO_STACK_DEPTH];
-	lws_dlo_hit_t *hit = NULL;
 	lws_dll2_t *d = lws_dll2_get_head(&dl->dl);
 	int sp = 0;
 
 	if (!d)
-		return NULL;
+		return 0;
 
 	memset(&st, 0, sizeof(st));
 	st[0].dlo = lws_container_of(d, lws_dlo_t, list);
@@ -117,18 +117,15 @@ lws_display_dl_hit_test(lws_displaylist_t *dl, int x, int y, lws_box_t *abox)
 		if (dlo->render == lws_display_render_hit) {
 			lws_dlo_hit_t *h = lws_container_of(dlo, lws_dlo_hit_t,
 							    dlo);
+			lws_box_t hb = co;
 
 			if (h->fill) {
-				co.w = st[sp].co.w;
-				co.h = st[sp].co.h;
+				hb.w = st[sp].co.w;
+				hb.h = st[sp].co.h;
 			}
 
-			if (x >= co.x.whole && x < co.x.whole + co.w.whole &&
-			    y >= co.y.whole && y < co.y.whole + co.h.whole) {
-				hit = h;
-				if (abox)
-					*abox = co;
-			}
+			if (cb(opaque, h, &hb))
+				return 1;
 		}
 
 		d = lws_dll2_get_next(&dlo->list);
@@ -136,7 +133,8 @@ lws_display_dl_hit_test(lws_displaylist_t *dl, int x, int y, lws_box_t *abox)
 
 		if (!lws_dll2_is_empty(&dlo->children)) {
 			if (sp + 1 == (int)LWS_ARRAY_SIZE(st))
-				return hit;
+				/* too deep to go on: what we found so far */
+				return 0;
 			st[++sp].dlo = lws_container_of(
 				lws_dll2_get_head(&dlo->children),
 				lws_dlo_t, list);
@@ -144,7 +142,44 @@ lws_display_dl_hit_test(lws_displaylist_t *dl, int x, int y, lws_box_t *abox)
 		}
 	}
 
-	return hit;
+	return 0;
+}
+
+typedef struct {
+	lws_dlo_hit_t		*hit;
+	lws_box_t		*abox;
+	int			x, y;
+} hit_test_t;
+
+static int
+hit_test_cb(void *opaque, lws_dlo_hit_t *h, const lws_box_t *b)
+{
+	hit_test_t *t = (hit_test_t *)opaque;
+
+	/* the last containing it is the topmost */
+	if (t->x >= b->x.whole && t->x < b->x.whole + b->w.whole &&
+	    t->y >= b->y.whole && t->y < b->y.whole + b->h.whole) {
+		t->hit = h;
+		if (t->abox)
+			*t->abox = *b;
+	}
+
+	return 0;
+}
+
+lws_dlo_hit_t *
+lws_display_dl_hit_test(lws_displaylist_t *dl, int x, int y, lws_box_t *abox)
+{
+	hit_test_t t;
+
+	t.hit = NULL;
+	t.abox = abox;
+	t.x = x;
+	t.y = y;
+
+	lws_display_dl_hit_foreach(dl, hit_test_cb, &t);
+
+	return t.hit;
 }
 
 lws_dlo_cursor_t

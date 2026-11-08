@@ -852,6 +852,30 @@ lws_display_render_hit(struct lws_display_render_state *rs);
 LWS_VISIBLE LWS_EXTERN lws_dlo_hit_t *
 lws_display_dl_hit_test(lws_displaylist_t *dl, int x, int y, lws_box_t *abox);
 
+/*
+ * Told about a hit region, see lws_display_dl_hit_foreach(): abox is its
+ * absolute box.  Return nonzero to stop.
+ */
+typedef int (*lws_dlo_hit_cb_t)(void *opaque, lws_dlo_hit_t *hit,
+				const lws_box_t *abox);
+
+/**
+ * lws_display_dl_hit_foreach() - each hit region of a display list
+ *
+ * \param dl: the display list
+ * \param cb: told about each hit region
+ * \param opaque: passed to cb
+ *
+ * The hit regions are told in paint order, which for a laid-out html
+ * document is the order of the document, eg, so a cursor can be moved from
+ * one link to the next.  The regions of a link that was laid out in several
+ * pieces, eg, wrapped text, are told one after the other.  cb must not change
+ * the display list.  Returns nonzero if cb stopped it.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_display_dl_hit_foreach(lws_displaylist_t *dl, lws_dlo_hit_cb_t cb,
+			   void *opaque);
+
 /**
  * lws_display_dl_cursor_at() - the pointer shape for a point
  *
