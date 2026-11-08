@@ -40,6 +40,12 @@
  *
  *  - in a page whose body has a fixed height, what overflows a box, here a
  *    box 500px tall in one 20px tall, can be panned down to and is drawn
+ *
+ *  - on a surface that's only the part of the round display below a title
+ *    strip (.round_top), the circle is still the display's: what can be seen
+ *    of its lines is what can be seen of the display's lines there, and the
+ *    view can go beyond the sides and bottom of the page as on the whole
+ *    round display, but not above it
  */
 
 #include <libwebsockets.h>
@@ -62,6 +68,15 @@
  * 120 - sqrt(120^2 / 2) = 36 pixels in from each side
  */
 #define AFF		36
+
+/*
+ * The part of the round display below a title strip this tall, eg, the strip
+ * ui's frame's body.  Its top corners are already as far as they can go: the
+ * 45 degree point is above it, and the circle is seen on its top line from
+ * 120 - sqrt(120^2 - 80^2) = 31 in, nearer the edge than the bottom corners'
+ * 36.  So it goes 36 beyond the sides and the bottom, as before, but not up
+ */
+#define BODY_TOP	40
 
 #define C_GREEN		0x00ff00
 #define C_YELLOW	0xffff00
@@ -387,6 +402,38 @@ next_step(lws_sorted_usec_list_t *sul)
 		if (moved) {
 			lwsl_err("%s: panned beyond the right\n", __func__);
 			fail = 1;
+		}
+
+		if (aff) {
+			/* the same page on the round display's lower part */
+			const lws_surface_info_t *oic = rs.ic;
+			lws_surface_info_t body = *rs.ic;
+			int x0, x1, bx0, bx1, y;
+
+			body.wh_px[1].whole = H - BODY_TOP;
+			body.round_top = BODY_TOP;
+
+			for (y = 0; y < H - BODY_TOP; y += 20) {
+				lws_surface_visible_span(&body, y, y + 1,
+							 &bx0, &bx1);
+				lws_surface_visible_span(oic, y + BODY_TOP,
+							 y + BODY_TOP + 1,
+							 &x0, &x1);
+				if (bx0 != x0 || bx1 != x1) {
+					lwsl_err("%s: body line %d: %d..%d, "
+						 "not %d..%d\n", __func__, y,
+						 bx0, bx1, x0, x1);
+					fail = 1;
+				}
+			}
+
+			rs.ic = &body;
+			lws_display_render_pan(&rs, -100000, -100000);
+			expect_pan(-AFF, 0);
+			lws_display_render_pan(&rs, 100000, 100000);
+			expect_pan(PAGE_W - W + AFF,
+				   PAGE_H - (H - BODY_TOP) + AFF);
+			rs.ic = oic;
 		}
 
 		done();

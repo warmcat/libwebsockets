@@ -229,10 +229,11 @@ carousel moves on.
 The whole page is laid out, as far down as 16384px (`rs.layout_h`), if there
 is the memory for it, so all of a page longer or wider than the display can be
 dragged into view, as far as its end, including anything positioned or
-overflowing outside the box it is in.  Beyond the page is white.  The
-frame's body isn't round, even on a round display, so the page can't be
-dragged beyond its edges to see what is in the corners the circle doesn't
-show, as it could before there was a frame.
+overflowing outside the box it is in.  Beyond the page is white.  On a
+round display, the frame's body is the part of the circle below the title
+strip, so the page can also be dragged beyond its sides and bottom, far
+enough to bring what is in the corners the circle doesn't show into view.
+Its top corners are in the circle already, below the strip.
 
 Dragging the page doesn't lay it out again: it is drawn again from the display
 list it was laid out in, from where it was dragged to, with

@@ -1918,7 +1918,9 @@ lws_dlo_ui_create(const lws_dlo_ui_info_t *info)
 
 	/*
 	 * The frame's body is the display below the title strip, as many
-	 * pixels to the mm.  It isn't a circle, even if the display is
+	 * pixels to the mm.  On a round display, it's the part of the circle
+	 * below the strip, so a page shown in it can be panned to bring what
+	 * is in the corners the circle cuts off into view
 	 */
 
 	ui->body_ic = *ic;
@@ -1931,7 +1933,7 @@ lws_dlo_ui_create(const lws_dlo_ui_info_t *info)
 		lws_fx_div(&t, &a, &ic->wh_px[1]);
 		lws_fx_mul(&ui->body_ic.wh_mm[1], &ic->wh_mm[1], &t);
 	}
-	ui->body_ic.round = 0;
+	ui->body_ic.round_top = (int16_t)(ic->round ? ui->title_h : 0);
 
 	return ui;
 }

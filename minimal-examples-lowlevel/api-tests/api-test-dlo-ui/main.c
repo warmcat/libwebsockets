@@ -1174,7 +1174,9 @@ next_step(lws_sorted_usec_list_t *sul)
 			const lws_surface_info_t *b =
 					lws_dlo_ui_frame_body(ui, &body_y);
 
-			if (body_y != TITLE_H || b->round ||
+			/* the part of the circle below the title strip */
+			if (body_y != TITLE_H || !b->round ||
+			    b->round_top != TITLE_H ||
 			    b->wh_px[0].whole != W ||
 			    b->wh_px[1].whole != H - TITLE_H) {
 				lwsl_err("frame body %dx%d at %d\n",

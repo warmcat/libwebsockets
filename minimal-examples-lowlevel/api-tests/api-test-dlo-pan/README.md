@@ -36,6 +36,12 @@ the Waveshare ESP32-S3-Touch-LCD-1.28's, then a rectangular one.  It checks
  - in a page whose body has a fixed height, what overflows a box, here a box
    500px tall in one 20px tall, can be panned down to and is drawn
 
+ - on a surface that's only the part of the round display below a title
+   strip (`.round_top`), the circle is still the display's: what can be seen
+   of its lines is what can be seen of the display's lines there, and the
+   view can go beyond the sides and bottom of the page as on the whole round
+   display, but not above it
+
 ## build
 
 ```

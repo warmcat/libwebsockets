@@ -69,6 +69,14 @@ typedef struct lws_surface_info {
 						 * opens it, then its lines
 						 * follow, then a zero-height
 						 * blit ends it */
+	int16_t				round_top; /* with .round, the
+						    * surface is only the part
+						    * of the round display from
+						    * this line down to its
+						    * bottom, eg, below a title
+						    * strip: the circle is of
+						    * the whole display, which
+						    * is this much taller */
 } lws_surface_info_t;
 
 /**
@@ -82,7 +90,9 @@ typedef struct lws_surface_info {
  *
  * On a rectangular surface that is the whole width.  On a round one, it is
  * the chord of the circle at the line of the band furthest from its middle,
- * so whatever is laid out between x0 and x1 in the band can all be seen.
+ * so whatever is laid out between x0 and x1 in the band can all be seen.  If
+ * the surface is only the lower part of the round display, .round_top, the
+ * circle is the display's.
  *
  * Returns 0, or nonzero if no column of the band can be seen on all its lines,
  * eg, it is wholly or partly off the surface, when x0 == x1.

@@ -190,7 +190,11 @@ On a round display, a page the size of the display has things in its corners
 that the circle doesn't show.  So there the view can also go beyond each edge
 of the content, but only as far as it takes to bring a corner of it to the
 first pixel of the circle that can be seen there, at 45 degrees from its
-middle: 36px on a 240px circle.
+middle: 36px on a 240px circle.  A surface that is only the lower part of a
+round display, eg, below a title strip, says so with `.round_top`, how far
+down the display it starts: the circle is still the display's, and if the 45
+degree point is above the surface, its top corners go to where the circle is
+seen on its top line instead.
 
 png and jpeg decoders only go forwards.  Images the raster has passed are
 fetched again for the next render, from the document asset cache if there is

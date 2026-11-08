@@ -178,7 +178,8 @@ int
 lws_surface_visible_span(const lws_surface_info_t *ic, int y0, int y1,
 			 int *x0, int *x1)
 {
-	int w = ic->wh_px[0].whole, h = ic->wh_px[1].whole, d, e0, e1, e;
+	int w = ic->wh_px[0].whole, h = ic->wh_px[1].whole, d, e0, e1, e, dh,
+	    t = ic->round ? ic->round_top : 0;
 	uint32_t c;
 
 	*x0 = *x1 = 0;
@@ -193,16 +194,17 @@ lws_surface_visible_span(const lws_surface_info_t *ic, int y0, int y1,
 
 	/*
 	 * Working in half pixels, so the centres of the pixels and of the
-	 * circle are whole: line y's centre is 2y + 1 half pixels down, the
-	 * circle's is h, and its diameter is the shorter side.  A pixel can be
-	 * seen if its centre is inside the circle.  The chord is shortest at
-	 * the line of the band furthest from the middle, which is one of its
-	 * ends.
+	 * circle are whole: line y's centre is 2(t + y) + 1 half pixels down
+	 * the display, the circle's is the display's height dh, and its
+	 * diameter is the display's shorter side.  A pixel can be seen if its
+	 * centre is inside the circle.  The chord is shortest at the line of
+	 * the band furthest from the middle, which is one of its ends.
 	 */
 
-	d = w < h ? w : h;
-	e0 = 2 * y0 + 1 - h;
-	e1 = 2 * (y1 - 1) + 1 - h;
+	dh = h + t;
+	d = w < dh ? w : dh;
+	e0 = 2 * (t + y0) + 1 - dh;
+	e1 = 2 * (t + y1 - 1) + 1 - dh;
 	if (e0 < 0)
 		e0 = -e0;
 	if (e1 < 0)
@@ -228,28 +230,58 @@ lws_surface_visible_span(const lws_surface_info_t *ic, int y0, int y1,
 }
 
 /*
- * How far the view of a display list may go beyond the edges of its content
- * on the axis whose length is len: on a round surface, as far as it takes to
- * bring a corner of the content to the first pixel of the circle that can be
- * seen there, at 45 degrees from the centre.  Short of that, the corner isn't
- * in the circle: the visible circle meets the square that the corner moves
- * in only at the square's far corner, so it's the circle that limits it.
+ * How far the view of a display list may go beyond each edge of its content:
+ * on a round surface, as far as it takes to bring a corner of the content to
+ * the first pixel of the circle that can be seen there, at 45 degrees from
+ * the centre.  Short of that, the corner isn't in the circle: the visible
+ * circle meets the square that the corner moves in only at the square's far
+ * corner, so it's the circle that limits it.
+ *
+ * If the surface is only the lower part of the round display, .round_top, and
+ * the 45 degree point is above it, the top corners go to the first pixel of
+ * the circle seen on its top line instead.  aff[] is how far beyond the left,
+ * right, top and bottom edges.
  */
 
-static int32_t
-pan_affordance(const lws_surface_info_t *ic, int32_t len)
+static void
+pan_affordance(const lws_surface_info_t *ic, int32_t aff[4])
 {
-	int32_t d = ic->wh_px[0].whole < ic->wh_px[1].whole ?
-		    ic->wh_px[0].whole : ic->wh_px[1].whole, r = d / 2, a;
+	int32_t w = ic->wh_px[0].whole, t = ic->round_top,
+		dh = ic->wh_px[1].whole + t, r = (w < dh ? w : dh) / 2,
+		k, cy = dh / 2, top, c;
 
-	if (!ic->round || r <= 0)
-		return 0;
+	aff[0] = aff[1] = aff[2] = aff[3] = 0;
 
-	/* the centre less r / sqrt(2) */
+	if (!ic->round || r <= 0 || t < 0)
+		return;
 
-	a = len / 2 - (int32_t)isqrt32((uint32_t)(r * r) / 2);
+	/* the centre less r / sqrt(2), at the left and right, and bottom */
 
-	return a < 0 ? 0 : a;
+	k = (int32_t)isqrt32((uint32_t)(r * r) / 2);
+	aff[0] = aff[1] = w / 2 - k;
+	aff[3] = dh / 2 - k;
+
+	/* where the top corners go */
+
+	top = cy - k;
+	if (top < t) {
+		/* above the surface: the circle on its top line */
+		if (cy - t >= r)
+			top = -1; /* not seen at all */
+		else {
+			c = (int32_t)isqrt32((uint32_t)(r * r -
+						(cy - t) * (cy - t)));
+			if (w / 2 - c > aff[0])
+				aff[0] = aff[1] = w / 2 - c;
+			top = t;
+		}
+	}
+	if (top >= t)
+		aff[2] = top - t;
+
+	for (k = 0; k < 4; k++)
+		if (aff[k] < 0)
+			aff[k] = 0;
 }
 
 /*
@@ -259,9 +291,10 @@ pan_affordance(const lws_surface_info_t *ic, int32_t len)
  */
 
 static int32_t
-pan_clamp(int64_t pan, int32_t extent, int32_t len, int32_t aff)
+pan_clamp(int64_t pan, int32_t extent, int32_t len, int32_t aff_lo,
+	  int32_t aff_hi)
 {
-	int64_t lo = -aff, hi = (int64_t)extent - len + aff;
+	int64_t lo = -aff_lo, hi = (int64_t)extent - len + aff_hi;
 
 	if (hi < 0)
 		hi = 0;
@@ -419,16 +452,15 @@ dl_subtree_extents(lws_displaylist_t *dl)
 int
 lws_display_render_pan(lws_display_render_state_t *rs, int dx, int dy)
 {
-	int32_t ox = rs->pan_x, oy = rs->pan_y, ew, eh;
+	int32_t ox = rs->pan_x, oy = rs->pan_y, ew, eh, aff[4];
 
 	dl_extent(&rs->displaylist, &ew, &eh);
+	pan_affordance(rs->ic, aff);
 
 	rs->pan_x = pan_clamp((int64_t)rs->pan_x + dx, ew,
-			      rs->ic->wh_px[0].whole,
-			      pan_affordance(rs->ic, rs->ic->wh_px[0].whole));
+			      rs->ic->wh_px[0].whole, aff[0], aff[1]);
 	rs->pan_y = pan_clamp((int64_t)rs->pan_y + dy, eh,
-			      rs->ic->wh_px[1].whole,
-			      pan_affordance(rs->ic, rs->ic->wh_px[1].whole));
+			      rs->ic->wh_px[1].whole, aff[2], aff[3]);
 
 	return rs->pan_x != ox || rs->pan_y != oy;
 }

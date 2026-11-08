@@ -516,8 +516,11 @@ lws_dlo_ui_frame(struct lws_dlo_ui *ui, unsigned int flags);
  *
  * Returns the surface the caller lays its content out on, and renders it to:
  * as wide as the display, as tall as what is below the title strip, and as
- * many pixels to the mm.  Its line y is line y + *y on the display.  It's not
- * round, even if the display is.  It's valid while the ui exists.
+ * many pixels to the mm.  Its line y is line y + *y on the display.  On a
+ * round display, it's round too, with .round_top saying it's the part of the
+ * circle below the title strip, so lws_display_render_pan() lets a page in it
+ * be moved to bring what is in the corners the circle cuts off into view.
+ * It's valid while the ui exists.
  */
 LWS_VISIBLE LWS_EXTERN const lws_surface_info_t *
 lws_dlo_ui_frame_body(struct lws_dlo_ui *ui, int *y);
