@@ -1169,7 +1169,9 @@ struct lws_context_creation_info {
 	lws_usec_t				smd_ttl_us;
 	/**< CONTEXT: SMD messages older than this many us are removed from the
 	 * queue and destroyed even if not fully delivered yet.  If zero,
-	 * defaults to 2 seconds (5 second for FREERTOS).
+	 * defaults to 2 seconds (5 second for FREERTOS).  Messages sent before
+	 * the context first services, eg, during context creation, only start
+	 * aging from then.
 	 */
 	uint16_t				smd_queue_depth;
 	/**< CONTEXT: Maximum queue depth, If zero defaults to 40

@@ -6,7 +6,8 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * This api test confirms lws_smd System Message Distribution
+ * This api test confirms lws_smd System Message Distribution, including that
+ * messages sent before the context first services don't time out meanwhile
  */
 
 #include <libwebsockets.h>
@@ -186,6 +187,112 @@ bail:
 	return NULL;
 }
 
+/*
+ * The startup leg: on a context of its own with a short ttl, a message sent
+ * before the first service must survive a wait longer than the ttl, since
+ * nothing could be delivered during it; one sent after the first service and
+ * then left waiting longer than the ttl must be dropped.
+ */
+
+#define STARTUP_TTL_US		(100 * LWS_US_PER_MS)
+#define STARTUP_WAIT_US		(3 * STARTUP_TTL_US)
+
+static int startup_rx;
+
+static int
+smd_cb_startup(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
+	       void *buf, size_t len)
+{
+	startup_rx++;
+
+	return 0;
+}
+
+static void
+startup_wait(void)
+{
+#if defined(WIN32)
+	Sleep(STARTUP_WAIT_US / 1000);
+#else
+	usleep(STARTUP_WAIT_US);
+#endif
+}
+
+/* service until the participant has had n messages, or for a second */
+
+static int
+startup_service(struct lws_context *cx, int n)
+{
+	lws_usec_t until = lws_now_usecs() + LWS_US_PER_SEC;
+
+	while (startup_rx < n && lws_now_usecs() < until)
+		if (lws_service(cx, 0) < 0)
+			break;
+
+	return startup_rx >= n;
+}
+
+static int
+startup_leg(int argc, const char **argv)
+{
+	struct lws_context_creation_info info;
+	struct lws_context *cx;
+	int ret = 1;
+
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	info.port = CONTEXT_PORT_NO_LISTEN;
+	info.smd_ttl_us = STARTUP_TTL_US;
+
+	cx = lws_create_context(&info);
+	if (!cx) {
+		lwsl_err("%s: lws init failed\n", __func__);
+		return 1;
+	}
+
+	if (!lws_smd_register(cx, NULL, 0, LWSSMDCL_INTERACTION,
+			      smd_cb_startup)) {
+		lwsl_err("%s: smd register failed\n", __func__);
+		goto bail;
+	}
+
+	/* sent before the first service, which is later than the ttl */
+
+	if (lws_smd_msg_printf(cx, LWSSMDCL_INTERACTION, "{\"s\":\"early\"}")) {
+		lwsl_err("%s: problem sending smd\n", __func__);
+		goto bail;
+	}
+	startup_wait();
+
+	if (!startup_service(cx, 1)) {
+		lwsl_err("%s: message sent before the first service was "
+			 "dropped\n", __func__);
+		goto bail;
+	}
+
+	/* after the first service, waiting longer than the ttl drops it */
+
+	if (lws_smd_msg_printf(cx, LWSSMDCL_INTERACTION, "{\"s\":\"late\"}")) {
+		lwsl_err("%s: problem sending smd\n", __func__);
+		goto bail;
+	}
+	startup_wait();
+
+	if (startup_service(cx, 2)) {
+		lwsl_err("%s: message left past its ttl was delivered\n",
+			 __func__);
+		goto bail;
+	}
+
+	lwsl_user("%s: PASS\n", __func__);
+	ret = 0;
+
+bail:
+	lws_context_destroy(cx);
+
+	return ret;
+}
+
 void sigint_handler(int sig)
 {
 	lws_default_loop_exit(context);
@@ -278,6 +385,11 @@ main(int argc, const char **argv)
 
 	lwsl_user("LWS API selftest: lws_smd: %u msgs at %uus interval\n",
 			how_many_msg, usec_interval);
+
+	if (startup_leg(argc, argv)) {
+		lwsl_user("Completed: FAIL: startup leg\n");
+		return 1;
+	}
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
