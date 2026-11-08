@@ -58,6 +58,12 @@ JPEG and PNG images and express all UI in html/css.
    not drawn.  Absolutely positioned descendants of an `overflow: hidden`
    box that is not itself positioned are not clipped by it, which is right
    unless their containing block is a positioned box inside it
+ - If the box clipping with `overflow` has `border-radius`, what is inside it
+   is clipped to its rounded corners too, each pixel as much as the box itself
+   covers it, so a child filling only one end of a rounded "capsule" comes out
+   as the capsule's own rounded end.  Where boxes with rounded corners clip
+   inside one another, only the innermost clips to its corners, the others
+   clip to their boxes
  - HTML element ID names that the user code cares about can be given, these are
    found during parse and layout information for the elements kept
  - Rendering is very flexible and lightweight, supports Y (8-) or RGB (24-) bit

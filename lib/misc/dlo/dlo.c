@@ -732,18 +732,29 @@ void
 lws_display_render_set_px(lws_display_render_state_t *rs, int x,
 			  const lws_display_colour_t *c)
 {
+	unsigned int a = rs->opacity;
 	lws_display_colour_t oc;
 
 	if (x < rs->clip_x0 || x >= rs->clip_x1)
 		return;
 
-	if (rs->opacity == 255) {
+	if (rs->rclip) {
+		/* how much of the pixel is inside the rounded clip */
+		unsigned int rc = x >= rs->rclip_row.pa &&
+				  x <= rs->rclip_row.pb ? rs->rclip_alpha :
+			lws_display_dlo_rect_px_alpha(rs->rclip, &rs->rclip_row,
+						      x, rs->rclip_alpha);
+
+		a = (a * rc + 127) / 255;
+	}
+
+	if (a == 255) {
 		lws_surface_set_px(rs->ic, rs->line, x, c);
 		return;
 	}
 
 	oc = (*c & 0xffffffu) | ((lws_display_colour_t)
-		((LWSDC_ALPHA(*c) * rs->opacity + 127) / 255) << 24);
+		((LWSDC_ALPHA(*c) * a + 127) / 255) << 24);
 
 	lws_surface_set_px(rs->ic, rs->line, x, &oc);
 }
@@ -755,7 +766,22 @@ lws_display_render_fill_span(lws_display_render_state_t *rs, int x0, int x1,
 	const lws_surface_info_t *ic = rs->ic;
 	lws_display_colour_t oc = *c;
 	int bpp = ic->greyscale ? 1 : (ic->render_to_rgba ? 4 : 3);
+	unsigned int a = rs->opacity;
 	uint8_t *p;
+
+	if (rs->rclip) {
+		/*
+		 * The pixels at the ends of the rounded clip's row may only be
+		 * partly inside it: they are composed one at a time.  Between,
+		 * all of the span is inside it as much as the row is
+		 */
+		while (x0 < x1 && x0 < rs->rclip_row.pa)
+			lws_display_render_set_px(rs, x0++, c);
+		while (x1 > x0 && x1 > rs->rclip_row.pb + 1)
+			lws_display_render_set_px(rs, --x1, c);
+
+		a = (a * rs->rclip_alpha + 127) / 255;
+	}
 
 	if (x0 < rs->clip_x0)
 		x0 = rs->clip_x0;
@@ -768,9 +794,9 @@ lws_display_render_fill_span(lws_display_render_state_t *rs, int x0, int x1,
 	if (x0 >= x1)
 		return;
 
-	if (rs->opacity != 255)
+	if (a != 255)
 		oc = (*c & 0xffffffu) | ((lws_display_colour_t)
-			((LWSDC_ALPHA(*c) * rs->opacity + 127) / 255) << 24);
+			((LWSDC_ALPHA(*c) * a + 127) / 255) << 24);
 
 	if (LWSDC_ALPHA(oc) != 255 || ic->greyscale) {
 		/* it's composed with what's there, a pixel at a time */
@@ -809,13 +835,20 @@ dlo_opacity(const lws_display_render_stack_t *st, const lws_dlo_t *dlo)
  * A dlo is clipped to what its ancestors with css overflow: hidden clip their
  * children to, st->clip.  On a line outside that, it composes nothing.  The
  * renderer is still called, since decoders keep their place by the lines they
- * are given, and the box may extend into the clip further down
+ * are given, and the box may extend into the clip further down.
+ *
+ * If the innermost of those ancestors has rounded corners, st->rclip, it is
+ * also clipped to them, as much as the ancestor covers each pixel, the same
+ * as it is drawn itself.  Outer ones with rounded corners only clip to their
+ * box.
  */
 
 static void
 dlo_clip_line(lws_display_render_state_t *rs,
 	      const lws_display_render_stack_t *st)
 {
+	rs->rclip = NULL;
+
 	if (rs->curr < st->clip[1] || rs->curr >= st->clip[3]) {
 		rs->clip_x0 = rs->clip_x1 = 0;
 		return;
@@ -823,6 +856,33 @@ dlo_clip_line(lws_display_render_state_t *rs,
 
 	rs->clip_x0 = st->clip[0];
 	rs->clip_x1 = st->clip[2];
+
+	if (!st->rclip)
+		return;
+
+	/* the row of the rounded clip is worked out once a line */
+
+	if (rs->rclip_for != st->rclip || rs->rclip_row.curr != rs->curr) {
+		rs->rclip_for = st->rclip;
+		rs->rclip_none = (uint8_t)!!lws_display_dlo_rect_row(st->rclip,
+				rs->curr, rs->ic->wh_px[0].whole,
+				&rs->rclip_row);
+		rs->rclip_row.curr = rs->curr;
+		rs->rclip_alpha = lws_display_dlo_rect_row_alpha(
+							&rs->rclip_row, 255);
+	}
+
+	if (rs->rclip_none || !rs->rclip_alpha) {
+		rs->clip_x0 = rs->clip_x1 = 0;
+		return;
+	}
+
+	if (rs->clip_x0 < rs->rclip_row.os)
+		rs->clip_x0 = rs->rclip_row.os;
+	if (rs->clip_x1 > rs->rclip_row.le + 1)
+		rs->clip_x1 = rs->rclip_row.le + 1;
+
+	rs->rclip = st->rclip;
 }
 
 /*
@@ -831,16 +891,29 @@ dlo_clip_line(lws_display_render_state_t *rs,
  */
 
 static void
-dlo_child_clip(const lws_display_render_stack_t *st, const lws_dlo_t *dlo,
-	       const lws_box_t *co, int32_t *clip)
+dlo_child_clip(lws_display_render_state_t *rs,
+	       const lws_display_render_stack_t *st, lws_dlo_t *dlo,
+	       const lws_box_t *co, lws_display_render_stack_t *cst)
 {
+	int32_t e, *clip = cst->clip;
+	lws_dlo_rect_t *r;
 	lws_fx_t t;
-	int32_t e;
 
 	memcpy(clip, st->clip, sizeof(st->clip));
+	cst->rclip = st->rclip;
 
 	if (!dlo->flag_clip)
 		return;
+
+	if (dlo->render == lws_display_render_rect) {
+		r = lws_container_of(dlo, lws_dlo_rect_t, dlo);
+		if (!r->tri && lws_display_dlo_rect_rounded(r)) {
+			/* it may have moved since its row was worked out */
+			lws_display_dlo_rect_place(r, &co->x, &co->y);
+			cst->rclip = r;
+			rs->rclip_for = NULL;
+		}
+	}
 
 	if (co->x.whole > clip[0])
 		clip[0] = co->x.whole;
@@ -1012,6 +1085,8 @@ _lws_display_list_render_line(lws_display_render_state_t *rs)
 		rs->st[0].opacity = 255;
 		rs->st[0].clip[0] = rs->st[0].clip[1] = INT32_MIN;
 		rs->st[0].clip[2] = rs->st[0].clip[3] = INT32_MAX;
+		rs->st[0].rclip = NULL;
+		rs->rclip_for = NULL;
 		rs->st[0].dlo = lws_container_of(d, lws_dlo_t, list);
 	}
 
@@ -1103,8 +1178,8 @@ _lws_display_list_render_line(lws_display_render_state_t *rs)
 		}
 
 		rs->st[rs->sp + 1].opacity = rs->opacity;
-		dlo_child_clip(&rs->st[rs->sp], dlo, &co,
-			       rs->st[rs->sp + 1].clip);
+		dlo_child_clip(rs, &rs->st[rs->sp], dlo, &co,
+			       &rs->st[rs->sp + 1]);
 		rs->st[++rs->sp].dlo = lws_container_of(
 				lws_dll2_get_head(&dlo->children), lws_dlo_t,
 				list);

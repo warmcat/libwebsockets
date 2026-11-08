@@ -221,6 +221,17 @@ typedef struct lws_dlo_rect {
 	uint8_t				tri;  /* 1 t-l, 2 t-r, 3 b-l, 4 b-r */
 } lws_dlo_rect_t;
 
+/* what a rect covers of one line of the surface, see dlo-rect.c */
+
+typedef struct lws_dlo_rect_row {
+	lws_fx_t			cov;	/* of the line's height */
+	lws_fx_t			sfy;	/* where it starts */
+	lws_fx_t			e;	/* where it ends */
+	int				curr;	/* the line */
+	int				os, le;	/* first and last px touched */
+	int				pa, pb;	/* first and last px covered */
+} lws_dlo_rect_row_t;
+
 typedef struct lws_dlo_circle {
 	lws_dlo_t			dlo;
 } lws_dlo_circle_t;
@@ -512,6 +523,9 @@ typedef struct lws_display_render_stack {
 	lws_box_t			co;	/* our origin as parent */
 	int32_t				clip[4]; /* surface x0, y0, x1, y1
 						  * our children are clipped to */
+	struct lws_dlo_rect		*rclip;	/* the innermost of clip[]'s
+						 * boxes with rounded corners,
+						 * which clip too, or NULL */
 	uint8_t				opacity; /* alpha our children are
 						  * composed with, 255 = opaque */
 } lws_display_render_stack_t;
@@ -547,10 +561,20 @@ typedef struct lws_display_render_state {
 	int32_t				clip_x0; /* the dlo being rendered */
 	int32_t				clip_x1; /* only composes pixels from
 						  * x0 up to x1 on this line */
+	struct lws_dlo_rect		*rclip;	/* the dlo being rendered is
+						 * also clipped to this one's
+						 * rounded corners, on
+						 * rclip_row */
+	struct lws_dlo_rect		*rclip_for; /* rclip_row is of
+						     * this, for its line */
+	lws_dlo_rect_row_t		rclip_row;
+	unsigned int			rclip_alpha; /* of all of the row */
 	uint8_t				opacity; /* alpha the dlo being
 						  * rendered is composed with,
 						  * 255 = opaque: see
 						  * lws_display_render_set_px() */
+	uint8_t				rclip_none; /* rclip_row covers
+						     * nothing of the line */
 
 	lws_displaylist_t		displaylist;
 

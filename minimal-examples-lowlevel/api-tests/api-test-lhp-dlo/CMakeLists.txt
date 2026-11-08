@@ -451,6 +451,20 @@ if (requirements)
 				-DW=100 -DH=40
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 
+		# overflow: hidden on a box with rounded corners clips what is in
+		# it to them, covering each pixel as much as the box would be
+		# drawn itself: a box filled by a child, or with a sliver of one
+		# at either end, comes out the same as the box drawn that colour,
+		# or a box rounded only at that end
+		add_test(NAME api-test-lhp-dlo-rounded-clip-render
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/rounded-clip.html
+				-DHTML_B=${CMAKE_CURRENT_SOURCE_DIR}/rounded-clip-twin.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/rounded-clip
+				-DW=240 -DH=210
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+
 		# a retained display list scanned again panned down skips the
 		# subtrees with nothing on each line, but still finds what is
 		# positioned outside its parent's box, overflowing a zero height

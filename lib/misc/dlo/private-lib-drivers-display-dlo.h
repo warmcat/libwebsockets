@@ -372,6 +372,26 @@ lws_display_font_mcufont_release_glyphs(lws_dlo_text_t *text);
 void
 lws_display_dlo_text_detach_glyphs(lws_dlo_text_t *text);
 
+/*
+ * A rect's coverage of a line, used to draw it, and to clip what is in it to
+ * its rounded corners: see dlo-rect.c
+ */
+
+void
+lws_display_dlo_rect_place(lws_dlo_rect_t *r, const lws_fx_t *ox,
+			   const lws_fx_t *oy);
+int
+lws_display_dlo_rect_rounded(const lws_dlo_rect_t *r);
+int
+lws_display_dlo_rect_row(lws_dlo_rect_t *r, int curr, int w,
+			 lws_dlo_rect_row_t *row);
+unsigned int
+lws_display_dlo_rect_row_alpha(const lws_dlo_rect_row_t *row,
+			       unsigned int alpha);
+unsigned int
+lws_display_dlo_rect_px_alpha(lws_dlo_rect_t *r, const lws_dlo_rect_row_t *row,
+			      int x, unsigned int alpha);
+
 int
 lws_display_dlo_text_refit(lws_dlo_text_t *text);
 
