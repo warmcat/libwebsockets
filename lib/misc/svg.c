@@ -2403,7 +2403,7 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 	int64_t alpha = LWS_SVG_ALPHA(rgba);	/* 0..255 in e8 units */
 	uint32_t srgba = parent->stroke;
 	int64_t salpha = LWS_SVG_ALPHA(srgba);
-	int64_t strokew_raw = 0;
+	int64_t strokew_raw = 0, opf = SVG_E8_1;
 	char strokew_pct = 0, strokew_set = 0;
 	int tier, i;
 
@@ -2424,9 +2424,14 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 	if (pd->fillop_present && pd->fillop > 0)
 		alpha = pd->fillop < SVG_E8_1 ?
 			(alpha * pd->fillop + SVG_E8_1 / 2) / SVG_E8_1 : alpha;
-	if (pd->op_present && pd->op > 0)
-		alpha = pd->op < SVG_E8_1 ?
-			(alpha * pd->op + SVG_E8_1 / 2) / SVG_E8_1 : alpha;
+	/*
+	 * Opacity is one property in the cascade like the others: the last of
+	 * the attribute, <style> and style="" to set it wins.  It applies to
+	 * the fill and the stroke alike, so it's kept apart until the end
+	 */
+
+	if (pd->op_present && pd->op > 0 && pd->op < SVG_E8_1)
+		opf = pd->op;
 
 	if (pd->rule_present)
 		l->rule = pd->rule;
@@ -2442,9 +2447,6 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 	if (pd->strokeop_present && pd->strokeop > 0)
 		salpha = pd->strokeop < SVG_E8_1 ?
 			(salpha * pd->strokeop + SVG_E8_1 / 2) / SVG_E8_1 : salpha;
-	if (pd->op_present && pd->op > 0)
-		salpha = pd->op < SVG_E8_1 ?
-			(salpha * pd->op + SVG_E8_1 / 2) / SVG_E8_1 : salpha;
 	if (pd->strokew_present) {
 		strokew_raw = pd->strokew;
 		strokew_pct = pd->strokew_pct;
@@ -2491,9 +2493,7 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 					(alpha * r->fillop + SVG_E8_1 / 2) /
 							SVG_E8_1 : alpha;
 			if (r->op_set && r->op > 0)
-				alpha = r->op < SVG_E8_1 ?
-					(alpha * r->op + SVG_E8_1 / 2) /
-							SVG_E8_1 : alpha;
+				opf = r->op < SVG_E8_1 ? r->op : SVG_E8_1;
 			if (r->rule_set)
 				l->rule = r->rule;
 
@@ -2508,10 +2508,6 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 			if (r->strokeop_set && r->strokeop > 0)
 				salpha = r->strokeop < SVG_E8_1 ?
 					(salpha * r->strokeop + SVG_E8_1 / 2) /
-						SVG_E8_1 : salpha;
-			if (r->op_set && r->op > 0)
-				salpha = r->op < SVG_E8_1 ?
-					(salpha * r->op + SVG_E8_1 / 2) /
 						SVG_E8_1 : salpha;
 			if (r->strokew_set) {
 				strokew_raw = r->strokew;
@@ -2541,9 +2537,7 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 			(alpha * pd->sa_fillop + SVG_E8_1 / 2) / SVG_E8_1 :
 								alpha;
 	if (pd->sa_op_present && pd->sa_op > 0)
-		alpha = pd->sa_op < SVG_E8_1 ?
-			(alpha * pd->sa_op + SVG_E8_1 / 2) / SVG_E8_1 :
-				alpha;
+		opf = pd->sa_op < SVG_E8_1 ? pd->sa_op : SVG_E8_1;
 
 	/* style="" stroke overrides */
 
@@ -2576,10 +2570,11 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 	if (salpha > 255)
 		salpha = 255;
 
-	l->rgba = (rgba & 0x00ffffff) |
-			((uint32_t)((alpha * 2 + 1) / 2) << 24);
-	l->stroke = (srgba & 0x00ffffff) |
-			((uint32_t)((salpha * 2 + 1) / 2) << 24);
+	alpha = (alpha * opf + SVG_E8_1 / 2) / SVG_E8_1;
+	salpha = (salpha * opf + SVG_E8_1 / 2) / SVG_E8_1;
+
+	l->rgba = (rgba & 0x00ffffff) | ((uint32_t)alpha << 24);
+	l->stroke = (srgba & 0x00ffffff) | ((uint32_t)salpha << 24);
 
 	if (strokew_set)
 		l->stroke_w = stroke_w_resolve(ctx, strokew_raw, strokew_pct);

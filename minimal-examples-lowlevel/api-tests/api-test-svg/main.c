@@ -1620,6 +1620,33 @@ build_corpus_css(void)
 	cc->area_tol = 0;
 	cc->exp_w = cc->exp_h = 64;
 
+	/*
+	 * opacity is one property in the cascade like the others: style=""
+	 * beats <style> beats the attribute, rather than multiplying, and it
+	 * isn't lost when a fill comes from later in the cascade
+	 */
+
+	cc = cc_add("css-opacity-cascade",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<style>.h{opacity:0.25}</style>"
+		"<rect class=\"h\" opacity=\"0.75\" style=\"opacity:0.5\" "
+		"fill=\"#ff0000\" x=\"4\" y=\"4\" width=\"10\" "
+		"height=\"10\"/></svg>");
+	cc->exp_rgba = LWS_SVG_RGBA(0xff, 0, 0, 128);
+	cc->exp_area = 100;
+	cc->area_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
+	cc = cc_add("css-opacity-fill-later",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<style>.b{fill:#0000ff}</style>"
+		"<rect class=\"b\" opacity=\"0.5\" x=\"4\" y=\"4\" "
+		"width=\"10\" height=\"10\"/></svg>");
+	cc->exp_rgba = LWS_SVG_RGBA(0, 0, 0xff, 128);
+	cc->exp_area = 100;
+	cc->area_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
 	/* css beats presentation attribute, style=\"\" beats css */
 
 	cc = cc_add("css-beats-pa",
