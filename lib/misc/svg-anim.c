@@ -40,6 +40,8 @@
 
 /* times are clamped to +/- this, about 11.5 days, so differences can't wrap */
 #define SVG_T_MAX		((lws_usec_t)1000000000000ll)
+/* the furthest the time the scene is drawn at can be from 0 */
+#define SVG_ANIM_T_MAX		((lws_usec_t)1 << 62)
 
 static int
 lit(const char *p, const char *end, const char *s)
@@ -1112,12 +1114,16 @@ lws_svg_set_time(lws_svg_t *ctx, lws_usec_t t)
 	if (!ctx)
 		return;
 
-	/* well beyond any begin, so t - begin can't wrap */
+	/*
+	 * Begins are within +/- SVG_T_MAX, so this is as far as t can go
+	 * without t - begin wrapping.  It's still ~146,000 years: any clock,
+	 * eg, lws_now_usecs(), which is the wall clock on some platforms.
+	 */
 
-	if (t > 1000 * SVG_T_MAX)
-		t = 1000 * SVG_T_MAX;
-	if (t < -1000 * SVG_T_MAX)
-		t = -1000 * SVG_T_MAX;
+	if (t > SVG_ANIM_T_MAX)
+		t = SVG_ANIM_T_MAX;
+	if (t < -SVG_ANIM_T_MAX)
+		t = -SVG_ANIM_T_MAX;
 
 	if (t != ctx->anim_t) {
 		ctx->anim_t = t;

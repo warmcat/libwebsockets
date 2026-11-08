@@ -2580,8 +2580,8 @@ an_same(const char *name, const char *anim, lws_usec_t t, const char *stat)
 		    "anim %s: fatal", name);
 		CHK(animated, "anim %s: not animated", name);
 		CHK(!memcmp(a.acc, b.acc, sizeof(a.acc)),
-		    "anim %s: aa %d at %dms differs from static", name, aa,
-		    (int)(t / LWS_US_PER_MS));
+		    "anim %s: aa %d at %lldms differs from static", name, aa,
+		    (long long)(t / LWS_US_PER_MS));
 		CHK(a.last_rgba == b.last_rgba,
 		    "anim %s: aa %d colour %08x vs %08x", name, aa,
 		    (unsigned int)a.last_rgba, (unsigned int)b.last_rgba);
@@ -2617,6 +2617,18 @@ anim_checks(void)
 		"from=\"0 32 32\" to=\"360 32 32\" dur=\"4s\" "
 		"repeatCount=\"indefinite\"/>" AN_RECT "</g>",
 		9 * LWS_US_PER_SEC,
+		"<g transform=\"rotate(90 32 32)\">" AN_RECT "</g>");
+
+	/*
+	 * Drawn at a wall clock time, as lws_now_usecs() is on some
+	 * platforms, eg, FreeRTOS: 1794000001s is 1s into a 4s period
+	 */
+
+	an_same("rotate-wall-clock",
+		"<g><animateTransform attributeName=\"transform\" type=\"rotate\" "
+		"from=\"0 32 32\" to=\"360 32 32\" dur=\"4s\" "
+		"repeatCount=\"indefinite\"/>" AN_RECT "</g>",
+		1794000001ll * LWS_US_PER_SEC,
 		"<g transform=\"rotate(90 32 32)\">" AN_RECT "</g>");
 
 	an_same("rotate-shape",
