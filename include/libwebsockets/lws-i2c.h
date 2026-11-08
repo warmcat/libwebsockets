@@ -89,6 +89,39 @@ lws_i2c_write_regs(const lws_i2c_ops_t *ctx, uint8_t ads7, uint8_t reg,
 		   const uint8_t *buf, size_t len);
 
 
+/**
+ * lws_i2c_read_regs16() - read consecutive registers, 16-bit register address
+ *
+ * \param ctx: the i2c ops for the bus the device is on
+ * \param ads7: the device's 7-bit address
+ * \param reg: the first register to read
+ * \param buf: where to put the register contents
+ * \param len: how many consecutive registers to read, at least 1
+ *
+ * As lws_i2c_read_regs(), for devices whose register addresses are 16-bit,
+ * sent most significant byte first.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_i2c_read_regs16(const lws_i2c_ops_t *ctx, uint8_t ads7, uint16_t reg,
+		    uint8_t *buf, size_t len);
+
+/**
+ * lws_i2c_write_regs16() - write consecutive registers, 16-bit register address
+ *
+ * \param ctx: the i2c ops for the bus the device is on
+ * \param ads7: the device's 7-bit address
+ * \param reg: the first register to write
+ * \param buf: the values to write
+ * \param len: how many consecutive registers to write, may be 0
+ *
+ * As lws_i2c_write_regs(), for devices whose register addresses are 16-bit,
+ * sent most significant byte first.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_i2c_write_regs16(const lws_i2c_ops_t *ctx, uint8_t ads7, uint16_t reg,
+		     const uint8_t *buf, size_t len);
+
+
 LWS_VISIBLE LWS_EXTERN int
 lws_i2c_command(const lws_i2c_ops_t *ctx, uint8_t ads7, uint8_t c);
 

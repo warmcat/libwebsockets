@@ -59,36 +59,43 @@ lws_i2c_command_list(const lws_i2c_ops_t *ctx, uint8_t ads7, const uint8_t *buf,
 }
 
 /*
- * Address the device for writing and send it the register address: the
- * common start of both register helpers.  On failure the bus has been
- * released again.
+ * Address the device for writing and send it the register address, of
+ * \p rlen bytes, most significant first: the common start of all the
+ * register helpers.  On failure the bus has been released again.
  */
 
 static int
-lws_i2c_reg_select(const lws_i2c_ops_t *ctx, uint8_t ads7, uint8_t reg)
+lws_i2c_reg_select(const lws_i2c_ops_t *ctx, uint8_t ads7, const uint8_t *reg,
+		   size_t rlen)
 {
 	if (ctx->start(ctx))
 		return 1;
 
-	if (ctx->write(ctx, (uint8_t)(ads7 << 1)) || ctx->write(ctx, reg)) {
-		ctx->stop(ctx);
+	if (ctx->write(ctx, (uint8_t)(ads7 << 1)))
+		goto bail;
 
-		return 1;
-	}
+	while (rlen--)
+		if (ctx->write(ctx, *reg++))
+			goto bail;
 
 	return 0;
+
+bail:
+	ctx->stop(ctx);
+
+	return 1;
 }
 
-int
-lws_i2c_read_regs(const lws_i2c_ops_t *ctx, uint8_t ads7, uint8_t reg,
-		  uint8_t *buf, size_t len)
+static int
+lws_i2c_read(const lws_i2c_ops_t *ctx, uint8_t ads7, const uint8_t *reg,
+	     size_t rlen, uint8_t *buf, size_t len)
 {
 	int n;
 
 	if (!len)
 		return 1;
 
-	if (lws_i2c_reg_select(ctx, ads7, reg))
+	if (lws_i2c_reg_select(ctx, ads7, reg, rlen))
 		return 1;
 
 	/* repeated START, turning the bus around to read from the device */
@@ -116,11 +123,11 @@ bail:
 	return 1;
 }
 
-int
-lws_i2c_write_regs(const lws_i2c_ops_t *ctx, uint8_t ads7, uint8_t reg,
-		   const uint8_t *buf, size_t len)
+static int
+lws_i2c_write(const lws_i2c_ops_t *ctx, uint8_t ads7, const uint8_t *reg,
+	      size_t rlen, const uint8_t *buf, size_t len)
 {
-	if (lws_i2c_reg_select(ctx, ads7, reg))
+	if (lws_i2c_reg_select(ctx, ads7, reg, rlen))
 		return 1;
 
 	while (len--)
@@ -134,3 +141,36 @@ lws_i2c_write_regs(const lws_i2c_ops_t *ctx, uint8_t ads7, uint8_t reg,
 
 	return 0;
 }
+
+int
+lws_i2c_read_regs(const lws_i2c_ops_t *ctx, uint8_t ads7, uint8_t reg,
+		  uint8_t *buf, size_t len)
+{
+	return lws_i2c_read(ctx, ads7, &reg, 1, buf, len);
+}
+
+int
+lws_i2c_write_regs(const lws_i2c_ops_t *ctx, uint8_t ads7, uint8_t reg,
+		   const uint8_t *buf, size_t len)
+{
+	return lws_i2c_write(ctx, ads7, &reg, 1, buf, len);
+}
+
+int
+lws_i2c_read_regs16(const lws_i2c_ops_t *ctx, uint8_t ads7, uint16_t reg,
+		    uint8_t *buf, size_t len)
+{
+	uint8_t r[2] = { (uint8_t)(reg >> 8), (uint8_t)reg };
+
+	return lws_i2c_read(ctx, ads7, r, sizeof(r), buf, len);
+}
+
+int
+lws_i2c_write_regs16(const lws_i2c_ops_t *ctx, uint8_t ads7, uint16_t reg,
+		     const uint8_t *buf, size_t len)
+{
+	uint8_t r[2] = { (uint8_t)(reg >> 8), (uint8_t)reg };
+
+	return lws_i2c_write(ctx, ads7, r, sizeof(r), buf, len);
+}
+

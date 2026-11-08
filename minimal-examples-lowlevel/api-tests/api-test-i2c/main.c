@@ -9,7 +9,8 @@
  * Tests the generic i2c register helpers against a simulated peripheral
  * behind a mock lws_i2c_ops_t.  The mock checks the master keeps to the
  * bus protocol at the level of the ops, and models a typical register-file
- * device whose register pointer auto-increments.
+ * device whose register pointer auto-increments.  The device can take
+ * 8-bit or 16-bit register addresses, the latter for the *_regs16() helpers.
  */
 
 #include <libwebsockets.h>
@@ -22,6 +23,7 @@ typedef enum {
 	MB_IDLE,	/* bus free */
 	MB_ADDR,	/* after START, expecting the address byte */
 	MB_REG,		/* addressed for write, expecting register address */
+	MB_REG_LO,	/* 16-bit register address, expecting its low byte */
 	MB_WDATA,	/* register address set, any more bytes are data */
 	MB_RDATA,	/* addressed for read, master clocks bytes in */
 	MB_RDONE,	/* master NAKed a byte, only STOP or restart is legal */
@@ -32,7 +34,10 @@ typedef struct mock_i2c {
 	lws_i2c_ops_t		ops; /* must be first */
 
 	uint8_t			regs[256];
-	uint8_t			ptr;	/* register pointer */
+	uint16_t		ptr;	/* register pointer, regs[] holds the
+					 * low 256 of them */
+	uint16_t		reg_set; /* the last register address sent */
+	char			reg16;	/* register addresses are 16-bit */
 
 	mock_bus_state_t	state;
 	char			ack_owed; /* a byte was read, set_ack() due */
@@ -105,12 +110,23 @@ mock_write(const lws_i2c_ops_t *octx, uint8_t data)
 		return 0;
 
 	case MB_REG:
-		m->ptr = data;
+		if (m->reg16) {
+			/* the most significant byte comes first */
+			m->ptr = (uint16_t)(data << 8);
+			m->state = MB_REG_LO;
+			return 0;
+		}
+		m->ptr = m->reg_set = data;
+		m->state = MB_WDATA;
+		return 0;
+
+	case MB_REG_LO:
+		m->ptr = m->reg_set = (uint16_t)(m->ptr | data);
 		m->state = MB_WDATA;
 		return 0;
 
 	case MB_WDATA:
-		m->regs[m->ptr++] = data;
+		m->regs[m->ptr++ & 0xff] = data;
 		return 0;
 
 	case MB_IGNORE:
@@ -141,7 +157,7 @@ mock_read(const lws_i2c_ops_t *octx)
 
 	m->ack_owed = 1;
 
-	return m->regs[m->ptr++];
+	return m->regs[m->ptr++ & 0xff];
 }
 
 static void
@@ -275,6 +291,71 @@ int main(int argc, const char **argv)
 	if (!lws_i2c_read_regs(&m.ops, MOCK_ADS7, 0x00, r, 4) || m.stops != 1 ||
 	    m.state != MB_IDLE) {
 		lwsl_err("%s: failing read\n", __func__);
+		fails++;
+	}
+
+	/*
+	 * 16-bit register addresses, most significant byte first: write then
+	 * read back, as a GT911 touch controller is spoken to
+	 */
+
+	mock_reset(&m);
+	m.reg16 = 1;
+	if (lws_i2c_write_regs16(&m.ops, MOCK_ADS7, 0x8140, w, sizeof(w)) ||
+	    bus_ok(&m, 1, "write16") || m.reg_set != 0x8140 ||
+	    memcmp(&m.regs[0x40], w, sizeof(w))) {
+		lwsl_err("%s: write_regs16\n", __func__);
+		fails++;
+	}
+
+	m.starts = m.stops = 0;
+	m.reg_set = 0;
+	memset(r, 0, sizeof(r));
+	if (lws_i2c_read_regs16(&m.ops, MOCK_ADS7, 0x8140, r, sizeof(w)) ||
+	    bus_ok(&m, 2, "read16") || m.reg_set != 0x8140 ||
+	    memcmp(r, w, sizeof(w))) {
+		lwsl_err("%s: read_regs16\n", __func__);
+		fails++;
+	}
+
+	mock_reset(&m);
+	m.reg16 = 1;
+	if (lws_i2c_write_regs16(&m.ops, MOCK_ADS7, 0x814e, NULL, 0) ||
+	    bus_ok(&m, 1, "write16 0") || m.reg_set != 0x814e) {
+		lwsl_err("%s: write_regs16 empty\n", __func__);
+		fails++;
+	}
+
+	mock_reset(&m);
+	m.reg16 = 1;
+	if (!lws_i2c_read_regs16(&m.ops, MOCK_ADS7 + 1, 0x8140, r, 2) ||
+	    bus_ok(&m, 1, "absent read16")) {
+		lwsl_err("%s: read_regs16 from absent device\n", __func__);
+		fails++;
+	}
+
+	mock_reset(&m);
+	m.reg16 = 1;
+	if (!lws_i2c_write_regs16(&m.ops, MOCK_ADS7 + 1, 0x814e, w, 1) ||
+	    bus_ok(&m, 1, "absent write16")) {
+		lwsl_err("%s: write_regs16 to absent device\n", __func__);
+		fails++;
+	}
+
+	mock_reset(&m);
+	m.reg16 = 1;
+	if (!lws_i2c_read_regs16(&m.ops, MOCK_ADS7, 0x8140, r, 0) ||
+	    m.starts || m.stops) {
+		lwsl_err("%s: zero-length read16\n", __func__);
+		fails++;
+	}
+
+	mock_reset(&m);
+	m.reg16 = 1;
+	m.fail_read_at = 3;
+	if (!lws_i2c_read_regs16(&m.ops, MOCK_ADS7, 0x8140, r, 4) ||
+	    m.stops != 1 || m.state != MB_IDLE) {
+		lwsl_err("%s: failing read16\n", __func__);
 		fails++;
 	}
 
