@@ -45,14 +45,41 @@ lws_bb_i2c_init(const lws_i2c_ops_t *octx)
 	return 0;
 }
 
+/*
+ * Let SCL go high, and wait until it is: a peripheral may stretch the clock
+ * by holding it low until it's ready, eg, while it updates the registers
+ * being read.  Clocking on regardless loses the bit, and with it, maybe the
+ * register address the read starts from.  One that is wedged or absent with
+ * the line stuck mustn't hang us forever: nonzero if it never went high.
+ */
+
+static int
+lws_bb_i2c_scl_release(lws_bb_i2c_t *ctx)
+{
+	int n = LWS_BB_I2C_STRETCH_LIMIT;
+
+	ctx->gpio->set(ctx->scl, 1);
+	ctx->delay();
+
+	while (!ctx->gpio->read(ctx->scl) && --n)
+		ctx->delay();
+
+	if (n)
+		return 0;
+
+	lwsl_warn("%s: SCL held low\n", __func__);
+
+	return 1;
+}
+
 int
 lws_bb_i2c_start(const lws_i2c_ops_t *octx)
 {
 	lws_bb_i2c_t *ctx = (lws_bb_i2c_t *)octx;
 
 	ctx->gpio->set(ctx->sda, 1);
-	ctx->gpio->set(ctx->scl, 1);
-	ctx->delay();
+	if (lws_bb_i2c_scl_release(ctx))
+		return 1;
 
 	if (!ctx->gpio->read(ctx->sda))
 		return 1;
@@ -68,23 +95,9 @@ void
 lws_bb_i2c_stop(const lws_i2c_ops_t *octx)
 {
 	lws_bb_i2c_t *ctx = (lws_bb_i2c_t *)octx;
-	int n = LWS_BB_I2C_STRETCH_LIMIT;
 
 	ctx->gpio->set(ctx->sda, 0);
-	ctx->gpio->set(ctx->scl, 1);
-	ctx->delay();
-
-	/*
-	 * A peripheral may stretch the clock by holding SCL low, but one that
-	 * is wedged or absent with the line stuck must not hang us forever
-	 */
-
-	while (!ctx->gpio->read(ctx->scl) && --n)
-		ctx->delay();
-
-	if (!n)
-		lwsl_warn("%s: SCL held low\n", __func__);
-
+	lws_bb_i2c_scl_release(ctx);
 	ctx->gpio->set(ctx->sda, 1);
 	ctx->delay();
 }
@@ -98,16 +111,16 @@ lws_bb_i2c_write(const lws_i2c_ops_t *octx, uint8_t data)
 	for (n = 0; n < 8; n++) {
 		ctx->gpio->set(ctx->sda, !!(data & (1 << 7)));
 		ctx->delay();
-		ctx->gpio->set(ctx->scl, 1);
-		ctx->delay();
+		if (lws_bb_i2c_scl_release(ctx))
+			return 1;
 		data = (uint8_t)(data << 1);
 		ctx->gpio->set(ctx->scl, 0);
 	}
 
 	ctx->gpio->set(ctx->sda, 1);
 	ctx->delay();
-	ctx->gpio->set(ctx->scl, 1);
-	ctx->delay();
+	if (lws_bb_i2c_scl_release(ctx))
+		return 1;
 	n = ctx->gpio->read(ctx->sda);
 	ctx->gpio->set(ctx->scl, 0);
 	ctx->delay();
@@ -126,8 +139,8 @@ lws_bb_i2c_read(const lws_i2c_ops_t *octx)
 	for (n = 7; n >= 0; n--) {
 		ctx->gpio->set(ctx->scl, 0);
 		ctx->delay();
-		ctx->gpio->set(ctx->scl, 1);
-		ctx->delay();
+		if (lws_bb_i2c_scl_release(ctx))
+			return -1;
 		if (ctx->gpio->read(ctx->sda))
 			r |= 1 << n;
 	}
@@ -144,8 +157,7 @@ lws_bb_i2c_set_ack(const lws_i2c_ops_t *octx, int ack)
 	ctx->gpio->set(ctx->scl, 0);
 	ctx->gpio->set(ctx->sda, !!ack);
 	ctx->delay();
-	ctx->gpio->set(ctx->scl, 1);
-	ctx->delay();
+	lws_bb_i2c_scl_release(ctx);
 	ctx->gpio->set(ctx->scl, 0);
 	ctx->delay();
 	ctx->gpio->set(ctx->sda, 1);

@@ -25,7 +25,10 @@
  * functions for the ops that use the underlying OS gpio arrangements.
  */
 
-/* how many delay() periods STOP waits for a peripheral stretching the clock */
+/*
+ * how many delay() periods a rising SCL waits for a peripheral stretching
+ * the clock, before the transfer is failed
+ */
 #define LWS_BB_I2C_STRETCH_LIMIT 1000
 
 typedef struct lws_bb_i2c {
