@@ -972,13 +972,22 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 	ip_host = lws_cookie_is_ip_literal(domain,
 					   lws_cookie_domain_len(domain));
 
-	/* iterate through domain and path levels to find matching cookies */
-	dl_domain = domain;
-	while (dl_domain) {
+	/*
+	 * Iterate through the domain levels to find matching cookies: the
+	 * request host itself, then each of its parent domains.  The path
+	 * levels are taken care of by the jar's lookup, which matches the
+	 * request path against each stored cookie path the RFC 6265 5.1.4
+	 * way, eg, a cookie with Path=/ is found for a request to /a/b.
+	 */
+	while (1) {
 		domain_len = lws_cookie_domain_len(domain);
 		dl_domain = (char *)memchr(domain, '.', domain_len);
-		/* don't match top level domain */
-		if (!dl_domain)
+		/*
+		 * Don't match a parent domain that is a top level domain.  But
+		 * the request host itself can be a single label, like
+		 * "localhost", and its host-only cookies must still match it.
+		 */
+		if (!hostdomain && !dl_domain)
 			break;
 
 		cnl = domain_len + path_len + 6;
@@ -1127,8 +1136,11 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 		if (overflow)
 			return -1;
 
-		/* IP-literal hosts match on the exact host only */
-		if (ip_host)
+		/*
+		 * IP-literal hosts match on the exact host only, and a single
+		 * label host has no parent domain
+		 */
+		if (ip_host || !dl_domain)
 			break;
 
 		domain = dl_domain + 1;
