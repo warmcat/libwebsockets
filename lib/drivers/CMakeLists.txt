@@ -15,6 +15,7 @@ list(APPEND SOURCES
 	drivers/button/lws-button.c
 	drivers/touch/lws-touch.c
 	drivers/touch/cst816s-i2c.c
+	drivers/touch/gt911-i2c.c
 	drivers/led/led-gpio.c
 	drivers/led/led-seq.c
 	drivers/pwm/pwm.c

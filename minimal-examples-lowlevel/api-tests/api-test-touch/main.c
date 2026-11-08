@@ -12,11 +12,12 @@
  * covering controllers that stream movement and ones that only report the
  * finger coming down and lifting.
  *
- * Then whole touch controllers, a CST816S behind a simulated i2c bus and
- * gpio, from reset through to the lws_smd events they issue, with the
- * controller's coordinates mapped into display pixels.  A lift the chip
- * reports with no finger must not take its coordinate registers for where
- * the finger lifted: a drag ended with a scroll to there.
+ * Then whole touch controllers, CST816S and GT911 behind simulated i2c
+ * buses and gpio, from reset or wake through to the lws_smd events they
+ * issue, with the controller's coordinates mapped into display pixels.  A
+ * lift the chip reports with no finger must not take its coordinate
+ * registers for where the finger lifted: a drag ended with a scroll to
+ * there.
  */
 
 #include <libwebsockets.h>
@@ -194,11 +195,13 @@ test_classifier(void)
 }
 
 /*
- * Part 2: CST816S controllers on a simulated bus
+ * Part 2: CST816S and GT911 controllers on simulated buses
  */
 
 #define RESET_GPIO	13
 #define IRQ_GPIO	5
+#define GT_IRQ_GPIO	47
+#define GT_ADS7		LWS_GT911_I2C7_ADS_ALT
 
 typedef struct {
 	lws_i2c_ops_t		ops; /* must be first */
@@ -289,13 +292,139 @@ sim_finger(int down, int x, int y)
 	sim.regs[6]	= (uint8_t)y;
 }
 
-/* the gpio, recording what happens to the reset line */
+/*
+ * A GT911 at its alternate address, so it is only found by probing, with
+ * 16-bit register addresses.  It holds the registers from 0x8000.
+ */
 
-static lws_usec_t us_reset_low, us_reset_high;
+typedef struct {
+	lws_i2c_ops_t		ops; /* must be first */
+	uint8_t			regs[0x200];
+	uint16_t		ptr;
+	uint8_t			phase;	/* 0 address, 1 reg hi, 2 reg lo,
+					 * 3 data */
+	lws_usec_t		us_first;	/* when it was first spoken to */
+	int			naks;		/* addresses it wasn't at */
+	int			bad;		/* registers it doesn't have */
+} sim_gt911_t;
+
+static int
+gsim_start(const lws_i2c_ops_t *o)
+{
+	sim_gt911_t *d = (sim_gt911_t *)o;
+
+	if (!d->us_first)
+		d->us_first = lws_now_usecs();
+	d->phase = 0;
+
+	return 0;
+}
+
+static int
+gsim_write(const lws_i2c_ops_t *o, uint8_t data)
+{
+	sim_gt911_t *d = (sim_gt911_t *)o;
+
+	switch (d->phase) {
+	case 0:
+		if ((data >> 1) != GT_ADS7) {
+			d->naks++;
+			return 1;
+		}
+		d->phase = (data & 1) ? 3 : 1;
+		return 0;
+	case 1:
+		d->ptr = (uint16_t)(data << 8);
+		d->phase = 2;
+		return 0;
+	case 2:
+		d->ptr = (uint16_t)(d->ptr | data);
+		d->phase = 3;
+		return 0;
+	default:
+		if (d->ptr < 0x8000 || d->ptr >= 0x8000 + sizeof(d->regs)) {
+			d->bad++;
+			return 1;
+		}
+		d->regs[d->ptr++ - 0x8000] = data;
+		return 0;
+	}
+}
+
+static int
+gsim_read(const lws_i2c_ops_t *o)
+{
+	sim_gt911_t *d = (sim_gt911_t *)o;
+
+	if (d->ptr < 0x8000 || d->ptr >= 0x8000 + sizeof(d->regs)) {
+		d->bad++;
+		return -1;
+	}
+
+	return d->regs[d->ptr++ - 0x8000];
+}
+
+static sim_gt911_t gsim = {
+	.ops = {
+		.init		= sim_init,
+		.start		= gsim_start,
+		.stop		= sim_stop,
+		.write		= gsim_write,
+		.read		= gsim_read,
+		.set_ack	= sim_set_ack,
+	},
+};
+
+#define GR(_r) gsim.regs[(_r) - 0x8000]
+
+static void
+gsim_le16(uint16_t reg, int v)
+{
+	GR(reg)		= (uint8_t)v;
+	GR(reg + 1)	= (uint8_t)(v >> 8);
+}
+
+/* as on the LilyGo T5 4.7": a portrait panel reporting 540 x 960 */
+
+static void
+gsim_init(void)
+{
+	memcpy(&GR(0x8140), "911", 4);
+	gsim_le16(0x8144, 0x1060);	/* firmware version */
+	GR(0x8047) = 0x41;		/* config version */
+	gsim_le16(0x8048, 540);
+	gsim_le16(0x804a, 960);
+	GR(0x804c) = 5;			/* contacts */
+	GR(0x804d) = 0x01;		/* INT falling */
+	GR(0x814e) = 0x81;		/* a stale report from before */
+}
+
+/* a report of how many contacts, the first of them at x, y */
+
+static void
+gsim_report(uint8_t status, int x, int y)
+{
+	GR(0x814e) = status;
+	GR(0x814f) = 0;			/* track id */
+	gsim_le16(0x8150, x);
+	gsim_le16(0x8152, y);
+	gsim_le16(0x8154, 30);		/* size */
+}
+
+/* the gpio, recording what happens to the reset line and GT911's INT */
+
+static lws_usec_t us_reset_low, us_reset_high, us_wake_high, us_wake_end;
+static char wake_out;
 
 static void
 sim_gpio_mode(_lws_plat_gpio_t gpio, int flags)
 {
+	if (gpio == GT_IRQ_GPIO) {
+		if (wake_out && !(flags & LWSGGPIO_FL_WRITE))
+			us_wake_end = lws_now_usecs();
+		wake_out = !!(flags & LWSGGPIO_FL_WRITE);
+	}
+
 	if (gpio == RESET_GPIO && (flags & LWSGGPIO_FL_WRITE) &&
 	    (flags & LWSGGPIO_FL_START_LOW))
 		us_reset_low = lws_now_usecs();
@@ -311,6 +440,8 @@ sim_gpio_read(_lws_plat_gpio_t gpio)
 static void
 sim_gpio_set(_lws_plat_gpio_t gpio, int val)
 {
+	if (gpio == GT_IRQ_GPIO && wake_out && val)
+		us_wake_high = lws_now_usecs();
 	if (gpio != RESET_GPIO)
 		return;
 	if (!val)
@@ -370,6 +501,22 @@ static const lws_touch_cst816s_t tb = {
 	.i2c			= &sim.ops,
 };
 
+/* the GT911 as on the LilyGo T5 4.7", the panel turned to landscape */
+
+static const lws_touch_gt911_t tc = {
+	.touch = {
+		lws_touch_gt911_ops,
+		.gpio		= &sim_gpio,
+		.name		= "tc",
+		.wh_native	= { 540, 960 },
+		.wh_px		= { 960, 540 },
+		.irq_gpio	= GT_IRQ_GPIO,
+		.irq_edge	= LWSGGPIO_IRQ_FALLING,
+		.flags		= LWSTOUCH_FL_SWAP_XY | LWSTOUCH_FL_INVERT_Y,
+	},
+	.i2c			= &gsim.ops,
+};
+
 static const char * const expect_smd[] = {
 	/* ta: a tap */
 	"{\"type\":\"touch\",\"src\":\"ta\",\"event\":\"down\",\"x\":10,\"y\":20}",
@@ -391,9 +538,17 @@ static const char * const expect_smd[] = {
 	"{\"type\":\"touch\",\"src\":\"ta\",\"event\":\"down\",\"x\":100,\"y\":100}",
 	"{\"type\":\"touch\",\"src\":\"ta\",\"event\":\"longpress\",\"x\":100,\"y\":100}",
 	"{\"type\":\"touch\",\"src\":\"ta\",\"event\":\"up\",\"x\":100,\"y\":100}",
+	/* tc: a tap, mapped, lifted with stale coordinates */
+	"{\"type\":\"touch\",\"src\":\"tc\",\"event\":\"down\",\"x\":200,\"y\":439}",
+	"{\"type\":\"touch\",\"src\":\"tc\",\"event\":\"up\",\"x\":200,\"y\":439}",
+	"{\"type\":\"touch\",\"src\":\"tc\",\"event\":\"press\",\"x\":200,\"y\":439}",
+	/* tc: a drag, a second finger, a report it can't make sense of */
+	"{\"type\":\"touch\",\"src\":\"tc\",\"event\":\"down\",\"x\":200,\"y\":439}",
+	"{\"type\":\"touch\",\"src\":\"tc\",\"event\":\"scroll\",\"x\":300,\"y\":439,\"dx\":100,\"dy\":0}",
+	"{\"type\":\"touch\",\"src\":\"tc\",\"event\":\"up\",\"x\":300,\"y\":439}",
 };
 
-static struct lws_touch_state *tsa, *tsb;
+static struct lws_touch_state *tsa, *tsb, *tsc;
 static lws_sorted_usec_list_t sul_step;
 static struct lws_context *cx;
 static int smd_seen, step, done;
@@ -480,6 +635,41 @@ next_step(lws_sorted_usec_list_t *sul)
 		lws_touch_service(tsa);
 		sim_finger(0, 100, 100);
 		lws_touch_service(tsa);
+
+		/*
+		 * The GT911 was woken by holding INT high, before it was
+		 * spoken to, and found at the address it was probed for last
+		 */
+		check(us_wake_high && us_wake_end &&
+		      us_wake_end - us_wake_high >= MS(2) &&
+		      gsim.us_first >= us_wake_end,
+		      "wake high %lld end %lld first i2c %lld\n",
+		      (long long)us_wake_high, (long long)us_wake_end,
+		      (long long)gsim.us_first);
+		check(gsim.naks, "the GT911 wasn't probed for\n");
+		check(!GR(0x814e), "the stale report wasn't acked\n");
+
+		/* a tap: each report is acked, and only seen once */
+		gsim_report(0x81, 100, 200);
+		lws_touch_service(tsc);
+		check(!GR(0x814e), "report not acked\n");
+		lws_touch_service(tsc);
+		gsim_report(0x80, 300, 300);
+		lws_touch_service(tsc);
+
+		/* a drag, then a second finger down, then nonsense */
+		gsim_report(0x81, 100, 200);
+		lws_touch_service(tsc);
+		gsim_report(0x81, 100, 300);
+		lws_touch_service(tsc);
+		gsim_report(0x82, 100, 300);
+		lws_touch_service(tsc);
+		gsim_report(0x8f, 0, 0);
+		lws_touch_service(tsc);
+		check(!GR(0x814e), "nonsense report not acked\n");
+		gsim_report(0x80, 0, 0);
+		lws_touch_service(tsc);
+		check(!gsim.bad, "%d accesses to absent registers\n", gsim.bad);
 		break;
 
 	default:
@@ -507,11 +697,14 @@ test_controllers(void)
 		return;
 	}
 
+	gsim_init();
+
 	tsa = lws_touch_create(cx, &ta.touch);
 	tsb = lws_touch_create(cx, &tb.touch);
-	check(tsa && tsb, "touch create failed\n");
+	tsc = lws_touch_create(cx, &tc.touch);
+	check(tsa && tsb && tsc, "touch create failed\n");
 
-	if (tsa && tsb) {
+	if (tsa && tsb && tsc) {
 		/* give the reset time to complete */
 		lws_sul_schedule(cx, 0, &sul_step, next_step, MS(200));
 
@@ -525,7 +718,8 @@ test_controllers(void)
 
 	lws_touch_destroy(&tsa);
 	lws_touch_destroy(&tsb);
-	check(!tsa && !tsb, "destroy didn't clear\n");
+	lws_touch_destroy(&tsc);
+	check(!tsa && !tsb && !tsc, "destroy didn't clear\n");
 
 	lws_context_destroy(cx);
 }

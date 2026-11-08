@@ -25,7 +25,7 @@
 /*
  * The opaque, allocated, dynamic part of a touch controller.  The specific
  * controller implementations, which live in lib/drivers/touch, may use
- * ctx, touch, sul and priv.
+ * ctx, touch, sul, priv and ads7.
  */
 
 typedef struct lws_touch_state {
@@ -41,6 +41,9 @@ typedef struct lws_touch_state {
 	const lws_touch_t		*touch;
 	void				*priv;	   /* for the controller */
 
+	uint8_t				ads7;	   /* for the controller, eg,
+						    * the i2c address it was
+						    * found at */
 	uint8_t				ready;
 	uint8_t				lp_armed;
 	uint8_t				poll_armed;
@@ -53,3 +56,12 @@ typedef struct lws_touch_state {
 
 void
 lws_touch_ready(lws_touch_state_t *ts);
+
+/*
+ * Sets the irq gpio up as an input, pulled to its idle level, as it is
+ * before the controller's init is called.  For a controller that drives the
+ * irq line itself during init, to give it back.
+ */
+
+void
+lws_touch_irq_gpio_input(lws_touch_state_t *ts);

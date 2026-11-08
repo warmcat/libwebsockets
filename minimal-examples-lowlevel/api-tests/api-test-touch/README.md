@@ -16,6 +16,15 @@ Tests the touch controller class without hardware.
    finger is on it, what its coordinate registers hold must not be taken for
    where the finger lifted, or a drag ends with a scroll to there.
 
+ - A GT911, as fitted to the LilyGo T5 4.7", behind a simulated i2c bus with
+   16-bit register addresses.  It must be woken by holding its INT line high
+   before it is spoken to, then found at the second address it is probed
+   for.  Its coordinates are swapped and inverted onto a landscape display.
+   Every report it makes, including one left over from before, must be
+   acknowledged, and only seen once.  A lift's coordinates are stale, only
+   the first of two fingers is used, and a report with more contacts than
+   the chip can have is ignored.
+
 Requires `LWS_WITH_DRIVERS` and `LWS_WITH_SYS_SMD`.
 
 ## build

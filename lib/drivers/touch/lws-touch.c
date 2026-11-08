@@ -333,6 +333,17 @@ static LWS_PLAT_TIMER_CB(lws_touch_lp, th)
 #endif
 
 void
+lws_touch_irq_gpio_input(lws_touch_state_t *ts)
+{
+	const lws_touch_t *t = ts->touch;
+
+	t->gpio->mode(t->irq_gpio, LWSGGPIO_FL_READ |
+		      (t->irq_edge == LWSGGPIO_IRQ_RISING ||
+		       t->irq_edge == LWSGGPIO_IRQ_HIGH ?
+				LWSGGPIO_FL_PULLDOWN : LWSGGPIO_FL_PULLUP));
+}
+
+void
 lws_touch_ready(lws_touch_state_t *ts)
 {
 	const lws_touch_t *t = ts->touch;
@@ -382,10 +393,7 @@ lws_touch_create(struct lws_context *ctx, const lws_touch_t *touch)
 		goto bail;
 #endif
 
-	touch->gpio->mode(touch->irq_gpio, LWSGGPIO_FL_READ |
-			  (touch->irq_edge == LWSGGPIO_IRQ_RISING ||
-			   touch->irq_edge == LWSGGPIO_IRQ_HIGH ?
-				LWSGGPIO_FL_PULLDOWN : LWSGGPIO_FL_PULLUP));
+	lws_touch_irq_gpio_input(ts);
 
 	if (!touch->init) {
 		lws_touch_ready(ts);

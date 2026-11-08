@@ -11,6 +11,7 @@ chip.  Currently there is
 |Controller|Bus|Header|
 |---|---|---|
 |Hynitron CST816S|i2c|`lws-cst816s-i2c.h`|
+|Goodix GT911|i2c|`lws-gt911-i2c.h`|
 
 ## Classification
 
