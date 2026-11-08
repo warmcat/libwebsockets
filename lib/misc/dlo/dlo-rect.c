@@ -344,6 +344,196 @@ lws_display_dlo_rect_px_alpha(lws_dlo_rect_t *r, const lws_dlo_rect_row_t *row,
 	return alpha;
 }
 
+/* does it have a border on any side */
+
+static int
+rect_bordered(const lws_dlo_rect_t *r)
+{
+	int n;
+
+	for (n = 0; n < 4; n++)
+		if ((r->b[n].whole || r->b[n].frac) && LWSDC_ALPHA(r->dcb[n]))
+			return 1;
+
+	return 0;
+}
+
+/*
+ * The box inside the border of placed rect r, as a rect of its own, placed:
+ * its corners are rounded by r's less the border on either side of them
+ */
+
+static void
+rect_inner(const lws_dlo_rect_t *r, lws_dlo_rect_t *in)
+{
+	/* the sides either side of corner n: t-l, t-r, b-l, b-r */
+	static const uint8_t cs[4][2] = { { 0, 3 }, { 0, 1 }, { 2, 3 },
+					  { 2, 1 } };
+	lws_fx_t ox, oy, *f;
+	int n;
+
+	memset(in, 0, sizeof(*in));
+
+	lws_fx_sub(&in->dlo.box.w, &r->dlo.box.w, &r->b[1]);
+	lws_fx_sub(&in->dlo.box.w, &in->dlo.box.w, &r->b[3]);
+	lws_fx_sub(&in->dlo.box.h, &r->dlo.box.h, &r->b[0]);
+	lws_fx_sub(&in->dlo.box.h, &in->dlo.box.h, &r->b[2]);
+	f = &in->dlo.box.w;
+	if (lws_neg(f))
+		lws_fx_set(in->dlo.box.w, 0, 0);
+	f = &in->dlo.box.h;
+	if (lws_neg(f))
+		lws_fx_set(in->dlo.box.h, 0, 0);
+
+	for (n = 0; n < 4; n++) {
+		const lws_fx_t *b = lws_fx_comp(&r->b[cs[n][0]],
+						&r->b[cs[n][1]]) > 0 ?
+					&r->b[cs[n][0]] : &r->b[cs[n][1]];
+
+		lws_fx_sub(&in->c[n].r, &r->c[n].r, b);
+		f = &in->c[n].r;
+		if (lws_neg(f))
+			lws_fx_set(in->c[n].r, 0, 0);
+		lws_fx_mul(&in->c[n].rsq, &in->c[n].r, &in->c[n].r);
+	}
+
+	lws_fx_add(&ox, &r->db.x, &r->b[3]);
+	lws_fx_add(&oy, &r->db.y, &r->b[0]);
+	lws_display_dlo_rect_place(in, &ox, &oy);
+}
+
+static lws_display_colour_t
+rect_alpha(lws_display_colour_t c, unsigned int alpha)
+{
+	return (lws_display_colour_t)((c & 0xffffff) |
+		((uint32_t)((alpha * LWSDC_ALPHA(c)) / 255) << 24));
+}
+
+/*
+ * Which side of r's border the pixel x, y is on, given the box inside it, in,
+ * and whether line y crosses in (inner), or -1 if it should not be drawn.
+ * Each corner is split between its two sides on the diagonal, unless one of
+ * them isn't drawn, eg, a collapsed table cell's, when neither is: the border
+ * of what is under it shows there.  Between the corners it's the side the
+ * pixel is beyond the box inside on, else (where the box inside has rounded
+ * corners) the nearer of the top or bottom.
+ */
+
+static int
+rect_border_side(const lws_dlo_rect_t *r, const lws_dlo_rect_t *in,
+		 int inner, int y, int x)
+{
+	lws_fx_t px, py, dx, dy, t1, t2;
+	int h = -1, v = -1;
+
+	px.whole = x;
+	px.frac = 50000000;
+	py.whole = y;
+	py.frac = 50000000;
+
+	if (lws_fx_comp(&px, &in->db.x) < 0)
+		h = 3;
+	else if (lws_fx_comp(&px, &in->right) > 0)
+		h = 1;
+
+	if (!inner || lws_fx_comp(&py, &in->db.y) < 0 ||
+	    lws_fx_comp(&py, &in->btm) > 0 || h < 0) {
+		/* the top or bottom, whichever is nearer the box inside */
+		lws_fx_add(&t1, &in->db.y, &in->btm);
+		lws_fx_add(&t2, &py, &py);
+		v = lws_fx_comp(&t2, &t1) < 0 ? 0 : 2;
+
+		if (h < 0)
+			return v;
+	}
+
+	if (v < 0)
+		return h;
+
+	/* a corner */
+
+	if (!LWSDC_ALPHA(r->dcb[h]) || !LWSDC_ALPHA(r->dcb[v]))
+		return -1;
+
+	if (h == 3)
+		lws_fx_sub(&dx, &px, &r->db.x);
+	else
+		lws_fx_sub(&dx, &r->right, &px);
+	if (!v)
+		lws_fx_sub(&dy, &py, &r->db.y);
+	else
+		lws_fx_sub(&dy, &r->btm, &py);
+
+	/* on the side whose edge it is nearer, for the widths of the sides */
+	lws_fx_mul(&t1, &dx, &r->b[v]);
+	lws_fx_mul(&t2, &dy, &r->b[h]);
+
+	return lws_fx_comp(&t1, &t2) < 0 ? h : v;
+}
+
+/*
+ * A row of a rect with a border: the box inside the border in the rect's
+ * colour, and the rest, where the rect covers the row and the box inside
+ * doesn't, in the colour of the border on that side
+ */
+
+static void
+rect_render_bordered(struct lws_display_render_state *rs, lws_dlo_rect_t *r,
+		     const lws_dlo_rect_row_t *row)
+{
+	lws_dlo_t *dlo = &r->dlo;
+	unsigned int oa, ia, ora, ira = 0;
+	lws_display_colour_t dc, bc;
+	lws_dlo_rect_row_t irow;
+	lws_dlo_rect_t in;
+	int x, inner, side;
+
+	rect_inner(r, &in);
+	inner = !lws_display_dlo_rect_row(&in, rs->curr,
+					  rs->ic->wh_px[0].whole, &irow);
+
+	ora = lws_display_dlo_rect_row_alpha(row, 255);
+	if (inner)
+		ira = lws_display_dlo_rect_row_alpha(&irow, 255);
+
+	x = row->os;
+	while (x <= row->le) {
+		if (inner && x == irow.pa && irow.pa <= irow.pb && ira == ora) {
+			/*
+			 * All of these are wholly inside the border, so the
+			 * border doesn't show through any of them
+			 */
+			if (LWSDC_ALPHA(dlo->dc)) {
+				dc = rect_alpha(dlo->dc, ira);
+				lws_display_render_fill_span(rs, irow.pa,
+							irow.pb + 1, &dc);
+			}
+			x = irow.pb + 1;
+			continue;
+		}
+
+		oa = lws_display_dlo_rect_px_alpha(r, row, x, ora);
+		ia = inner ? lws_display_dlo_rect_px_alpha(&in, &irow, x, ira) :
+			     0;
+		if (ia > oa)
+			ia = oa;
+
+		if (oa > ia) {
+			side = rect_border_side(r, &in, inner, rs->curr, x);
+			if (side >= 0 && LWSDC_ALPHA(r->dcb[side])) {
+				bc = rect_alpha(r->dcb[side], oa - ia);
+				lws_display_render_set_px(rs, x, &bc);
+			}
+		}
+
+		if (ia && LWSDC_ALPHA(dlo->dc)) {
+			dc = rect_alpha(dlo->dc, ia);
+			lws_display_render_set_px(rs, x, &dc);
+		}
+		x++;
+	}
+}
+
 lws_stateful_ret_t
 lws_display_render_rect(struct lws_display_render_state *rs)
 {
@@ -353,9 +543,9 @@ lws_display_render_rect(struct lws_display_render_state *rs)
 	unsigned int row_alpha;
 	lws_dlo_rect_row_t row;
 	lws_fx_t ox, oy;
-	int x;
+	int x, bordered = rect_bordered(r);
 
-	if (!LWSDC_ALPHA(dlo->dc))
+	if (!LWSDC_ALPHA(dlo->dc) && !bordered)
 		return LWS_SRET_OK;
 
 	lws_fx_add(&ox, &rs->st[rs->sp].co.x, &dlo->box.x);
@@ -364,6 +554,12 @@ lws_display_render_rect(struct lws_display_render_state *rs)
 
 	if (lws_display_dlo_rect_row(r, rs->curr, rs->ic->wh_px[0].whole, &row))
 		return LWS_SRET_OK;
+
+	if (bordered) {
+		rect_render_bordered(rs, r, &row);
+
+		return LWS_SRET_OK;
+	}
 
 	row_alpha = lws_display_dlo_rect_row_alpha(&row, dlo->dc >> 24);
 

@@ -5272,6 +5272,151 @@ lws_css_get_side_atr_ps(lhp_pstack_t *ps, int longhand, int shorthand,
 }
 
 /*
+ * The border widths named by keyword, and the initial one (medium)
+ */
+
+static const lcsp_atr_t lhp_bw_thin = {
+	.u.i = { 1, 0 }, .unit = LCSP_UNIT_LENGTH_PX },
+			lhp_bw_medium = {
+	.u.i = { 3, 0 }, .unit = LCSP_UNIT_LENGTH_PX },
+			lhp_bw_thick = {
+	.u.i = { 5, 0 }, .unit = LCSP_UNIT_LENGTH_PX };
+
+/* the keyword transparent, as a colour */
+
+static const lcsp_atr_t lhp_bc_transparent = {
+	.u.rgba = 0, .unit = LCSP_UNIT_RGBA };
+
+static int
+lhp_atr_is_str(const lcsp_atr_t *a, const char *str)
+{
+	size_t n = strlen(str);
+
+	return a->unit == LCSP_UNIT_STRING && a->value_len >= n &&
+	       !strncasecmp((const char *)&a[1], str, n) &&
+	       (a->value_len == n || !((const char *)&a[1])[n]);
+}
+
+/* which part of a border a term of border, or border-<side>, sets */
+
+enum {
+	LHP_BT_WIDTH,
+	LHP_BT_STYLE,
+	LHP_BT_COLOR,
+};
+
+static int
+lhp_border_term_kind(const lcsp_atr_t *a)
+{
+	if (a->unit == LCSP_UNIT_RGBA ||
+	    (a->unit == LCSP_UNIT_NONE &&
+	     a->propval == LCSP_PROPVAL_TRANSPARENT) ||
+	    (a->unit == LCSP_UNIT_STRING &&
+	     (!strncmp((const char *)&a[1], "var(--", 6) ||
+	      lhp_atr_is_str(a, "currentcolor"))))
+		return LHP_BT_COLOR;
+
+	if ((a->unit >= LCSP_UNIT_NUM && a->unit <= LCSP_UNIT_CALC) ||
+	    lhp_atr_is_str(a, "thin") || lhp_atr_is_str(a, "medium") ||
+	    lhp_atr_is_str(a, "thick"))
+		return LHP_BT_WIDTH;
+
+	/* none and hidden are keywords, the drawn styles are strings */
+
+	return LHP_BT_STYLE;
+}
+
+/*
+ * One part (kind) of the border on side idx: from its longhand, eg
+ * border-top-width, the shorthand for that part on all sides, eg
+ * border-width: 1px 2px, or the shorthands for all of one side, or all the
+ * sides, border-top: 1px solid red and border: 1px solid red, whichever wins.
+ * NULL means it takes its initial value, as a shorthand that sets the other
+ * parts and not this one resets it to.
+ */
+
+static const lcsp_atr_t *
+lhp_border_part(lhp_ctx_t *ctx, lhp_pstack_t *ps, int idx, int kind)
+{
+	static const int sides[] = { LCSP_PROP_BORDER_TOP_WIDTH,
+				     LCSP_PROP_BORDER_TOP_STYLE,
+				     LCSP_PROP_BORDER_TOP_COLOR },
+			 alls[] = { LCSP_PROP_BORDER_WIDTH,
+				    LCSP_PROP_BORDER_STYLE,
+				    LCSP_PROP_BORDER_COLOR };
+	int props[4];
+	const lcsp_defs_t *def;
+
+	props[0] = sides[kind] + idx;
+	props[1] = alls[kind];
+	props[2] = LCSP_PROP_BORDER_TOP + idx;
+	props[3] = LCSP_PROP_BORDER;
+
+	def = lhp_find_defn(ps, props, 4);
+	if (!def)
+		return NULL;
+
+	if ((int)def->prop == props[0] || (int)def->prop == props[1])
+		return lhp_side_atr(ps, props[0], props[1], idx, 0);
+
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&def->atrs)) {
+		const lcsp_atr_t *a = lhp_resolve_var_ps(ctx, ps,
+				lws_container_of(d, lcsp_atr_t, list));
+
+		if (lhp_border_term_kind(a) == kind)
+			return a;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+/*
+ * The border on each side of ps: its width, or NULL if it has none, because
+ * its style is none or hidden, or it wasn't given one, and its colour, or NULL
+ * for currentColor.  Every drawn style is drawn solid.
+ */
+
+static void
+lhp_border_resolve(lhp_ctx_t *ctx, lhp_pstack_t *ps)
+{
+	const lcsp_atr_t *a;
+	int n;
+
+	for (n = 0; n < 4; n++) {
+		ps->css_border_width[n] = NULL;
+		ps->css_border_color[n] = NULL;
+
+		a = lhp_border_part(ctx, ps, n, LHP_BT_STYLE);
+		if (!a || a->unit == LCSP_UNIT_NONE)
+			/* none, hidden, or not given */
+			continue;
+
+		a = lhp_border_part(ctx, ps, n, LHP_BT_WIDTH);
+		if (!a)
+			a = &lhp_bw_medium;
+		else if (lhp_atr_is_str(a, "thin"))
+			a = &lhp_bw_thin;
+		else if (lhp_atr_is_str(a, "medium"))
+			a = &lhp_bw_medium;
+		else if (lhp_atr_is_str(a, "thick"))
+			a = &lhp_bw_thick;
+		else if (a->unit == LCSP_UNIT_LENGTH_PERCENT ||
+			 a->unit < LCSP_UNIT_NUM || a->unit > LCSP_UNIT_CALC)
+			/* not a border width */
+			continue;
+		ps->css_border_width[n] = a;
+
+		a = lhp_border_part(ctx, ps, n, LHP_BT_COLOR);
+		if (a && a->unit == LCSP_UNIT_NONE &&
+		    a->propval == LCSP_PROPVAL_TRANSPARENT)
+			a = &lhp_bc_transparent;
+		if (a && a->unit == LCSP_UNIT_RGBA)
+			ps->css_border_color[n] = a;
+	}
+}
+
+/*
  * Find the declaration in effect for prop on element ps, listing its values
  * in ctx->active_atr and returning the last one
  */
@@ -6041,6 +6186,8 @@ lws_css_cascade(lhp_ctx_t *ctx)
 	ps->css_padding[CCPAS_RIGHT] = lhp_side_atr(ps, LCSP_PROP_PADDING_RIGHT, LCSP_PROP_PADDING, CCPAS_RIGHT, 0);
 	ps->css_padding[CCPAS_BOTTOM] = lhp_side_atr(ps, LCSP_PROP_PADDING_BOTTOM, LCSP_PROP_PADDING, CCPAS_BOTTOM, 0);
 	ps->css_padding[CCPAS_LEFT] = lhp_side_atr(ps, LCSP_PROP_PADDING_LEFT, LCSP_PROP_PADDING, CCPAS_LEFT, 0);
+
+	lhp_border_resolve(ctx, ps);
 
 	/*
 	 * From now on, lookups on this element only need its declaration

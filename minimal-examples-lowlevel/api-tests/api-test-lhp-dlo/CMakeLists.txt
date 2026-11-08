@@ -465,6 +465,17 @@ if (requirements)
 				-DW=240 -DH=210
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 
+		# borders are laid out and drawn, per side, and collapsed in a
+		# table, as plain boxes drawing the same pixels are
+		add_test(NAME api-test-lhp-dlo-border-render
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/border.html
+				-DHTML_B=${CMAKE_CURRENT_SOURCE_DIR}/border-twin.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/border
+				-DW=172 -DH=100
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+
 		# a retained display list scanned again panned down skips the
 		# subtrees with nothing on each line, but still finds what is
 		# positioned outside its parent's box, overflowing a zero height

@@ -1,0 +1,37 @@
+<!doctype html>
+<!--
+ Borders take their width in the layout, inside the box's background, and are
+ drawn in their side's colour, the corners split on the diagonal.  A collapsed
+ table draws the line between cells, and the cells and the table, once, the
+ wider border winning.  A transparent border takes its width, with the
+ background under it.  Absolutely positioned boxes are placed inside the
+ border of their ancestor.  border-twin.html draws the same pixels with plain
+ boxes.
+-->
+<html><head><style>
+* { margin: 0; padding: 0 }
+body { margin: 0; background-color: #ffffff }
+#a { position: absolute; left: 10px; top: 10px; width: 60px; height: 30px;
+     border: 3px solid #c03020; background-color: #dddddd; padding: 2px }
+#a div { width: 10px; height: 10px; background-color: #24476b }
+#s { position: absolute; left: 100px; top: 10px; width: 50px; height: 20px;
+     border-style: solid; border-width: 2px;
+     border-color: #ff0000 #00ff00 #0000ff #000000 }
+#t { position: absolute; left: 10px; top: 60px }
+table { border-collapse: collapse; border: 2px solid #c03020 }
+td { border: 1px solid #24476b }
+td div { width: 30px; height: 14px }
+#x { position: absolute; left: 100px; top: 40px; width: 20px; height: 10px;
+     border: 2px solid transparent; background-color: #24476b }
+#p { position: absolute; left: 100px; top: 60px; width: 50px; height: 30px;
+     border: 4px solid #888888 }
+#p div { position: absolute; left: 0; top: 0; width: 8px; height: 8px;
+	 background-color: #24476b }
+</style></head>
+<body>
+<div id="a"><div></div></div>
+<div id="s"></div>
+<div id="t"><table><tr><td><div></div></td><td><div></div></td></tr><tr><td><div></div></td><td><div></div></td></tr></table></div>
+<div id="x"></div>
+<div id="p"><div></div></div>
+</body></html>

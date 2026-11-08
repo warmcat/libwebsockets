@@ -142,6 +142,33 @@ lhp_len(lhp_pstack_t *ps, const lcsp_atr_t *a, const lws_fx_t *base)
 	return *lws_csp_px_base(a, ps, base);
 }
 
+/* the width of the border on side n of ps, 0 if it has none there */
+
+static lws_fx_t
+lhp_bw(lhp_pstack_t *ps, int n)
+{
+	if (ps->is_inline)
+		/* only boxes have borders drawn */
+		return fx_0;
+
+	return lhp_len(ps, ps->css_border_width[n], &fx_0);
+}
+
+/*
+ * The padding and border on side n of ps: how far its content box is inside
+ * its border box, which is the box its dlo has
+ */
+
+static lws_fx_t
+lhp_pad(lhp_pstack_t *ps, int n, const lws_fx_t *base)
+{
+	lws_fx_t p = lhp_len(ps, ps->css_padding[n], base), b = lhp_bw(ps, n);
+
+	lws_fx_add(&p, &p, &b);
+
+	return p;
+}
+
 static int
 lhp_is_auto(const lcsp_atr_t *a)
 {
@@ -1705,9 +1732,11 @@ lhp_place_image(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c)
 
 			x = psa->curx;
 			if (ps->css_pos[CCPAS_LEFT] &&
-			    ps->css_pos[CCPAS_LEFT]->unit != LCSP_UNIT_NONE)
+			    ps->css_pos[CCPAS_LEFT]->unit != LCSP_UNIT_NONE) {
 				x = lhp_len(ps, ps->css_pos[CCPAS_LEFT], &cbw);
-			else if (ps->css_pos[CCPAS_RIGHT] &&
+				t = lhp_bw(psa, CCPAS_LEFT);
+				lws_fx_add(&x, &x, &t);
+			} else if (ps->css_pos[CCPAS_RIGHT] &&
 				 ps->css_pos[CCPAS_RIGHT]->unit != LCSP_UNIT_NONE) {
 				x = lhp_len(ps, ps->css_pos[CCPAS_RIGHT], &cbw);
 				lws_fx_sub(&x, &cbw, &x);
@@ -1715,8 +1744,11 @@ lhp_place_image(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c)
 			}
 			y = psa->cury;
 			if (ps->css_pos[CCPAS_TOP] &&
-			    ps->css_pos[CCPAS_TOP]->unit != LCSP_UNIT_NONE)
+			    ps->css_pos[CCPAS_TOP]->unit != LCSP_UNIT_NONE) {
 				y = lhp_len(ps, ps->css_pos[CCPAS_TOP], &cbh);
+				t = lhp_bw(psa, CCPAS_TOP);
+				lws_fx_add(&y, &y, &t);
+			}
 			else if (ps->css_pos[CCPAS_BOTTOM] &&
 				 ps->css_pos[CCPAS_BOTTOM]->unit != LCSP_UNIT_NONE) {
 				y = lhp_len(ps, ps->css_pos[CCPAS_BOTTOM], &cbh);
@@ -1836,6 +1868,18 @@ lhp_table_of(lhp_pstack_t *ps)
 	return ps;
 }
 
+/* border-collapse: collapse */
+
+static int
+lhp_table_collapsed(lhp_ctx_t *ctx, lhp_pstack_t *t)
+{
+	const lcsp_atr_t *bc = lws_css_get_prop_atr_ps(ctx, t,
+						LCSP_PROP_BORDER_COLLAPSE);
+
+	return bc && bc->unit == LCSP_UNIT_NONE &&
+	       bc->propval == LCSP_PROPVAL_COLLAPSE;
+}
+
 /* border-spacing, or the 2px default */
 
 static lws_fx_t
@@ -1843,17 +1887,143 @@ lhp_table_spacing(lhp_ctx_t *ctx, lhp_pstack_t *t)
 {
 	const lcsp_atr_t *a = lws_css_get_prop_atr_ps(ctx, t,
 						LCSP_PROP_BORDER_SPACING);
-	const lcsp_atr_t *bc = lws_css_get_prop_atr_ps(ctx, t,
-						LCSP_PROP_BORDER_COLLAPSE);
 
-	if (bc && bc->unit == LCSP_UNIT_NONE &&
-	    bc->propval == LCSP_PROPVAL_COLLAPSE)
+	if (lhp_table_collapsed(ctx, t))
 		return fx_0;
 
 	if (a && a->unit != LCSP_UNIT_NONE)
 		return lhp_len(t, a, &t->cw);
 
 	return fx_2;
+}
+
+/*
+ * How much the borders b1 and b2 meeting overlap when they are collapsed
+ * into one: by the narrower of them
+ */
+
+static lws_fx_t
+lhp_collapse_ov(const lws_fx_t *b1, const lws_fx_t *b2)
+{
+	return lws_fx_comp(b1, b2) < 0 ? *b1 : *b2;
+}
+
+/*
+ * Side n of cell cr is collapsed onto the border b drawn before it, the
+ * table's (tbl) or another cell's.  The cell is drawn on top: so the conflict
+ * resolves as css does, the wider border wins, else the cell's over the
+ * table's, else the one above or to the left, its own side isn't drawn when
+ * what is under it should win.
+ */
+
+static void
+lhp_collapse_side(lws_dlo_rect_t *cr, int n, const lws_fx_t *b, int tbl)
+{
+	int c = lws_fx_comp(b, &cr->b[n]);
+
+	if ((b->whole || b->frac) && (c > 0 || (!c && !tbl)))
+		cr->dcb[n] = 0;
+}
+
+/*
+ * border-collapse: collapse.  The cells were placed side by side, and the
+ * rows one above the other, with no spacing.  Where the border of a cell meets
+ * its neighbour's, or the table's own on a side where the table has no
+ * padding, it is moved to overlap them, so the line between them is drawn
+ * once.  *tw is the width of the rows, updated for the overlaps.
+ */
+
+static void
+lhp_table_collapse(lhp_pstack_t *t, lws_fx_t *tw)
+{
+	lws_dlo_rect_t *tr = (lws_dlo_rect_t *)t->dlo;
+	lws_fx_t dy, dx, ov, w, pbb, bt, bb, pbr;
+	lws_dlo_t *last_row = NULL;
+	int n, nopad[4];
+
+	for (n = 0; n < 4; n++) {
+		ov = lhp_len(t, t->css_padding[n], &t->cw);
+		nopad[n] = !ov.whole && !ov.frac;
+	}
+
+	lws_fx_set(dy, 0, 0);
+	lws_fx_set(w, 0, 0);
+	pbb = nopad[CCPAS_TOP] ? tr->b[CCPAS_TOP] : fx_0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, rd,
+			      lws_dll2_get_head(&t->dlo->children)) {
+		lws_dlo_t *row = lws_container_of(rd, lws_dlo_t, list);
+		lws_dlo_rect_t *last = NULL;
+
+		if (!row->flag_row)
+			continue;
+
+		lws_fx_set(dx, 0, 0);
+		lws_fx_set(bt, 0, 0);
+		lws_fx_set(bb, 0, 0);
+		pbr = nopad[CCPAS_LEFT] ? tr->b[CCPAS_LEFT] : fx_0;
+
+		lws_start_foreach_dll(struct lws_dll2 *, cd,
+				      lws_dll2_get_head(&row->children)) {
+			lws_dlo_t *cell = lws_container_of(cd, lws_dlo_t, list);
+			lws_dlo_rect_t *cr = (lws_dlo_rect_t *)cell;
+
+			if (!cell->flag_cell)
+				continue;
+
+			ov = lhp_collapse_ov(&pbr, &cr->b[CCPAS_LEFT]);
+			lws_fx_add(&dx, &dx, &ov);
+			lws_fx_sub(&cell->box.x, &cell->box.x, &dx);
+
+			lhp_collapse_side(cr, CCPAS_LEFT, &pbr, !last);
+			lhp_collapse_side(cr, CCPAS_TOP, &pbb, !last_row);
+
+			pbr = cr->b[CCPAS_RIGHT];
+			bt = lhp_fx_max(&bt, &cr->b[CCPAS_TOP]);
+			bb = lhp_fx_max(&bb, &cr->b[CCPAS_BOTTOM]);
+			last = cr;
+		} lws_end_foreach_dll(cd);
+
+		if (last && nopad[CCPAS_RIGHT]) {
+			ov = lhp_collapse_ov(&pbr, &tr->b[CCPAS_RIGHT]);
+			lws_fx_add(&dx, &dx, &ov);
+			lhp_collapse_side(last, CCPAS_RIGHT,
+					  &tr->b[CCPAS_RIGHT], 1);
+		}
+
+		if (last && t->explicit_w)
+			/* the last cell takes up what the overlaps freed */
+			lws_fx_add(&last->dlo.box.w, &last->dlo.box.w, &dx);
+		else {
+			lws_fx_sub(&row->box.w, tw, &dx);
+			w = lhp_fx_max(&w, &row->box.w);
+		}
+
+		ov = lhp_collapse_ov(&pbb, &bt);
+		lws_fx_add(&dy, &dy, &ov);
+		lws_fx_sub(&row->box.y, &row->box.y, &dy);
+		pbb = bb;
+		last_row = row;
+	} lws_end_foreach_dll(rd);
+
+	if (last_row && nopad[CCPAS_BOTTOM]) {
+		ov = lhp_collapse_ov(&pbb, &tr->b[CCPAS_BOTTOM]);
+		lws_fx_add(&dy, &dy, &ov);
+
+		lws_start_foreach_dll(struct lws_dll2 *, cd,
+				      lws_dll2_get_head(&last_row->children)) {
+			lws_dlo_t *cell = lws_container_of(cd, lws_dlo_t, list);
+
+			if (cell->flag_cell)
+				lhp_collapse_side((lws_dlo_rect_t *)cell,
+						  CCPAS_BOTTOM,
+						  &tr->b[CCPAS_BOTTOM], 1);
+		} lws_end_foreach_dll(cd);
+	}
+	lws_fx_sub(&t->cury, &t->cury, &dy);
+
+	if (!t->explicit_w)
+		*tw = w;
 }
 
 /*
@@ -1964,12 +2134,21 @@ lhp_table_close(lhp_ctx_t *ctx, lhp_pstack_t *t)
 		} lws_end_foreach_dll(cd);
 	} lws_end_foreach_dll(rd);
 
+	if (lhp_table_collapsed(ctx, t))
+		lhp_table_collapse(t, &tw);
+
 	if (!t->explicit_w) {
+		lws_fx_t b;
+
 		t->cw = tw;
 		lws_fx_add(&t->dlo->box.w, &tw, lws_csp_px(
 					t->css_padding[CCPAS_LEFT], t));
 		lws_fx_add(&t->dlo->box.w, &t->dlo->box.w, lws_csp_px(
 					t->css_padding[CCPAS_RIGHT], t));
+		b = lhp_bw(t, CCPAS_LEFT);
+		lws_fx_add(&t->dlo->box.w, &t->dlo->box.w, &b);
+		b = lhp_bw(t, CCPAS_RIGHT);
+		lws_fx_add(&t->dlo->box.w, &t->dlo->box.w, &b);
 	}
 }
 
@@ -2036,6 +2215,21 @@ lhp_list_marker(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dl_rend_t *drt)
 	lws_fx_add(&txt->dlo.box.x, &txt->dlo.box.x, &ps->ox);
 }
 
+/* the rect drawing ps' box draws its border too, in currentColor if none */
+
+static void
+lhp_dlo_border(lhp_pstack_t *ps, lws_dlo_rect_t *r)
+{
+	lws_display_colour_t cc = lhp_colour(ps->css_color,
+					     LWSDC_RGBA(0, 0, 0, 255));
+	int n;
+
+	for (n = 0; n < 4; n++) {
+		r->b[n] = lhp_bw(ps, n);
+		r->dcb[n] = lhp_colour(ps->css_border_color[n], cc);
+	}
+}
+
 static lws_stateful_ret_t
 lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 	       lws_dl_rend_t *drt)
@@ -2051,9 +2245,9 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 	ml = lhp_len(ps, ps->css_margin[CCPAS_LEFT], &base);
 	mr = lhp_len(ps, ps->css_margin[CCPAS_RIGHT], &base);
 	mt = lhp_len(ps, ps->css_margin[CCPAS_TOP], &base);
-	pl = lhp_len(ps, ps->css_padding[CCPAS_LEFT], &base);
-	pr = lhp_len(ps, ps->css_padding[CCPAS_RIGHT], &base);
-	pt = lhp_len(ps, ps->css_padding[CCPAS_TOP], &base);
+	pl = lhp_pad(ps, CCPAS_LEFT, &base);
+	pr = lhp_pad(ps, CCPAS_RIGHT, &base);
+	pt = lhp_pad(ps, CCPAS_TOP, &base);
 
 	pos = lhp_propval(ps->css_position, LCSP_PROPVAL_STATIC);
 	ps->is_abs = pos == LCSP_PROPVAL_ABSOLUTE || pos == LCSP_PROPVAL_FIXED;
@@ -2209,7 +2403,7 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 			int lset, rset, tset, bset, hp, mp, inl;
 
 			mb = lhp_len(ps, ps->css_margin[CCPAS_BOTTOM], &base);
-			pb = lhp_len(ps, ps->css_padding[CCPAS_BOTTOM], &base);
+			pb = lhp_pad(ps, CCPAS_BOTTOM, &base);
 
 			lset = ps->css_pos[CCPAS_LEFT] &&
 			       ps->css_pos[CCPAS_LEFT]->unit != LCSP_UNIT_NONE;
@@ -2379,10 +2573,14 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 			}
 
 			if (lset) {
-				/* from the padding box edge, which is the
-				 * ancestor dlo's own origin (borders aren't
-				 * drawn), not its content box */
+				/* from the padding box edge, inside the
+				 * border at the ancestor dlo's own origin,
+				 * not its content box */
 				x = lhp_len(ps, ps->css_pos[CCPAS_LEFT], &cbw);
+				if (psa) {
+					t1 = lhp_bw(psa, CCPAS_LEFT);
+					lws_fx_add(&x, &x, &t1);
+				}
 				if (!ps->explicit_w) {
 					lws_fx_add(&w, &ox, &cbi);
 					lws_fx_sub(&w, &w, &x);
@@ -2426,8 +2624,13 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 			}
 			lws_fx_add(&x, &x, &ml);
 
-			if (tset)
+			if (tset) {
 				y = lhp_len(ps, ps->css_pos[CCPAS_TOP], &cbw);
+				if (psa) {
+					t1 = lhp_bw(psa, CCPAS_TOP);
+					lws_fx_add(&y, &y, &t1);
+				}
+			}
 			lws_fx_add(&y, &y, &mt);
 			break;
 		}
@@ -2549,6 +2752,8 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 				radii, lhp_colour(ps->css_background_color, 0));
 	if (!ps->dlo)
 		return LWS_SRET_FATAL;
+
+	lhp_dlo_border(ps, (lws_dlo_rect_t *)ps->dlo);
 
 	ps->dlo->flag_abs = ps->is_abs;
 	ps->dlo->flag_float = ps->is_float;
@@ -2722,10 +2927,10 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 	if (ps->has_line)
 		lhp_line_end(ctx, ps);
 
-	pl = lhp_len(ps, ps->css_padding[CCPAS_LEFT], &base);
-	pr = lhp_len(ps, ps->css_padding[CCPAS_RIGHT], &base);
-	pt = lhp_len(ps, ps->css_padding[CCPAS_TOP], &base);
-	pb = lhp_len(ps, ps->css_padding[CCPAS_BOTTOM], &base);
+	pl = lhp_pad(ps, CCPAS_LEFT, &base);
+	pr = lhp_pad(ps, CCPAS_RIGHT, &base);
+	pt = lhp_pad(ps, CCPAS_TOP, &base);
+	pb = lhp_pad(ps, CCPAS_BOTTOM, &base);
 	ml = lhp_len(ps, ps->css_margin[CCPAS_LEFT], &base);
 	mr = lhp_len(ps, ps->css_margin[CCPAS_RIGHT], &base);
 	mb = lhp_len(ps, ps->css_margin[CCPAS_BOTTOM], &base);
@@ -3173,9 +3378,9 @@ lhp_body_open(lhp_pstack_t *ps)
 	ml = lhp_len(ps, ps->css_margin[CCPAS_LEFT], base);
 	mr = lhp_len(ps, ps->css_margin[CCPAS_RIGHT], base);
 	mt = lhp_len(ps, ps->css_margin[CCPAS_TOP], base);
-	pl = lhp_len(ps, ps->css_padding[CCPAS_LEFT], base);
-	pr = lhp_len(ps, ps->css_padding[CCPAS_RIGHT], base);
-	pt = lhp_len(ps, ps->css_padding[CCPAS_TOP], base);
+	pl = lhp_pad(ps, CCPAS_LEFT, base);
+	pr = lhp_pad(ps, CCPAS_RIGHT, base);
+	pt = lhp_pad(ps, CCPAS_TOP, base);
 
 	lws_fx_add(&ps->ox, &ml, &pl);
 	lws_fx_add(&ps->oy, &mt, &pt);

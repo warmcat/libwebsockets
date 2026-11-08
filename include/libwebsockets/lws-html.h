@@ -629,6 +629,10 @@ typedef struct lhp_pstack {
 	const struct lcsp_atr		*css_pos[4];
 	const struct lcsp_atr		*css_margin[4];
 	const struct lcsp_atr		*css_padding[4];
+	/* the border width on each side, NULL if there's none there, and
+	 * its colour, NULL for currentColor */
+	const struct lcsp_atr		*css_border_width[4];
+	const struct lcsp_atr		*css_border_color[4];
 
 	/*
 	 * css resolution for this element: the stanzas whose selectors matched

@@ -45,7 +45,17 @@ JPEG and PNG images and express all UI in html/css.
    inline elements with backgrounds, inline-block and absolutely positioned
    boxes with shrink-to-fit widths, lists with markers, images inline, and
    tables with automatic column widths.  Floats are placed inline without
-   wrap-around, position: relative offsets and borders are not yet drawn.
+   wrap-around, and position: relative offsets are not yet applied.
+ - css borders on boxes (blocks, inline-blocks, tables and their cells) take
+   their width in the layout, as padding does, and are drawn in the colour of
+   each side, the corners split between the sides on the diagonal and rounded
+   by `border-radius`, inside as well as out.  Every style other than `none`
+   and `hidden` is drawn solid.  Borders on inline elements, eg, a `<span>`,
+   are not drawn and take no space.  In a table with `border-collapse:
+   collapse`, the cells overlap where their borders meet, and meet the table's
+   own where it has no padding, so the line between them is drawn once, the
+   wider border winning, else the cell's over the table's, else the one above
+   or to the left.  `overflow` clips to the box outside the border
  - css `opacity` applies to an element and everything inside it.  Each of its
    descendants is composed at that alpha, rather than the group being
    composed opaquely and then blended, so where its children overlap the

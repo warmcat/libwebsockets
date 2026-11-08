@@ -204,8 +204,13 @@ typedef struct lws_circle {
 typedef struct lws_dlo_rect {
 	lws_dlo_t			dlo;
 	lws_circle_t			c[4]; /* t-l, t-r, b-l, b-r */
-	lws_fx_t			b[4]; /* border width on t/r/b/l */
-	lws_display_colour_t		dcb;  /* border colour */
+	/*
+	 * The border on each side, t / r / b / l: its width, inside the box,
+	 * and its colour.  The corners of the box inside it are rounded by
+	 * the box's radii less the border.
+	 */
+	lws_fx_t			b[4];
+	lws_display_colour_t		dcb[4];
 
 	/* rasterization temps */
 
