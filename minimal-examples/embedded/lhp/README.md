@@ -131,10 +131,13 @@ platform-specific in it.  It's a dialog of the strip ui
 when a link in it is pressed, so it's also an example of how an application
 can make a dialog of its own settings.  It has
 
- - "WLAN": a table of the APs, kept up to date while it's shown: those
-   scanned, strongest first, one row per network, then those we have
-   credentials for that aren't in range, dimmed.  Each row has the SSID, over
-   a smaller line of what we know about it, then the icons to press:
+ - "WLAN": a table of the APs, with a line around and between its rows, kept
+   up to date while it's shown: those scanned, strongest first, one row per
+   network, then those we have credentials for that aren't in range, dimmed.
+   Each row starts with the AP's signal, as the same four bars the status
+   capsule shows for the AP we are on (`lhp_rssi_bars()`), none lit if it
+   isn't in range.  Then the SSID, over a smaller line of what we know about
+   it, then the icons to press:
     - a key, if we have its passphrase
     - how it authenticates, eg, "WPA2", if it's in range
     - how the last try to join it went: a check if it was joined, a cross if

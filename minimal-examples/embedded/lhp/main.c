@@ -438,24 +438,6 @@ sui_frame_redraw(void *opaque)
 		app_drawing = 1;
 }
 
-/*
- * How many bars of the wlan icon an rssi is: strong enough for anything at
- * -55dBm, and barely usable below -75dBm
- */
-
-static int
-rssi_bars(int rssi)
-{
-	if (rssi >= -55)
-		return 4;
-	if (rssi >= -65)
-		return 3;
-	if (rssi >= -75)
-		return 2;
-
-	return 1;
-}
-
 /* say what the status capsule shows now: the ui draws it if it changed */
 
 static void
@@ -473,7 +455,7 @@ status_update(void)
 
 	if (wnd)
 		st.wlan = (int8_t)(lws_netdev_wifi_rssi(&wnd->inst, &rssi) ?
-						0 : rssi_bars(rssi));
+						0 : lhp_rssi_bars(rssi));
 
 	if (plat_battery && !plat_battery(&pc, &chg)) {
 		st.battery = (int8_t)(pc < 0 ? 0 : (pc > 100 ? 100 : pc));

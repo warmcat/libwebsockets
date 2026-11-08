@@ -72,6 +72,8 @@ typedef struct lhp_settings_ap {
 	uint8_t				stored;	/* we have credentials for it */
 	uint8_t				seen;	/* in the scan results */
 	uint8_t				internet; /* was reached through it */
+	uint8_t				bars;	/* signal, 0 if not seen, else
+						 * lhp_rssi_bars() */
 } lhp_settings_ap_t;
 
 typedef struct lhp_settings {
@@ -95,6 +97,18 @@ typedef struct lhp_settings {
 	uint8_t				editing; /* lhp_settings_edit_t */
 	uint8_t				flags;	/* LHP_SET_FL_* */
 } lhp_settings_t;
+
+/**
+ * lhp_rssi_bars() - how many of four signal bars an rssi is
+ *
+ * \param rssi: the signal strength in dBm
+ *
+ * Returns 1 to 4: strong enough for anything at -55dBm, barely usable below
+ * -75dBm.  The status capsule's wlan icon and the settings' list of APs both
+ * show it, so they agree.
+ */
+int
+lhp_rssi_bars(int rssi);
 
 /* lhp_settings_open() flags */
 

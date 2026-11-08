@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+ <!-- signal: 2 of the 4 bars lit -->
+ <g fill="#2a7fff">
+  <rect x="3" y="15" width="3.5" height="6" rx="1"/>
+  <rect x="8" y="11" width="3.5" height="10" rx="1"/>
+  <rect x="13" y="7" width="3.5" height="14" rx="1" fill-opacity="0.2"/>
+  <rect x="18" y="3" width="3.5" height="18" rx="1" fill-opacity="0.2"/>
+ </g>
+</svg>

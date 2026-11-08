@@ -32,13 +32,20 @@ static const struct {
 	{ "set-ok.svg",		settings_icon_ok,	sizeof(settings_icon_ok) },
 	{ "set-no.svg",		settings_icon_refused,	sizeof(settings_icon_refused) },
 	{ "set-fail.svg",	settings_icon_failed,	sizeof(settings_icon_failed) },
+	{ "set-sig0.svg",	settings_icon_sig0,	sizeof(settings_icon_sig0) },
+	{ "set-sig1.svg",	settings_icon_sig1,	sizeof(settings_icon_sig1) },
+	{ "set-sig2.svg",	settings_icon_sig2,	sizeof(settings_icon_sig2) },
+	{ "set-sig3.svg",	settings_icon_sig3,	sizeof(settings_icon_sig3) },
+	{ "set-sig4.svg",	settings_icon_sig4,	sizeof(settings_icon_sig4) },
 };
 
 /*
- * The dialog's css.  Each AP's row is two cells, so it fits a small display:
- * its SSID over a smaller line of what we know about it, then the icons to
- * press, which are bigger, with some room around them, to be easier to hit
- * with a finger.  The hostname is shaded, like an editbox.
+ * The dialog's css.  The APs are a table with a line around and between its
+ * rows, so they read as one list.  Each AP's row is three cells, so it fits a
+ * small display: its signal, its SSID over a smaller line of what we know
+ * about it, then the icons to press, which are bigger, with some room around
+ * them, to be easier to hit with a finger.  The hostname is shaded, like an
+ * editbox.
  */
 
 static const char dlg_css[] =
@@ -46,28 +53,46 @@ static const char dlg_css[] =
 	".s { color: #24476b; margin-top: 4px }"
 	".d { color: #888 }"
 	".st { font-size: 0.75em }"
-	"table { border-spacing: 0 }"
-	"td { padding: 2px 0; vertical-align: middle }"
+	"table { border-collapse: collapse; border: 1px solid #b4bcc6 }"
+	"td { padding: 2px 3px 2px 0; vertical-align: middle;"
+		" border-top: 1px solid #b4bcc6 }"
+	"td.g { padding: 2px 3px }"
 	"img { width: 1.25em; height: 1.25em }"
+	"img.g { width: 20px; height: 20px }"
 	"a.i { display: inline-block; padding: 2px }"
 	"a.i img { width: 24px; height: 24px }"
 	"a.e { display: block; background-color: #e4e8ec; padding: 3px 4px;"
 		" margin: 2px 0 8px 0 }";
 
 /*
- * The most html an AP's row can be, with all its icons and an SSID of 32
- * characters that each need escaping, eg, &quot;
+ * The most html an AP's row can be, with its signal, all its icons and an SSID
+ * of 32 characters that each need escaping, eg, &quot;
  */
-#define AP_ROW_HTML_MAX		512
+#define AP_ROW_HTML_MAX		576
 
 /* WPA passphrases are 8 to 63 characters */
 #define PASSPHRASE_MIN		8
 #define PASSPHRASE_MAX		63
 
+int
+lhp_rssi_bars(int rssi)
+{
+	if (rssi >= -55)
+		return 4;
+	if (rssi >= -65)
+		return 3;
+	if (rssi >= -75)
+		return 2;
+
+	return 1;
+}
+
 /*
- * Order-independent signature of the set of APs in the scan list, so we can
- * tell when the APs shown are stale without listing them again on every scan:
- * the averaged rssi jitters, so rssi and ordering are deliberately left out
+ * Order-independent signature of the set of APs in the scan list, and their
+ * signal bars, so we can tell when the APs shown are stale without listing
+ * them again on every scan.  The averaged rssi jitters, but the bars it is
+ * shown as change much less often, so the bars are in it and the rssi itself
+ * and the ordering are deliberately left out.
  */
 
 static uint32_t
@@ -87,6 +112,7 @@ scan_sig(const lhp_settings_t *s)
 		for (n = 0; n < LWS_ETH_ALEN; n++)
 			h = (h ^ w->bssid[n]) * 16777619u;
 		h = (h ^ (uint8_t)w->ch) * 16777619u;
+		h = (h ^ (uint8_t)lhp_rssi_bars(rssi_averaged(w))) * 16777619u;
 
 		sig += h;
 	} lws_end_foreach_dll(d);
@@ -142,6 +168,7 @@ aps_update(lhp_settings_t *s)
 			a->auth = (uint8_t)w->authmode;
 			a->open = w->authmode == LWS_WIFI_AUTH_OPEN;
 			a->seen = 1;
+			a->bars = (uint8_t)lhp_rssi_bars(rssi_averaged(w));
 		} lws_end_foreach_dll(d);
 	}
 
@@ -211,9 +238,15 @@ dlg_html(void *opaque, lws_dlo_ui_html_t *h)
 	for (n = 0; n < s->ap_count; n++) {
 		a = &s->aps[n];
 
-		/* those we have credentials for but can't see are dimmed */
-		lws_dlo_ui_html_printf(h, "<tr%s><td><div>",
-				       a->seen ? "" : " class=\"d\"");
+		/*
+		 * Its signal first, all the bars unlit if it wasn't seen.
+		 * Those we have credentials for but can't see are dimmed.
+		 */
+		lws_dlo_ui_html_printf(h, "<tr%s><td class=\"g\"><img "
+				       "class=\"g\" src=\"set-sig%d.svg\">"
+				       "</td><td><div>",
+				       a->seen ? "" : " class=\"d\"",
+				       (int)a->bars);
 		lws_dlo_ui_html_text(h, a->ssid);
 		lws_dlo_ui_html_printf(h, "</div><div class=\"st\">");
 		if (a->stored && !a->open)

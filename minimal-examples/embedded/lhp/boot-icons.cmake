@@ -62,7 +62,7 @@ function(lhp_boot_icons OUT LWS)
 	lhp_icons_append("${LWS}/contrib/assets/boot-status" boot
 			 "setup;wlan;ipv4;ipv6;internet;date;ota;auth")
 	lhp_icons_append("${LWS}/contrib/assets/settings" settings
-			 "cog;forget;ok;refused;failed")
+			 "cog;forget;ok;refused;failed;sig0;sig1;sig2;sig3;sig4")
 	lhp_icons_append("${LWS}/contrib/assets/update" update "spinner")
 
 	# only touch it if it changed, so nothing rebuilds needlessly
