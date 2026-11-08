@@ -99,14 +99,31 @@ enum qsmp_mode {
 	QSMP_MODE_PIPELINE,
 };
 
-/* a client's opaque user data: the tsi it asked on, and its mode */
-#define QSMP_OPAQUE(tsi, mode)	((void *)((intptr_t)(tsi) | \
-					  ((intptr_t)(mode) << 8)))
+/* a client's opaque user data: the tsi it asked on, its mode and its slot */
+#define QSMP_OPAQUE(tsi, mode, slot) ((void *)((intptr_t)(tsi) | \
+					  ((intptr_t)(mode) << 8) | \
+					  ((intptr_t)(slot) << 16)))
 #define QSMP_TSI(o)		((int)((intptr_t)(o) & 0xff))
-#define QSMP_MODE(o)		((int)((intptr_t)(o) >> 8))
+#define QSMP_MODE(o)		((int)(((intptr_t)(o) >> 8) & 0xff))
+#define QSMP_SLOT(o)		((int)((intptr_t)(o) >> 16))
+
+#define QSMP_CONNS		(QSMP_ROUNDS * QSMP_PER_ROUND) /* per thread */
+
+/*
+ * A service thread's client connections, only touched on that thread, so
+ * the deadline can say which never finished, and where they stand
+ */
+struct qsmp_conn {
+	struct lws		*wsi;	/* NULL once destroyed */
+	int			mode;
+	int			done;	/* completed or failed */
+};
 
 struct qsmp_svc {
 	lws_sorted_usec_list_t	sul_round;
+	lws_sorted_usec_list_t	sul_dump;
+	struct qsmp_conn	conn[QSMP_CONNS];
+	int			nconn;
 	pthread_t		self;	/* guarded by lock */
 	pthread_t		thread;
 	int			tsi;
@@ -141,6 +158,8 @@ static const struct lws *piped_nwsi[QSMP_PIPED];
 
 /* guarded by lock: the client protocol is initialised, callbacks before it */
 static int cli_inited, cli_early;
+/* guarded by lock: service threads still to dump their stuck connections */
+static int dumps_left;
 
 static void
 qsmp_count(int *what, int n)
@@ -355,10 +374,21 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	struct qsmp_pss_cli *pss = (struct qsmp_pss_cli *)user;
 	void *o = lws_get_opaque_user_data(wsi);
 	int tsi = QSMP_TSI(o);
+	struct qsmp_conn *c = NULL;
 	char buf[LWS_PRE + 1024], *px = buf + LWS_PRE;
 	int lenx = (int)sizeof(buf) - LWS_PRE;
 
+	/* one of our requests, rather than the h3 control or qpack streams? */
+	if (o && tsi < threads && QSMP_SLOT(o) < svc[tsi].nconn &&
+	    svc[tsi].conn[QSMP_SLOT(o)].wsi == wsi)
+		c = &svc[tsi].conn[QSMP_SLOT(o)];
+
 	switch (reason) {
+	case LWS_CALLBACK_WSI_DESTROY:
+		if (c)
+			c->wsi = NULL;
+		break;
+
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		pthread_mutex_lock(&lock);
 		inits++;
@@ -375,6 +405,10 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		qsmp_on_thread(tsi);
 		if (pss)
 			pss->established = 1;
+		/* the request may have moved to another wsi since it asked */
+		if (!c && o && tsi < threads && QSMP_SLOT(o) < svc[tsi].nconn &&
+		    !svc[tsi].conn[QSMP_SLOT(o)].done)
+			svc[tsi].conn[QSMP_SLOT(o)].wsi = wsi;
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
@@ -391,6 +425,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!pss || pss->done)
 			break;
 		pss->done = 1;
+		if (c)
+			c->done = 1;
 		qsmp_on_thread(tsi);
 		/*
 		 * Not counted at ESTABLISHED: a request joining a connection
@@ -414,6 +450,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			 QSMP_MODE(o), in ? (const char *)in : "(null)");
 		qsmp_cli_check_inited();
 		qsmp_on_thread(tsi);
+		if (c)
+			c->done = 1;
 		if (pss) {
 			if (pss->done)
 				break;
@@ -460,7 +498,14 @@ qsmp_connect(int tsi, enum qsmp_mode mode)
 {
 	int dual = mode == QSMP_MODE_MIGRATE;
 	struct lws_client_connect_info i;
+	struct qsmp_svc *s = &svc[tsi];
+	struct qsmp_conn *c;
 	struct lws *wsi;
+
+	if (s->nconn == QSMP_CONNS)
+		return;
+	c = &s->conn[s->nconn];
+	c->mode = mode;
 
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
@@ -473,7 +518,9 @@ qsmp_connect(int tsi, enum qsmp_mode mode)
 	i.method		= "GET";
 	i.protocol		= "qsmp";
 	i.alpn			= "h3";
-	i.opaque_user_data	= QSMP_OPAQUE(tsi, mode);
+	i.opaque_user_data	= QSMP_OPAQUE(tsi, mode, s->nconn);
+	i.pwsi			= &c->wsi; /* NULL again if it fails at once */
+	s->nconn++;
 	i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
 				  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	if (mode == QSMP_MODE_PIPELINE) {
@@ -518,11 +565,57 @@ sul_round_cb(lws_sorted_usec_list_t *sul)
 				 QSMP_ROUND_US);
 }
 
+/*
+ * At the deadline, each service thread says, on its own thread, which of its
+ * connections never finished and where they stand, then the test ends
+ */
+
+static void
+sul_dump_cb(lws_sorted_usec_list_t *sul)
+{
+	struct qsmp_svc *s = lws_container_of(sul, struct qsmp_svc, sul_dump);
+	int n, last;
+
+	for (n = 0; n < s->nconn; n++) {
+		struct qsmp_conn *c = &s->conn[n];
+
+		if (c->done)
+			continue;
+
+		lwsl_err("%s: tsi %d conn %d, mode %d: never finished%s\n",
+			 __func__, s->tsi, n, c->mode,
+			 c->wsi ? "" : ", its wsi is gone");
+		if (c->wsi)
+			lws_quic_dump(c->wsi);
+	}
+
+	pthread_mutex_lock(&lock);
+	last = !--dumps_left;
+	pthread_mutex_unlock(&lock);
+
+	if (last) {
+		interrupted = 1;
+		lws_cancel_service(context);
+	}
+}
+
 static void
 sul_deadline_cb(lws_sorted_usec_list_t *sul)
 {
+	int n;
+
 	lwsl_err("%s: timed out\n", __func__);
-	interrupted = 1;
+
+	/* lws_quic_dump() says it at notice level */
+	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE, NULL);
+
+	pthread_mutex_lock(&lock);
+	dumps_left = threads;
+	pthread_mutex_unlock(&lock);
+
+	for (n = 0; n < threads; n++)
+		lws_sul_schedule(context, n, &svc[n].sul_dump, sul_dump_cb, 1);
+	/* the other threads may be asleep waiting on a later timer */
 	lws_cancel_service(context);
 }
 
@@ -667,8 +760,10 @@ main(int argc, const char **argv)
 		pthread_join(svc[n].thread, &retval);
 
 	lws_sul_cancel(&sul_deadline);
-	for (n = 0; n < threads; n++)
+	for (n = 0; n < threads; n++) {
 		lws_sul_cancel(&svc[n].sul_round);
+		lws_sul_cancel(&svc[n].sul_dump);
+	}
 
 	lwsl_user("%d threads: %d connections, %d completed, %d failed, %d "
 		  "short; %d served; %d callbacks on the wrong thread; %d "
