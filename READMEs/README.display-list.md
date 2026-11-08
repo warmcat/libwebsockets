@@ -239,6 +239,58 @@ and its frame page, shown by `lws_dlo_ui_frame()`, has
    can only take an update of all of it, eg, an EPD, the title strip and the
    page arrive together.
 
+and its dialog page, shown by `lws_dlo_ui_dialog()`, has
+
+ - the title strip, saying what the dialog is, eg, "Settings": pressing it,
+   or ESC, tells the caller, eg, to close it
+
+ - the panel, the rest of the display, showing html the caller writes, eg, a
+   table of things and some fields to edit.  It is clipped to what can be
+   seen of the display, and dragged to scroll it if it's taller.  Each
+   `<a href="...">` in it can be pressed, or gone to and pressed with the
+   buttons: the caller is told its href, which means whatever the caller
+   wants, eg, "ap:3" or "edit:hostname".
+
+So a settings dialog of the application's own is only its html, written again
+whenever what it shows changes, and what to do with each href.  Editing a
+field is the edit page, which comes back to the dialog when it ends: with
+`LWS_DLO_UI_EDIT_KEEP`, however it ends, the done callback gets what was
+typed, eg, to store a hostname whether or not Done was pressed.
+
+```
+static void
+my_html(void *opaque, lws_dlo_ui_html_t *h)
+{
+	lws_dlo_ui_html_printf(h, "<table><tr><td>Host</td><td>"
+				  "<a href=\"edit:host\">");
+	lws_dlo_ui_html_text(h, hostname);	/* shown as text */
+	lws_dlo_ui_html_printf(h, "</a></td></tr></table>");
+}
+
+static void
+my_action(void *opaque, const char *href)
+{
+	if (!strcmp(href, "edit:host"))
+		lws_dlo_ui_edit(ui, "Hostname", 32, LWS_DLO_UI_EDIT_KEEP);
+}
+
+	/* eg, on a click of a "settings" button */
+	lws_dlo_ui_dialog_t d;
+
+	memset(&d, 0, sizeof(d));
+	d.html = my_html;
+	d.action = my_action;
+	d.css = "td { padding-right: 8px }";	/* optional */
+
+	lws_dlo_ui_set_title(ui, "Settings");
+	lws_dlo_ui_dialog(ui, &d);
+```
+
+`lws_dlo_ui_dialog_changed()` has the html written again, eg, when a list in
+it changes, keeping where it's scrolled to.  The dialog is closed by showing
+another page, eg, `lws_dlo_ui_frame()` to go back to what the application was
+showing.
+
 Each strip only moves for drags that begin in it, and dragging never types
 anything.
 
@@ -260,8 +312,9 @@ otherwise the caller is told with the `frame_redraw` callback, to draw it all
 again.
 
 Without touch, the ui can be driven by buttons, or anything else that says
-which way to go: `lws_dlo_ui_nav()` moves a cursor up and down the list, and
-around the keyboard, and presses what it is on with ENTER; ESC goes back.
+which way to go: `lws_dlo_ui_nav()` moves a cursor up and down the list,
+around the keyboard, and between the links of a dialog, and presses what it is
+on with ENTER; ESC goes back.
 `lws_dlo_ui_interaction()` takes any interaction event, giving touches to
 `lws_dlo_ui_touch()` and clicks of buttons named "up", "down", "left",
 "right", "enter" and "esc" to `lws_dlo_ui_nav()`, so the caller can give it
@@ -310,4 +363,5 @@ only stops its own document, so a page being browsed into the frame's body
 carries on fetching meanwhile.
 
 `minimal-examples-lowlevel/api-tests/api-test-dlo-ui` shows it on a pretend
-round display, and the lhp embedded examples use it for their boot overlay.
+round display, and the lhp embedded examples use it for their boot overlay
+and settings dialog.

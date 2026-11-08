@@ -37,12 +37,18 @@
  * css, so they can't move anything; everything the caller gave us is put in
  * the html as text.
  *
- * There are three pages: the list page, a title strip over a list strip, the
- * edit page, a title strip over an edit strip over a keyboard strip, and the
- * frame page, a title strip over the caller's body.  The frame's html is
- * the title strip over nothing, white: the ui only draws all of it to show
- * the frame before the caller has anything in its body.  Otherwise the
- * caller draws the display, taking the title strip's lines from us.
+ * There are four pages: the list page, a title strip over a list strip, the
+ * edit page, a title strip over an edit strip over a keyboard strip, the
+ * frame page, a title strip over the caller's body, and the dialog page, a
+ * title strip over a panel of the caller's html.  The frame's html is the
+ * title strip over nothing, white: the ui only draws all of it to show the
+ * frame before the caller has anything in its body.  Otherwise the caller
+ * draws the display, taking the title strip's lines from us.
+ *
+ * The dialog's html is laid out in one element, #pc: scrolling the panel
+ * moves its dlo, like dragging the keyboard, and the cursor on its links is
+ * a ring of rects added to it after layout, so neither lays it out again.
+ * The links are found in the laid out display list, in document order.
  *
  * The status capsule, and its icons, are boxes styled by the css, so they
  * need nothing from the dlo filesystem and are sized for the display.
@@ -62,6 +68,7 @@ enum {
 	UI_STRIP_EDIT			= (1 << 2),
 	UI_STRIP_KEYS			= (1 << 3),
 	UI_STRIP_BODY			= (1 << 4),	/* the caller's */
+	UI_STRIP_PANEL			= (1 << 5),	/* the caller's html */
 };
 
 /* the strips each page has */
@@ -70,6 +77,24 @@ enum {
 #define UI_PAGE_EDIT			(UI_STRIP_TITLE | UI_STRIP_EDIT | \
 					 UI_STRIP_KEYS)
 #define UI_PAGE_FRAME			(UI_STRIP_TITLE | UI_STRIP_BODY)
+#define UI_PAGE_DIALOG			(UI_STRIP_TITLE | UI_STRIP_PANEL)
+
+/* the most links a dialog's panel can have, that can be pressed */
+#define UI_HITS_MAX			32
+/* the default for the most html the panel can be */
+#define UI_DIALOG_HTML_MAX		4096
+/*
+ * lhp drops what it would lay out below the surface, so the dialog is laid
+ * out on one this many displays tall, for its panel to scroll down to
+ */
+#define UI_DIALOG_LAYOUT_DISPLAYS	8
+
+/* a link on the panel, where it is in the panel's content, #pc */
+
+typedef struct {
+	const lws_dlo_hit_t	*hit;	/* while laid out */
+	int			x, y, w, h;
+} ui_hit_t;
 
 /*
  * The keyboard.  Keys are placed in halves of the key pitch, 20 to a row;
@@ -176,6 +201,22 @@ struct lws_dlo_ui {
 	char				status_button[UI_BUTTON_NAME_MAX];
 	char				*css;	/* the caller's, or NULL */
 
+	/* the dialog page */
+
+	lws_dlo_ui_dialog_t		dlg;	/* .css is dlg_css */
+	char				*dlg_css; /* the caller's, or NULL */
+	lws_dlo_t			*pc;	/* the panel's content, while
+						 * laid out */
+	lws_dlo_rect_t			*ring[4]; /* the cursor, while laid out */
+	ui_hit_t			hits[UI_HITS_MAX];
+	int				nhits;
+	int				pcur;	/* the link the cursor is on */
+	int				pscroll; /* px the panel is scrolled by */
+	int				pc_h;	/* how tall its content is */
+	int				pc_ox, pc_oy; /* where its content's top
+						       * left is on the display,
+						       * not scrolled */
+
 	char				*page;	/* the html we made, while it is
 						 * registered in the dlo fs */
 	size_t				page_len; /* allocated */
@@ -232,6 +273,9 @@ struct lws_dlo_ui {
 	uint8_t				frame_lines; /* the caller is partway
 						      * through the title
 						      * strip's lines */
+	uint8_t				edit_ret; /* UI_PAGE_*: the page an
+						   * edit goes back to */
+	uint8_t				keep;	 /* LWS_DLO_UI_EDIT_KEEP */
 };
 
 /*
@@ -240,11 +284,31 @@ struct lws_dlo_ui {
  * than a truncated one being shown
  */
 
-typedef struct {
+struct lws_dlo_ui_html {
 	char			*p;
 	char			*end;
 	char			full;
-} ui_w_t;
+};
+
+typedef struct lws_dlo_ui_html ui_w_t;
+
+static void
+ui_vprintf(ui_w_t *w, const char *fmt, va_list ap)
+{
+	size_t room = lws_ptr_diff_size_t(w->end, w->p);
+	int n;
+
+	if (w->full)
+		return;
+
+	n = vsnprintf(w->p, room, fmt, ap);
+	if (n < 0 || (size_t)n >= room) {
+		w->full = 1;
+		return;
+	}
+
+	w->p += n;
+}
 
 static void
 ui_printf(ui_w_t *w, const char *fmt, ...) LWS_FORMAT(2);
@@ -252,23 +316,21 @@ ui_printf(ui_w_t *w, const char *fmt, ...) LWS_FORMAT(2);
 static void
 ui_printf(ui_w_t *w, const char *fmt, ...)
 {
-	size_t room = lws_ptr_diff_size_t(w->end, w->p);
 	va_list ap;
-	int n;
-
-	if (w->full)
-		return;
 
 	va_start(ap, fmt);
-	n = vsnprintf(w->p, room, fmt, ap);
+	ui_vprintf(w, fmt, ap);
 	va_end(ap);
+}
 
-	if (n < 0 || (size_t)n >= room) {
-		w->full = 1;
-		return;
-	}
+void
+lws_dlo_ui_html_printf(lws_dlo_ui_html_t *h, const char *fmt, ...)
+{
+	va_list ap;
 
-	w->p += n;
+	va_start(ap, fmt);
+	ui_vprintf(h, fmt, ap);
+	va_end(ap);
 }
 
 /*
@@ -307,6 +369,13 @@ ui_text(ui_w_t *w, const char *s, size_t max)
 			break;
 		}
 	}
+}
+
+void
+lws_dlo_ui_html_text(lws_dlo_ui_html_t *h, const char *s)
+{
+	if (s)
+		ui_text(h, s, (size_t)-1);
 }
 
 /*
@@ -376,7 +445,8 @@ ui_strip_band(const struct lws_dlo_ui *ui, int strip, int *y0, int *y1)
 		*y0 = eb;
 		*y1 = ui->h;
 		break;
-	default: /* UI_STRIP_LIST, UI_STRIP_BODY */
+	default: /* UI_STRIP_LIST, UI_STRIP_BODY, UI_STRIP_PANEL */
+
 		*y0 = ui->title_h;
 		*y1 = ui->h;
 		break;
@@ -390,7 +460,7 @@ ui_strip_at(const struct lws_dlo_ui *ui, int y)
 {
 	int s, y0, y1;
 
-	for (s = UI_STRIP_TITLE; s <= UI_STRIP_BODY; s <<= 1) {
+	for (s = UI_STRIP_TITLE; s <= UI_STRIP_PANEL; s <<= 1) {
 		if (!(ui->page_strips & s))
 			continue;
 		ui_strip_band(ui, s, &y0, &y1);
@@ -509,6 +579,53 @@ ui_title_span(const struct lws_dlo_ui *ui, int *x0, int *x1)
 	}
 
 	*x1 = ui->cap_x0 - ui->pad;
+}
+
+/*
+ * The columns the dialog's html is laid out across, and how much of the
+ * panel can be seen: on a round display, its content is as wide as the
+ * circle at the bottom of the title strip, and it can be seen as far as that
+ * is from the bottom
+ */
+
+static void
+ui_panel_geom(const struct lws_dlo_ui *ui, int *x0, int *x1, int *vh)
+{
+	int y1 = ui->i.lds->disp->ic.round ? ui->h - ui->title_h : ui->h;
+
+	ui_span(ui, ui->title_h, y1, x0, x1);
+	*x0 += ui->pad;
+	*x1 -= ui->pad;
+	if (*x1 < *x0)
+		*x1 = *x0;
+	*vh = y1 - ui->title_h;
+}
+
+static int
+ui_pscroll_max(const struct lws_dlo_ui *ui)
+{
+	int x0, x1, vh, m;
+
+	ui_panel_geom(ui, &x0, &x1, &vh);
+	m = ui->pc_h - vh;
+
+	return m < 0 ? 0 : m;
+}
+
+/* the panel's content is moved to where it's scrolled to */
+
+static void
+ui_pscroll_apply(struct lws_dlo_ui *ui)
+{
+	int m = ui_pscroll_max(ui);
+
+	if (ui->pscroll > m)
+		ui->pscroll = m;
+	if (ui->pscroll < 0)
+		ui->pscroll = 0;
+
+	if (ui->pc)
+		lws_fx_set(ui->pc->box.y, -ui->pscroll, 0);
 }
 
 /* place the keys of the current layer, on the keyboard */
@@ -639,7 +756,9 @@ static const char * const ui_css =
 	"* { margin: 0; padding: 0 }"
 	"body { background-color: #fff; color: #000; font-family: sans }"
 	"#ui { position: absolute; left: 0; top: 0 }"
-	"#t, #l, #e, #k { position: absolute; left: 0; overflow: hidden }"
+	"#t, #l, #e, #k, #p { position: absolute; left: 0; overflow: hidden }"
+	/* what's wider than the panel is clipped, to be inside the circle */
+	"#pc { position: absolute; overflow: hidden }"
 	"#tt { position: absolute; text-align: center; white-space: nowrap;"
 		" overflow: hidden }"
 	".r, .k, #et { position: absolute; display: flex;"
@@ -887,6 +1006,32 @@ ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 		goto done;
 	}
 
+	if (ui->page_strips == UI_PAGE_DIALOG) {
+		int vh;
+
+		/*
+		 * Below the title strip, the panel is the caller's html, in
+		 * #pc, which is scrolled by moving its dlo.  The caller's css
+		 * comes first, so it can't move them
+		 */
+		ui_panel_geom(ui, &x0, &x1, &vh);
+		if (ui->dlg_css)
+			ui_printf(&w, "%s", ui->dlg_css);
+		ui_printf(&w, "#p { top: %dpx; width: %dpx; height: %dpx }"
+			      "#pc { left: %dpx; top: 0; width: %dpx;"
+			      " font-size: %dpx }</style></head><body>"
+			      "<div id=\"ui\"><div id=\"t\"><div id=\"tt\">",
+			      ui->title_h, ui->w, vh, x0,
+			      x1 - x0, ui->fs_row);
+		ui_text(&w, ui->title, sizeof(ui->title));
+		ui_printf(&w, "</div>");
+		ui_status_html(ui, &w);
+		ui_printf(&w, "</div><div id=\"p\"><div id=\"pc\">");
+		ui->dlg.html(ui->dlg.opaque, &w);
+		ui_printf(&w, "</div></div></div></body></html>");
+		goto done;
+	}
+
 	if (ui->page_strips == UI_PAGE_FRAME) {
 		/* below the title strip, the body is the caller's */
 		ui_printf(&w, "</style></head><body><div id=\"ui\">"
@@ -1001,14 +1146,24 @@ ui_render(lws_sorted_usec_list_t *sul);
 static int
 ui_layout(struct lws_dlo_ui *ui)
 {
-	size_t len = 3072 + (ui->css ? strlen(ui->css) : 0) +
-		     (ui->page_strips == UI_PAGE_EDIT ?
-			(size_t)UI_KEYS_MAX * 192 :
-			(size_t)((ui->h / ui->row_h) + 2) * 512);
+	size_t len = 3072 + (ui->css ? strlen(ui->css) : 0);
 	lws_dlo_filesystem_t f;
 	char url[64];
 	int n;
 
+	switch (ui->page_strips) {
+	case UI_PAGE_EDIT:
+		len += (size_t)UI_KEYS_MAX * 192;
+		break;
+	case UI_PAGE_DIALOG:
+		len += (ui->dlg_css ? strlen(ui->dlg_css) : 0) +
+		       (ui->dlg.html_max ? ui->dlg.html_max :
+					   UI_DIALOG_HTML_MAX);
+		break;
+	default:
+		len += (size_t)((ui->h / ui->row_h) + 2) * 512;
+		break;
+	}
 	ui_page_drop(ui);
 
 	ui->page = lws_malloc(len, __func__);
@@ -1038,11 +1193,19 @@ ui_layout(struct lws_dlo_ui *ui)
 	lws_display_list_destroy(ui->i.cx, &ui->rs.displaylist);
 	lws_display_render_free_ids(&ui->rs);
 	ui->kb = NULL;
+	ui->pc = NULL;
+	memset(ui->ring, 0, sizeof(ui->ring));
+	ui->nhits = 0;
 	lws_display_dl_init(&ui->rs.displaylist, ui->i.lds);
 
-	/* to find the keyboard's dlo after layout, to move it for drags */
-	if (ui->page_strips == UI_PAGE_EDIT &&
-	    !lws_display_render_add_id(&ui->rs, "kb", NULL)) {
+	/*
+	 * To find the keyboard's dlo after layout, to move it for drags, or
+	 * the dialog's content, to scroll it
+	 */
+	if ((ui->page_strips == UI_PAGE_EDIT &&
+	     !lws_display_render_add_id(&ui->rs, "kb", NULL)) ||
+	    (ui->page_strips == UI_PAGE_DIALOG &&
+	     !lws_display_render_add_id(&ui->rs, "pc", NULL))) {
 		ui_page_drop(ui);
 		return 1;
 	}
@@ -1052,6 +1215,12 @@ ui_layout(struct lws_dlo_ui *ui)
 	ui->rs.curr = 0;
 	ui->rs.ic = &ui->i.lds->disp->ic;
 	ui->rs.lds = ui->i.lds;
+	/*
+	 * The panel's content can be taller than the display: it's laid out
+	 * further down than can be seen, the viewport still the display
+	 */
+	ui->rs.layout_h = ui->page_strips == UI_PAGE_DIALOG ?
+				UI_DIALOG_LAYOUT_DISPLAYS * ui->h : 0;
 	/* the display list is kept, to render bands of it again */
 	ui->rs.retained = 1;
 	/* the ui is shown before there's any network */
@@ -1116,6 +1285,238 @@ ui_dlo_by_id(lws_displaylist_t *dl, const lws_display_id_t *id)
 	return NULL;
 }
 
+/* where a dlo's top left is on the display, as laid out */
+
+static int
+ui_dlo_origin(lws_displaylist_t *dl, const lws_dlo_t *target, int *x, int *y)
+{
+	lws_display_render_stack_t st[LWS_DLO_STACK_DEPTH];
+	lws_dll2_t *d = lws_dll2_get_head(&dl->dl);
+	int sp = 0;
+
+	if (!d)
+		return 1;
+
+	memset(&st, 0, sizeof(st));
+	st[0].dlo = lws_container_of(d, lws_dlo_t, list);
+
+	while (sp || st[0].dlo) {
+		lws_dlo_t *dlo = st[sp].dlo;
+		lws_box_t co;
+
+		if (!dlo) {
+			if (!sp)
+				break;
+			sp--;
+			continue;
+		}
+
+		lws_fx_add(&co.x, &st[sp].co.x, &dlo->box.x);
+		lws_fx_add(&co.y, &st[sp].co.y, &dlo->box.y);
+		co.w = dlo->box.w;
+		co.h = dlo->box.h;
+
+		if (dlo == target) {
+			*x = co.x.whole;
+			*y = co.y.whole;
+			return 0;
+		}
+
+		d = lws_dll2_get_next(&dlo->list);
+		st[sp].dlo = d ? lws_container_of(d, lws_dlo_t, list) : NULL;
+
+		if (!lws_dll2_is_empty(&dlo->children) &&
+		    sp + 1 < (int)LWS_ARRAY_SIZE(st)) {
+			st[++sp].dlo = lws_container_of(
+				lws_dll2_get_head(&dlo->children),
+				lws_dlo_t, list);
+			st[sp].co = co;
+		}
+	}
+
+	return 1;
+}
+
+/*
+ * Each link of the panel, in document order, where it is in the panel's
+ * content.  A link laid out in pieces, eg, text that wrapped, is one link,
+ * across all of them
+ */
+
+static int
+ui_hit_cb(void *opaque, lws_dlo_hit_t *h, const lws_box_t *b)
+{
+	struct lws_dlo_ui *ui = (struct lws_dlo_ui *)opaque;
+	int x = b->x.whole - ui->pc_ox, y = b->y.whole - ui->pc_oy,
+	    x1 = x + b->w.whole, y1 = y + b->h.whole;
+	ui_hit_t *ht;
+
+	if (!h->url || !h->url[0] || b->w.whole <= 0 || b->h.whole <= 0)
+		return 0;
+
+	if (ui->nhits) {
+		ht = &ui->hits[ui->nhits - 1];
+		if (!strcmp(ht->hit->url, h->url)) {
+			if (x < ht->x) {
+				ht->w += ht->x - x;
+				ht->x = x;
+			}
+			if (y < ht->y) {
+				ht->h += ht->y - y;
+				ht->y = y;
+			}
+			if (x1 > ht->x + ht->w)
+				ht->w = x1 - ht->x;
+			if (y1 > ht->y + ht->h)
+				ht->h = y1 - ht->y;
+			return 0;
+		}
+	}
+
+	if (ui->nhits == UI_HITS_MAX)
+		/* the rest can't be reached by the cursor, only pressed */
+		return 1;
+
+	ht = &ui->hits[ui->nhits++];
+	ht->hit = h;
+	ht->x = x;
+	ht->y = y;
+	ht->w = b->w.whole;
+	ht->h = b->h.whole;
+
+	return 0;
+}
+
+static void
+ui_ring_place(struct lws_dlo_ui *ui);
+
+/* the dialog was laid out: find its content and links */
+
+static void
+ui_panel_laid_out(struct lws_dlo_ui *ui)
+{
+	int x, y;
+
+	ui->nhits = 0;
+	if (!ui->pc)
+		return;
+
+	ui->pc_h = ui->pc->box.h.whole;
+	lws_fx_set(ui->pc->box.y, 0, 0);
+	if (ui_dlo_origin(&ui->rs.displaylist, ui->pc, &x, &y)) {
+		ui->pc = NULL;
+		return;
+	}
+	ui->pc_ox = x;
+	ui->pc_oy = y;
+
+	lws_display_dl_hit_foreach(&ui->rs.displaylist, ui_hit_cb, ui);
+
+	/* where it was scrolled to, and the cursor, are kept if they can be */
+	ui_pscroll_apply(ui);
+	if (ui->pcur >= ui->nhits)
+		ui->pcur = ui->nhits - 1;
+	if (ui->nav)
+		ui_ring_place(ui);
+}
+
+/*
+ * The cursor on the dialog: a ring of four rects around the link it's on,
+ * in the panel's content so it scrolls with it.  They're made once per
+ * layout, and only moved, or hidden by being transparent
+ */
+
+static void
+ui_ring_place(struct lws_dlo_ui *ui)
+{
+	int t = ui->pad < 2 ? 2 : ui->pad, n, x, y, w, h;
+	const ui_hit_t *ht;
+	lws_box_t b[4];
+
+	if (!ui->pc)
+		return;
+
+	if (!ui->nav || ui->pcur < 0 || ui->pcur >= ui->nhits) {
+		for (n = 0; n < 4; n++)
+			if (ui->ring[n])
+				ui->ring[n]->dlo.dc = 0;
+		return;
+	}
+
+	ht = &ui->hits[ui->pcur];
+	x = ht->x - t;
+	y = ht->y - t;
+	w = ht->w + 2 * t;
+	h = ht->h + 2 * t;
+
+	memset(b, 0, sizeof(b));
+	/* top, bottom, left, right */
+	lws_fx_set(b[0].x, x, 0);
+	lws_fx_set(b[0].y, y, 0);
+	lws_fx_set(b[0].w, w, 0);
+	lws_fx_set(b[0].h, t, 0);
+	b[1] = b[0];
+	lws_fx_set(b[1].y, y + h - t, 0);
+	lws_fx_set(b[2].x, x, 0);
+	lws_fx_set(b[2].y, y, 0);
+	lws_fx_set(b[2].w, t, 0);
+	lws_fx_set(b[2].h, h, 0);
+	b[3] = b[2];
+	lws_fx_set(b[3].x, x + w - t, 0);
+
+	for (n = 0; n < 4; n++) {
+		if (!ui->ring[n]) {
+			ui->ring[n] = lws_display_dlo_rect_new(
+					&ui->rs.displaylist, ui->pc, &b[n],
+					NULL, 0);
+			if (!ui->ring[n])
+				return;
+		}
+		ui->ring[n]->dlo.box = b[n];
+		/* where it is is worked out again */
+		ui->ring[n]->init = 0;
+		ui->ring[n]->dlo.dc = LWSDC_RGBA(0x24, 0x47, 0x6b, 0xff);
+	}
+}
+
+/* scroll the panel so the link the cursor is on can be seen, and show it */
+
+static void
+ui_pcur_show(struct lws_dlo_ui *ui)
+{
+	int x0, x1, vh, t = ui->pad < 2 ? 2 : ui->pad;
+	const ui_hit_t *ht;
+
+	if (ui->pcur >= 0 && ui->pcur < ui->nhits) {
+		ht = &ui->hits[ui->pcur];
+		ui_panel_geom(ui, &x0, &x1, &vh);
+		if (ht->y - t < ui->pscroll)
+			ui->pscroll = ht->y - t;
+		if (ht->y + ht->h + t > ui->pscroll + vh)
+			ui->pscroll = ht->y + ht->h + t - vh;
+		ui_pscroll_apply(ui);
+	}
+
+	ui_ring_place(ui);
+	ui->dirty |= UI_STRIP_PANEL;
+	lws_dlo_ui_kick(ui);
+}
+
+/* the link idx was pressed: tell the caller its href */
+
+static void
+ui_dialog_press(struct lws_dlo_ui *ui, int idx)
+{
+	char href[256];
+
+	if (idx < 0 || idx >= ui->nhits || !ui->dlg.action)
+		return;
+
+	/* the hit goes when the panel is laid out again, eg, by the caller */
+	lws_strncpy(href, ui->hits[idx].hit->url, sizeof(href));
+	ui->dlg.action(ui->dlg.opaque, href);
+}
+
 /* start rendering the bands of the strips that are dirty */
 
 static int
@@ -1140,7 +1541,7 @@ ui_scan_start(struct lws_dlo_ui *ui)
 	 * everything
 	 */
 
-	for (s = UI_STRIP_TITLE; s <= UI_STRIP_BODY; s <<= 1) {
+	for (s = UI_STRIP_TITLE; s <= UI_STRIP_PANEL; s <<= 1) {
 		if (!(ui->drawing & s))
 			continue;
 		ui_strip_band(ui, s, &y0, &y1);
@@ -1184,6 +1585,8 @@ ui_scan_start(struct lws_dlo_ui *ui)
 		lws_fx_set(ui->kb->box.x, ui->kx, 0);
 		lws_fx_set(ui->kb->box.y, ui->ky, 0);
 	}
+	/* and the dialog's content where it's scrolled to */
+	ui_pscroll_apply(ui);
 
 	ui->phase = UI_SCAN;
 	ui->i.lds->display_busy = 1;
@@ -1247,7 +1650,10 @@ ui_render(lws_sorted_usec_list_t *sul)
 		/* before the ids are decoupled from the dlos */
 		ui->kb = ui_dlo_by_id(&rs->displaylist,
 				      lws_display_render_get_id(rs, "kb"));
+		ui->pc = ui_dlo_by_id(&rs->displaylist,
+				      lws_display_render_get_id(rs, "pc"));
 		lws_display_get_ids_boxes(rs);
+		ui_panel_laid_out(ui);
 
 		if (ui->page_strips == UI_PAGE_FRAME) {
 			/* whether, and how, it's drawn is decided when idle */
@@ -1458,6 +1864,8 @@ lws_dlo_ui_create(const lws_dlo_ui_info_t *info)
 	ui->h = ic->wh_px[1].whole;
 	ui->focus = -1;
 	ui->cursor = -1;
+	ui->pcur = -1;
+	ui->edit_ret = UI_PAGE_LIST;
 	ui->st_wlan = ui->st_batt = LWS_DLO_UI_STATUS_NONE;
 	ui->page_strips = UI_PAGE_LIST;
 
@@ -1546,6 +1954,7 @@ lws_dlo_ui_destroy(struct lws_dlo_ui **pui)
 	lws_free_set_NULL(ui->line);
 	ui_page_drop(ui);
 	lws_explicit_bzero(ui->edit, sizeof(ui->edit));
+	lws_free_set_NULL(ui->dlg_css);
 
 	lws_free_set_NULL(*pui);
 }
@@ -1590,10 +1999,14 @@ lws_dlo_ui_set_list(struct lws_dlo_ui *ui, int count, int focus)
 		ui->cursor = count - 1;
 	ui_clamp_top(ui);
 
-	if (ui->page_strips == UI_PAGE_EDIT)
+	if (ui->page_strips == UI_PAGE_EDIT) {
+		/* the edit goes back to the list */
+		ui->edit_ret = UI_PAGE_LIST;
 		return;
+	}
 
-	if (ui->page_strips == UI_PAGE_FRAME) {
+	if (ui->page_strips == UI_PAGE_FRAME ||
+	    ui->page_strips == UI_PAGE_DIALOG) {
 		/* the list page takes the whole display again */
 		ui->page_strips = UI_PAGE_LIST;
 		ui->drag = 0;
@@ -1625,7 +2038,9 @@ ui_edit_end(struct lws_dlo_ui *ui)
 	lws_explicit_bzero(ui->edit, sizeof(ui->edit));
 	ui->edit_len = 0;
 	ui->edit_gen++;
-	ui_page_show(ui, UI_PAGE_LIST);
+	ui->keep = 0;
+	/* back to the page it was edited from */
+	ui_page_show(ui, ui->edit_ret);
 }
 
 static void
@@ -1645,6 +2060,11 @@ lws_dlo_ui_edit(struct lws_dlo_ui *ui, const char *title, size_t max,
 	ui->edit_max = max;
 	ui->edit_gen++;
 	ui->masked = !!(flags & LWS_DLO_UI_EDIT_MASKED);
+	ui->keep = !!(flags & LWS_DLO_UI_EDIT_KEEP);
+	if (ui->page_strips != UI_PAGE_EDIT)
+		/* editing from it: an edit started from an edit keeps this */
+		ui->edit_ret = ui->page_strips == UI_PAGE_DIALOG ?
+					UI_PAGE_DIALOG : UI_PAGE_LIST;
 	ui->show = 0;
 	ui->escroll = 0;
 	ui->layer = UI_LAYER_LOWER;
@@ -1684,17 +2104,90 @@ lws_dlo_ui_edit_set(struct lws_dlo_ui *ui, const char *text)
 	return 0;
 }
 
-/* going back from editing abandons it, the caller is told */
+/*
+ * Going back from editing abandons it, the caller is told: with what was
+ * typed, if it should be kept however the edit ends
+ */
 
 static void
 ui_edit_abandon(struct lws_dlo_ui *ui)
 {
 	unsigned int gen = ui->edit_gen;
 
-	ui->i.done(ui->i.opaque, NULL);
+	ui->i.done(ui->i.opaque, ui->keep ? ui->edit : NULL);
 	if (ui->edit_gen == gen)
 		ui_edit_end(ui);
 }
+
+int
+lws_dlo_ui_edit_abandon(struct lws_dlo_ui *ui)
+{
+	if (ui->page_strips != UI_PAGE_EDIT)
+		return 1;
+
+	ui_edit_abandon(ui);
+
+	return 0;
+}
+
+int
+lws_dlo_ui_dialog(struct lws_dlo_ui *ui, const lws_dlo_ui_dialog_t *d)
+{
+	char *css = NULL;
+	size_t cl;
+
+	if (!d->html)
+		return 1;
+
+	if (d->css) {
+		/* it goes in a style element: it mustn't be able to end it */
+		cl = strlen(d->css);
+		if (cl > UI_CSS_MAX || strchr(d->css, '<')) {
+			lwsl_err("%s: css refused\n", __func__);
+			return 1;
+		}
+		css = lws_malloc(cl + 1, __func__);
+		if (!css)
+			return 1;
+		memcpy(css, d->css, cl + 1);
+	}
+
+	if (ui->page_strips == UI_PAGE_EDIT) {
+		ui_edit_abandon(ui);
+		if (ui->page_strips == UI_PAGE_EDIT) {
+			/* the done callback started another edit */
+			lws_free(css);
+			return 1;
+		}
+	}
+
+	lws_free_set_NULL(ui->dlg_css);
+	ui->dlg_css = css;
+	ui->dlg = *d;
+	ui->dlg.css = NULL; /* it is ui->dlg_css */
+
+	/* it starts at the top, the cursor on its first link */
+	ui->pscroll = 0;
+	ui->pcur = 0;
+	ui->frame_full = 0;
+	ui->frame_lines = 0;
+	ui_page_show(ui, UI_PAGE_DIALOG);
+
+	return 0;
+}
+
+void
+lws_dlo_ui_dialog_changed(struct lws_dlo_ui *ui)
+{
+	if (ui->page_strips != UI_PAGE_DIALOG)
+		/* it's written again when it's shown again anyway */
+		return;
+
+	ui->stale = 1;
+	ui->dirty |= UI_STRIP_PANEL;
+	lws_dlo_ui_kick(ui);
+}
+
 
 void
 lws_dlo_ui_frame(struct lws_dlo_ui *ui, unsigned int flags)
@@ -1937,7 +2430,13 @@ lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len)
 
 	strip = ui_strip_at(ui, y);
 
-	if (ui->nav && ui->page_strips != UI_PAGE_FRAME) {
+	if (ui->nav && ui->page_strips == UI_PAGE_DIALOG) {
+		/* it's being touched: the cursor goes, without a new layout */
+		ui->nav = 0;
+		ui_ring_place(ui);
+		ui->dirty |= UI_STRIP_PANEL;
+		lws_dlo_ui_kick(ui);
+	} else if (ui->nav && ui->page_strips != UI_PAGE_FRAME) {
 		/* it's being touched: the cursor goes */
 		ui->nav = 0;
 		ui->stale = 1;
@@ -1965,6 +2464,17 @@ lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len)
 			return 0;
 
 		switch (ui->drag) {
+		case UI_STRIP_PANEL:
+			/* the panel follows the finger */
+			v = ui->pscroll;
+			ui->pscroll -= dy;
+			ui_pscroll_apply(ui);
+			if (ui->pscroll == v)
+				return 1;
+			ui->dirty |= UI_STRIP_PANEL;
+			lws_dlo_ui_kick(ui);
+			return 1;
+
 		case UI_STRIP_LIST:
 			/* the list follows the finger */
 			v = ui->top;
@@ -2026,9 +2536,17 @@ lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len)
 
 	switch (strip) {
 	case UI_STRIP_TITLE:
+		v = ui->cap_x0 - ui->row_h / 2;
+		if (v <= ui->w / 2)
+			/* the middle, where the title is, stays the title */
+			v = ui->w / 2 + 1;
 		if (ui->cap_x1 != ui->cap_x0 && ui->status_button[0] &&
-		    x >= ui->cap_x0 - ui->pad && x < ui->cap_x1 + ui->pad) {
-			/* the capsule is a button, for a finger */
+		    x >= (v < ui->cap_x0 ? v : ui->cap_x0)) {
+			/*
+			 * The capsule is a button, for a finger: all of the
+			 * strip from a little before it, to the right edge,
+			 * leaving the title its middle
+			 */
 #if defined(LWS_WITH_SYS_SMD)
 			lws_smd_msg_printf(ui->i.cx, LWSSMDCL_INTERACTION,
 					   "{\"type\":\"button\","
@@ -2051,6 +2569,25 @@ lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len)
 
 	case UI_STRIP_KEYS:
 		return ui_key_press(ui, x, y);
+
+	case UI_STRIP_PANEL:
+		/*
+		 * The topmost link where it was pressed, as the panel was laid
+		 * out and scrolled when it was drawn
+		 */
+		if (ui->phase == UI_LAYOUT || !ui->pc)
+			return 1;
+		x -= ui->pc_ox;
+		y -= ui->pc_oy - ui->pscroll;
+		for (idx = ui->nhits - 1; idx >= 0; idx--) {
+			const ui_hit_t *ht = &ui->hits[idx];
+
+			if (x >= ht->x && x < ht->x + ht->w &&
+			    y >= ht->y && y < ht->y + ht->h)
+				break;
+		}
+		ui_dialog_press(ui, idx);
+		return 1;
 
 	case UI_STRIP_LIST:
 		idx = (y - ui->title_h + ui->top) / ui->row_h;
@@ -2253,6 +2790,81 @@ ui_nav_edit(struct lws_dlo_ui *ui, lws_dlo_ui_nav_t nav)
 	}
 }
 
+/*
+ * The link the cursor goes to: the one before or after it in the html, or
+ * the nearest above or below it, preferring those straight above or below
+ */
+
+static int
+ui_pcur_move(const struct lws_dlo_ui *ui, lws_dlo_ui_nav_t nav)
+{
+	const ui_hit_t *c = &ui->hits[ui->pcur];
+	int n, best = ui->pcur, bd = INT32_MAX, cx = c->x + c->w / 2, d, dx;
+
+	switch (nav) {
+	case LWS_DLO_UI_NAV_LEFT:
+		return ui->pcur ? ui->pcur - 1 : ui->pcur;
+	case LWS_DLO_UI_NAV_RIGHT:
+		return ui->pcur + 1 < ui->nhits ? ui->pcur + 1 : ui->pcur;
+	default:
+		for (n = 0; n < ui->nhits; n++) {
+			const ui_hit_t *o = &ui->hits[n];
+
+			if (nav == LWS_DLO_UI_NAV_UP ? o->y + o->h > c->y :
+						       o->y < c->y + c->h)
+				/* not wholly above, or below */
+				continue;
+
+			d = nav == LWS_DLO_UI_NAV_UP ? c->y - (o->y + o->h) :
+						       o->y - (c->y + c->h);
+			dx = o->x + o->w / 2 - cx;
+			d = d * 4 + (dx < 0 ? -dx : dx);
+			if (d < bd) {
+				bd = d;
+				best = n;
+			}
+		}
+		return best;
+	}
+}
+
+static int
+ui_nav_dialog(struct lws_dlo_ui *ui, lws_dlo_ui_nav_t nav)
+{
+	int n;
+
+	if (nav == LWS_DLO_UI_NAV_ESC) {
+		if (!ui->i.title)
+			return 0;
+		ui->i.title(ui->i.opaque);
+		return 1;
+	}
+
+	if (!ui->nhits)
+		return 0;
+
+	if (!ui->nav || ui->pcur < 0 || ui->pcur >= ui->nhits) {
+		/* the first time, it only shows where it is: the first seen */
+		for (n = 0; n < ui->nhits - 1; n++)
+			if (ui->hits[n].y + ui->hits[n].h > ui->pscroll)
+				break;
+		ui->pcur = n;
+		ui->nav = 1;
+		ui_pcur_show(ui);
+		return 1;
+	}
+
+	if (nav == LWS_DLO_UI_NAV_ENTER) {
+		ui_dialog_press(ui, ui->pcur);
+		return 1;
+	}
+
+	ui->pcur = ui_pcur_move(ui, nav);
+	ui_pcur_show(ui);
+
+	return 1;
+}
+
 int
 lws_dlo_ui_nav(struct lws_dlo_ui *ui, lws_dlo_ui_nav_t nav)
 {
@@ -2261,6 +2873,9 @@ lws_dlo_ui_nav(struct lws_dlo_ui *ui, lws_dlo_ui_nav_t nav)
 		return ui_nav_list(ui, nav);
 	case UI_PAGE_EDIT:
 		return ui_nav_edit(ui, nav);
+	case UI_PAGE_DIALOG:
+		return ui_nav_dialog(ui, nav);
+
 	default:
 		/* the frame's body is the caller's */
 		return 0;

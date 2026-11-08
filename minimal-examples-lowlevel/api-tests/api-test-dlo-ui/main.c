@@ -47,6 +47,18 @@
  *    the caller to draw it all again.  Laying the title strip out again
  *    while the body's page is fetching an image doesn't stop the image.
  *
+ *  - the dialog page: a table of links taller than the panel, drawn only in
+ *    the circle and above the bottom of the panel.  The title, or esc, is the
+ *    title callback; pressing the title strip a little before the capsule is
+ *    the capsule.  The first nav shows a cursor ring on the first link, and
+ *    pressing in it presses the link, giving its href to the action; left
+ *    and right go to the link before or after, up and down to the one above
+ *    or below, scrolling to the last, sending only the panel's band.  An edit
+ *    from it with LWS_DLO_UI_EDIT_KEEP gives what was typed when the title,
+ *    or lws_dlo_ui_edit_abandon(), abandons it, and comes back to the
+ *    dialog, still scrolled, as does lws_dlo_ui_dialog_changed(); dragging
+ *    it scrolls it without pressing anything, and showing the list ends it
+ *
  *  - the theme: the first time, the default theme's title strip colour is
  *    drawn; the second time, the ui is given css that makes the title strip
  *    white with red text, which is drawn instead, and with nothing then drawn
@@ -147,6 +159,11 @@ static uint8_t title_band[W * (H / 6) * 3];
 
 /* what the display shows, RGB */
 static uint8_t fb[W * H * 3];
+/* the dialog's panel band, as it was drawn */
+static uint8_t panel_band[W * (H - TITLE_H) * 3];
+/* the links pressed on the dialog, and the last one's href */
+static int acted, cap_x0;
+static char act_href[64];
 
 static void
 next_step(lws_sorted_usec_list_t *sul);
@@ -289,6 +306,60 @@ done_cb(void *opaque, const char *text)
 	return done_keep;
 }
 
+/*
+ * The dialog: a table of APs, each with a link to it and a link to change it,
+ * and the hostname after them, as a link to edit it.  It is taller than the
+ * panel, so it scrolls
+ */
+
+#define DLG_APS 8
+
+static void
+dlg_html(void *opaque, lws_dlo_ui_html_t *h)
+{
+	int n;
+
+	lws_dlo_ui_html_printf(h, "<div><table>");
+	for (n = 0; n < DLG_APS; n++)
+		lws_dlo_ui_html_printf(h, "<tr><td><a href=\"ap:%d\">AP %d</a>"
+				       "</td><td>WPA2</td><td>"
+				       "<a href=\"cog:%d\">set</a></td></tr>",
+				       n, n, n);
+	lws_dlo_ui_html_printf(h, "</table></div><div>");
+	/* markup in it is shown as text */
+	lws_dlo_ui_html_text(h, "<Host> &");
+	lws_dlo_ui_html_printf(h, "</div><a href=\"edit:host\">lws-2c96fc</a>");
+}
+
+static void
+dlg_action(void *opaque, const char *href)
+{
+	if (opaque != act_href) {
+		lwsl_err("%s: not the dialog's opaque\n", __func__);
+		fail = 1;
+	}
+	acted++;
+	lws_strncpy(act_href, href, sizeof(act_href));
+}
+
+static int
+dialog_open(void)
+{
+	lws_dlo_ui_dialog_t d;
+
+	memset(&d, 0, sizeof(d));
+	d.html = dlg_html;
+	d.action = dlg_action;
+	/* the dialog's own, not the ui's */
+	d.opaque = act_href;
+	d.css = "td { padding-right: 8px }";
+
+	acted = 0;
+	act_href[0] = '\0';
+
+	return lws_dlo_ui_dialog(ui, &d);
+}
+
 static int
 dark(int x, int y)
 {
@@ -422,6 +493,58 @@ updated(const char *what, int y0, int y1)
 
 	/* the keyboard is dragged anywhere: its keys may be drawn outside */
 	return in_edit || unclipped || outside_circle_white();
+}
+
+/*
+ * The dialog's cursor: the box around the pixels of its ring's colour in the
+ * panel.  Returns how many there are
+ */
+
+static int
+ring_box(int *x0, int *y0, int *x1, int *y1)
+{
+	int x, y, n = 0;
+
+	*x0 = W;
+	*y0 = H;
+	*x1 = *y1 = 0;
+
+	for (y = TITLE_H; y < H; y++)
+		for (x = 0; x < W; x++) {
+			const uint8_t *p = &fb[(y * W + x) * 3];
+
+			if (p[0] != 0x24 || p[1] != 0x47 || p[2] != 0x6b)
+				continue;
+			n++;
+			if (x < *x0)
+				*x0 = x;
+			if (x >= *x1)
+				*x1 = x + 1;
+			if (y < *y0)
+				*y0 = y;
+			if (y >= *y1)
+				*y1 = y + 1;
+		}
+
+	return n;
+}
+
+/* the cursor moves as nav says, then pressing enter gives href */
+
+static int
+dlg_nav(lws_dlo_ui_nav_t nav, const char *href)
+{
+	int a = acted;
+
+	if (!lws_dlo_ui_nav(ui, nav) ||
+	    !lws_dlo_ui_nav(ui, LWS_DLO_UI_NAV_ENTER) || acted != a + 1 ||
+	    strcmp(act_href, href)) {
+		lwsl_err("%s: nav %d: %d, '%s', not '%s'\n", __func__,
+			 (int)nav, acted - a, act_href, href);
+		return 0;
+	}
+
+	return 1;
 }
 
 /* a button event, as lws-button.h issues them */
@@ -1177,6 +1300,250 @@ next_step(lws_sorted_usec_list_t *sul)
 
 	case 21:
 		if (!updated("list after frame", 0, H)) {
+			finish(0);
+			return;
+		}
+
+		/* the dialog page */
+
+		if (dialog_open()) {
+			lwsl_err("dialog refused\n");
+			finish(0);
+			return;
+		}
+		break;
+
+	case 22:
+		if (!updated("dialog", 0, H)) {
+			finish(0);
+			return;
+		}
+		/* its html is drawn in the panel, which ends above the bottom */
+		if (dark_in(30, TITLE_H, W - 30, H - TITLE_H) < 200 ||
+		    dark_in(0, H - TITLE_H, W, H)) {
+			lwsl_err("dialog panel not drawn where it should be\n");
+			finish(0);
+			return;
+		}
+
+		/* the title, or esc, is still the title */
+
+		titled = 0;
+		touch("press", W / 2, TITLE_H / 2, 0, 0);
+		if (titled != 1 || !button("esc") || titled != 2 || acted) {
+			lwsl_err("dialog title: titled %d, acted %d\n", titled,
+				 acted);
+			finish(0);
+			return;
+		}
+
+		/*
+		 * The capsule's button is all of the title strip from a little
+		 * before it, for a finger.  Where it starts is seen the first
+		 * time, when it's white on the title strip's blue
+		 */
+		if (!pass) {
+			for (cap_x0 = W / 2; cap_x0 < W; cap_x0++)
+				if (colour_in(cap_x0, TITLE_H * 3 / 4,
+					      cap_x0 + 1, TITLE_H * 3 / 4 + 1,
+					      0xff, 0xff, 0xff))
+					break;
+			if (cap_x0 == W) {
+				lwsl_err("no capsule on the dialog\n");
+				finish(0);
+				return;
+			}
+		}
+		settings_clicks = 0;
+		touch("press", cap_x0 - ROW_H / 2 + 2 > W / 2 + 3 ?
+				cap_x0 - ROW_H / 2 + 2 : W / 2 + 3,
+		      TITLE_H / 2, 0, 0);
+		if (titled != 2) {
+			lwsl_err("near the capsule was the title\n");
+			finish(0);
+			return;
+		}
+
+		/* the first nav shows the cursor on the first link */
+
+		if (!lws_dlo_ui_nav(ui, LWS_DLO_UI_NAV_DOWN) || acted) {
+			lwsl_err("dialog nav\n");
+			finish(0);
+			return;
+		}
+		break;
+
+	case 23: {
+		int x0, y0, x1, y1;
+
+		if (!updated("dialog cursor", TITLE_H, H)) {
+			finish(0);
+			return;
+		}
+		/* the capsule's click came meanwhile */
+		if (settings_clicks != 1) {
+			lwsl_err("near the capsule: %d clicks\n",
+				 settings_clicks);
+			finish(0);
+			return;
+		}
+		if (ring_box(&x0, &y0, &x1, &y1) < 40 || y0 > TITLE_H + ROW_H) {
+			lwsl_err("no cursor on the first link: %d,%d..%d,%d\n",
+				 x0, y0, x1, y1);
+			finish(0);
+			return;
+		}
+
+		/* pressing inside it presses the link it's on */
+
+		touch("press", (x0 + x1) / 2, (y0 + y1) / 2, 0, 0);
+		if (acted != 1 || strcmp(act_href, "ap:0")) {
+			lwsl_err("press on the cursor: %d, '%s'\n", acted,
+				 act_href);
+			finish(0);
+			return;
+		}
+
+		/*
+		 * Touching hid the cursor: it's shown again where it was seen
+		 * first, then right and left go along the links, and up and
+		 * down to the one above or below
+		 */
+
+		if (!lws_dlo_ui_nav(ui, LWS_DLO_UI_NAV_DOWN) ||
+		    !dlg_nav(LWS_DLO_UI_NAV_RIGHT, "cog:0") ||
+		    !dlg_nav(LWS_DLO_UI_NAV_DOWN, "cog:1") ||
+		    !dlg_nav(LWS_DLO_UI_NAV_LEFT, "ap:1") ||
+		    !dlg_nav(LWS_DLO_UI_NAV_UP, "ap:0") ||
+		    !dlg_nav(LWS_DLO_UI_NAV_LEFT, "ap:0")) {
+			finish(0);
+			return;
+		}
+
+		/* down to the end, which is scrolled to */
+
+		for (x0 = 0; x0 < DLG_APS; x0++)
+			lws_dlo_ui_nav(ui, LWS_DLO_UI_NAV_DOWN);
+		if (!dlg_nav(LWS_DLO_UI_NAV_DOWN, "edit:host"))  {
+			finish(0);
+			return;
+		}
+		break;
+	}
+
+	case 24: {
+		int x0, y0, x1, y1;
+
+		if (!updated("dialog scrolled", TITLE_H, H)) {
+			finish(0);
+			return;
+		}
+		if (ring_box(&x0, &y0, &x1, &y1) < 40 || y0 < H / 2 ||
+		    y1 > H - TITLE_H) {
+			lwsl_err("cursor not scrolled to: %d,%d..%d,%d\n",
+				 x0, y0, x1, y1);
+			finish(0);
+			return;
+		}
+
+		/* an edit kept however it's left, from the dialog */
+
+		done_calls = 0;
+		if (lws_dlo_ui_edit(ui, "Hostname", 32, LWS_DLO_UI_EDIT_KEEP) ||
+		    lws_dlo_ui_edit_set(ui, "lws-x")) {
+			lwsl_err("dialog edit refused\n");
+			finish(0);
+			return;
+		}
+		in_edit = 1;
+		break;
+	}
+
+	case 25:
+		if (!updated("dialog edit", 0, H)) {
+			finish(0);
+			return;
+		}
+		in_edit = 0;
+
+		/* the title abandons it, but it's kept */
+
+		titled = 0;
+		touch("press", W / 2, TITLE_H / 2, 0, 0);
+		if (done_calls != 1 || done_null || strcmp(done_text, "lws-x") ||
+		    titled) {
+			lwsl_err("kept edit: %d calls, null %d, '%s'\n",
+				 done_calls, done_null, done_text);
+			finish(0);
+			return;
+		}
+
+		/* ... and so it is if the caller ends it */
+		if (!lws_dlo_ui_edit_abandon(ui) ||
+		    lws_dlo_ui_edit(ui, "Hostname", 32, LWS_DLO_UI_EDIT_KEEP) ||
+		    lws_dlo_ui_edit_set(ui, "lws-y") ||
+		    lws_dlo_ui_edit_abandon(ui) || done_calls != 2 ||
+		    done_null || strcmp(done_text, "lws-y")) {
+			lwsl_err("abandoned kept edit: %d calls, '%s'\n",
+				 done_calls, done_text);
+			finish(0);
+			return;
+		}
+		break;
+
+	case 26:
+		/* it went back to the dialog, still scrolled */
+		if (!updated("dialog again", 0, H) ||
+		    dark_in(30, TITLE_H, W - 30, H - TITLE_H) < 200) {
+			finish(0);
+			return;
+		}
+		memcpy(panel_band, &fb[TITLE_H * W * 3], sizeof(panel_band));
+
+		/* what's in it changed: the same, it isn't scrolled */
+		lws_dlo_ui_dialog_changed(ui);
+		break;
+
+	case 27:
+		if (!updated("dialog changed", TITLE_H, H)) {
+			finish(0);
+			return;
+		}
+		if (memcmp(panel_band, &fb[TITLE_H * W * 3],
+			   sizeof(panel_band))) {
+			lwsl_err("dialog changed moved its panel\n");
+			finish(0);
+			return;
+		}
+
+		/* dragging down scrolls it back up, and presses nothing */
+
+		drag(W / 2, H / 2, 0, 40);
+		if (acted != 7) {
+			lwsl_err("drag pressed a link\n");
+			finish(0);
+			return;
+		}
+		break;
+
+	case 28:
+		if (!updated("dialog drag", TITLE_H, H)) {
+			finish(0);
+			return;
+		}
+		if (!memcmp(panel_band, &fb[TITLE_H * W * 3],
+			    sizeof(panel_band))) {
+			lwsl_err("dialog drag didn't scroll\n");
+			finish(0);
+			return;
+		}
+
+		/* the list takes it back */
+		lws_dlo_ui_set_list(ui, ROWS, -1);
+		break;
+
+	case 29:
+		if (!updated("list after dialog", 0, H)) {
 			finish(0);
 			return;
 		}

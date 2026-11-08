@@ -48,6 +48,19 @@ a framebuffer and notes the window of each update.  It checks
    with red text, which is drawn instead, and nothing at all is drawn outside
    the circle on the list page
 
+ - the dialog page: a table of links taller than the panel, drawn only
+   inside the circle and above the bottom of the panel.  The title, or esc,
+   is the title callback; pressing the title strip a little before the
+   status capsule is the capsule.  The first nav shows a cursor ring on the
+   first link, pressing inside it presses that link, and the caller's action
+   is given its href; left and right go to the link before or after, up and
+   down to the one above or below, scrolling to the last.  Only the panel's
+   band is sent for those.  An edit from it, with `LWS_DLO_UI_EDIT_KEEP`,
+   gives what was typed when the title, or `lws_dlo_ui_edit_abandon()`,
+   abandons it, and comes back to the dialog, still scrolled;
+   `lws_dlo_ui_dialog_changed()` draws it again where it was; dragging it
+   scrolls it without pressing anything, and showing the list ends it
+
  - destroying the ui gives back all the heap it took, checked the second
    time, once the context has made what it makes on first use
 

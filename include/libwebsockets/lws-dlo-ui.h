@@ -24,14 +24,14 @@
  * Strip ui: a finished user interface for small displays, made of
  * horizontal strips stacked down the display, each clipped to itself.
  *
- * The caller doesn't write any html: it says what each strip holds, as data,
- * and is told what the user picked.  The ui makes the html itself, lays it
+ * For the list and edit pages, the caller doesn't write any html: it says what
+ * each strip holds, as data, and is told what the user picked.  The ui makes the html itself, lays it
  * out with lhp and renders it with dlo like any other page, and keeps the
  * display list so it can resolve touches against it and redraw a strip on its
  * own.  On a display that can update a band of lines (lws_surface_info_t
  * .band), only the strips that changed are sent to it.
  *
- * It shows one of three pages.  Down the display, the list page has
+ * It shows one of four pages.  Down the display, the list page has
  *
  *  - a title strip, saying where we are, eg, "Boot", then "AP".  Pressing it
  *    tells the caller, if it wants to know.
@@ -67,6 +67,22 @@
  *    lws_dlo_ui_frame_body(), and draws the whole display, getting the lines
  *    of the title strip from the ui with lws_dlo_ui_frame_line().
  *
+ * and the dialog page, shown by lws_dlo_ui_dialog(), has
+ *
+ *  - the title strip, saying what the dialog is, eg, "Settings".  Pressing it
+ *    tells the caller, eg, to close the dialog.
+ *
+ *  - below it, the panel: html the caller writes, eg, a table and some
+ *    editable fields, laid out across what can be seen of the display.  If it
+ *    is taller than that, dragging it scrolls it, up to 8 displays' worth;
+ *    any more isn't laid out.  Each <a href="..."> in it
+ *    is something to press: pressing it tells the caller the href, which is
+ *    the caller's own, eg, "ap:3" or "edit:hostname".  The caller writes the
+ *    html again whenever what it shows changes, eg, a list kept up to date.
+ *    So a dialog of the application's own needs only the html, and what to do
+ *    for each href; editing a field is the edit page, which comes back to the
+ *    dialog when it ends.
+ *
  * Each strip moves only by drags that begin in it, and dragging never changes
  * what was typed; only pressing keys does.
  *
@@ -79,7 +95,8 @@
  *
  * The ui can be used with buttons, or anything else that can say which way
  * to go, instead of touch: see lws_dlo_ui_nav().  A cursor then shows which
- * row of the list, or which key of the keyboard, ENTER will press.
+ * row of the list, which key of the keyboard, or which link of a dialog,
+ * ENTER will press.
  *
  * On a round display (lws_surface_info_t .round), what is in each strip, and
  * each row of the list, is kept to the columns of the circle that can be seen
@@ -100,6 +117,8 @@
  *  - #k: the keyboard strip, .k: a key, with .ks if it is not a letter or
  *    symbol, .ka if what it changes is on, eg, shift, and .kc if the cursor
  *    is on it
+ *  - #p: the dialog's panel, #pc: the caller's html in it, which the caller
+ *    styles with its own css, see lws_dlo_ui_dialog_t .css
  *
  * The positions and sizes of these follow from the display, and are set by
  * the ui after the caller's css, so css can't change them; colours, borders
@@ -111,7 +130,7 @@
  * changed meanwhile is drawn.  The ui only uses the faces built in, so it can
  * be shown before there is any network.
  *
- * While the list or edit page is shown, the display is the ui's: nothing else
+ * While the list, edit or dialog page is shown, the display is the ui's: nothing else
  * should be drawn on it meanwhile.  While the frame page is shown, the body is
  * the caller's, and the ui only draws the title strip by itself, when it
  * changed and the display can take a band of lines.  Laying the ui out again
@@ -177,6 +196,23 @@ typedef void (*lws_dlo_ui_frame_redraw_cb_t)(void *opaque);
  * the ui, eg, to edit something else, but not destroy it.
  */
 typedef int (*lws_dlo_ui_done_cb_t)(void *opaque, const char *text);
+
+/*
+ * Writing the html of a dialog's panel, see lws_dlo_ui_dialog_t .html: the
+ * caller's markup with lws_dlo_ui_html_printf(), and anything that isn't the
+ * caller's own, eg, an SSID, with lws_dlo_ui_html_text(), which escapes it.
+ */
+typedef struct lws_dlo_ui_html lws_dlo_ui_html_t;
+
+/* write the panel's html, see lws_dlo_ui_dialog() */
+typedef void (*lws_dlo_ui_dialog_html_cb_t)(void *opaque, lws_dlo_ui_html_t *h);
+
+/*
+ * The link to href was pressed on the dialog's panel.  As for done, it may
+ * call the other apis, eg, to edit something, or close the dialog by
+ * showing another page, but not destroy the ui.
+ */
+typedef void (*lws_dlo_ui_dialog_action_cb_t)(void *opaque, const char *href);
 
 typedef struct lws_dlo_ui_info {
 	struct lws_context		*cx;
@@ -256,6 +292,29 @@ typedef enum {
 
 #define LWS_DLO_UI_EDIT_MASKED		(1 << 0)
 /**< what is typed is shown as stars, eg, a passphrase */
+#define LWS_DLO_UI_EDIT_KEEP		(1 << 1)
+/**< leaving the edit any way, eg, pressing the title, or another page being
+ * shown, gives the done callback what was typed, as Done does, instead of
+ * NULL: eg, for a setting whose changes should stick however the user goes
+ * on.  Its return is ignored then: the edit ends anyway.  Not for secrets */
+
+/* what a dialog page shows, see lws_dlo_ui_dialog() */
+
+typedef struct lws_dlo_ui_dialog {
+	lws_dlo_ui_dialog_html_cb_t	html;
+	/**< writes the panel's html, each time it's laid out */
+	lws_dlo_ui_dialog_action_cb_t	action;
+	/**< told the href of a link pressed on the panel */
+	void				*opaque;
+	/**< passed to .html and .action, eg, the dialog's own state, which
+	 * may not be the ui's creator's */
+	const char			*css;
+	/**< NULL, or css for the panel's html, after the ui's.  It is copied.
+	 * It is the caller's own: it can't contain '<', and is limited to 2KB */
+	size_t				html_max;
+	/**< the most the panel's html can be, or 0 for 4KB: if what .html
+	 * writes is longer, it isn't shown */
+} lws_dlo_ui_dialog_t;
 
 /**
  * lws_dlo_ui_create() - make a strip ui on a display
@@ -301,7 +360,8 @@ lws_dlo_ui_set_title(struct lws_dlo_ui *ui, const char *title);
  *
  * The rows are asked for again from the row callback, and the list is drawn
  * when the display is next free.  A new focus row is scrolled to even if the
- * user scrolled the list meanwhile.
+ * user scrolled the list meanwhile.  If the frame or dialog page is shown,
+ * the list page is shown instead.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_dlo_ui_set_list(struct lws_dlo_ui *ui, int count, int focus);
@@ -312,12 +372,13 @@ lws_dlo_ui_set_list(struct lws_dlo_ui *ui, int count, int focus);
  * \param ui: the ui
  * \param title: what the title strip says while editing, eg, "Passphrase"
  * \param max: the most that can be typed, less than LWS_DLO_UI_EDIT_MAX
- * \param flags: LWS_DLO_UI_EDIT_MASKED, or 0
+ * \param flags: LWS_DLO_UI_EDIT_MASKED, LWS_DLO_UI_EDIT_KEEP, or 0
  *
  * Starts with nothing typed, the lower case layer of the keyboard, and the
  * keyboard centred across its strip.  The done callback is told what was
- * typed, then the list page is shown again; while editing, changes to the
- * list page's title and list are kept until then.
+ * typed, then the page it was edited from, the list or a dialog, is shown
+ * again; while editing, changes to the list page's title and list, or the
+ * dialog's html, are kept until then.
  *
  * What is typed is cleared from the ui's memory when the edit ends, and the
  * html it was shown in, when that is made again.  Returns 0 if editing
@@ -340,6 +401,84 @@ lws_dlo_ui_edit(struct lws_dlo_ui *ui, const char *title, size_t max,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dlo_ui_edit_set(struct lws_dlo_ui *ui, const char *text);
+
+/**
+ * lws_dlo_ui_edit_abandon() - end an edit, as pressing the title would
+ *
+ * \param ui: the ui
+ *
+ * If the ui is editing, the done callback is told it was abandoned: with
+ * what was typed if it was started with LWS_DLO_UI_EDIT_KEEP, otherwise
+ * NULL.  Then the page it was edited from is shown again, unless the done
+ * callback started another edit.  Eg, a dialog being closed while one of its
+ * fields is being edited ends the edit first, so it's kept.  Returns 0 if
+ * an edit was abandoned, or nonzero if the ui wasn't editing.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dlo_ui_edit_abandon(struct lws_dlo_ui *ui);
+
+/**
+ * lws_dlo_ui_dialog() - show the dialog page: the title strip over html
+ *
+ * \param ui: the ui
+ * \param d: what the dialog shows, and the callbacks: copied
+ *
+ * Shows the title strip, saying the title, see lws_dlo_ui_set_title(), over
+ * the panel, whose html d->html writes inside a div, so it can be a fragment,
+ * eg, a <table> and some <div>s.  Each <a href="..."> in it can be pressed,
+ * or reached with the cursor (lws_dlo_ui_nav()), and d->action is told its
+ * href.  It's started at the top; an edit in progress is abandoned, as
+ * pressing its title would.
+ *
+ * A dialog can edit a field with lws_dlo_ui_edit() when one of its links is
+ * pressed: when the edit ends, the dialog is shown again.  Showing another
+ * page, eg, with lws_dlo_ui_frame() or lws_dlo_ui_set_list(), closes it.
+ *
+ * Returns 0 if it's shown, or nonzero if d has no html callback, or its css
+ * is refused, or OOM.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dlo_ui_dialog(struct lws_dlo_ui *ui, const lws_dlo_ui_dialog_t *d);
+
+/**
+ * lws_dlo_ui_dialog_changed() - what the dialog shows changed
+ *
+ * \param ui: the ui
+ *
+ * The panel's html is written again, laid out and drawn when the display is
+ * next free, eg, as a list it shows changes.  Where it was scrolled to, and
+ * which link the cursor is on, are kept.  If it is being edited from, it's
+ * written again when it is shown again anyway.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_dlo_ui_dialog_changed(struct lws_dlo_ui *ui);
+
+/**
+ * lws_dlo_ui_html_printf() - write the caller's own markup to the panel
+ *
+ * \param h: the panel's html, given to lws_dlo_ui_dialog_t .html
+ * \param fmt: printf format
+ *
+ * Only for the caller's own markup: anything from elsewhere, eg, an SSID, or
+ * a name the user typed, must be written with lws_dlo_ui_html_text().  If
+ * the html becomes longer than lws_dlo_ui_dialog_t .html_max, the rest isn't
+ * written, and the panel isn't shown.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_dlo_ui_html_printf(lws_dlo_ui_html_t *h, const char *fmt, ...)
+	LWS_FORMAT(2);
+
+/**
+ * lws_dlo_ui_html_text() - write text to the panel, as text
+ *
+ * \param h: the panel's html
+ * \param s: the text, eg, an SSID anyone nearby can choose
+ *
+ * What html gives meaning to is escaped, and control characters are replaced,
+ * so it's only ever shown as text.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_dlo_ui_html_text(lws_dlo_ui_html_t *h, const char *s);
 
 /**
  * lws_dlo_ui_frame() - show the frame page, the title strip over a body
@@ -432,7 +571,10 @@ lws_dlo_ui_set_status(struct lws_dlo_ui *ui, const lws_dlo_ui_status_t *status);
  * in view; ENTER picks its row, and ESC is like pressing the title.  On the
  * edit page, the arrows move the cursor across the keys, moving the keyboard
  * to keep it in view; ENTER presses its key, and ESC abandons the edit.  On
- * the frame page, nothing is the ui's.
+ * the dialog page, LEFT and RIGHT move the cursor to the link before or after
+ * it in the html, UP and DOWN to the nearest link above or below it,
+ * scrolling the panel to keep it in view; ENTER presses its link, and ESC is
+ * like pressing the title.  On the frame page, nothing is the ui's.
  *
  * Returns nonzero if the ui acted on it, else 0, eg, LEFT on the list page,
  * so the caller can do something else with it.
@@ -465,7 +607,11 @@ lws_dlo_ui_interaction(struct lws_dlo_ui *ui, const void *buf, size_t len);
  *
  * Dragging the list scrolls it, and pressing a row of it calls the pick
  * callback; on the edit page, pressing keys types, dragging moves the edit
- * text or keyboard.  Pressing the status capsule issues its button event.
+ * text or keyboard.  On the dialog page, dragging the panel scrolls it, and
+ * pressing a link calls the action callback.  Pressing the status capsule,
+ * or the title strip from a little before it to its right end, issues its
+ * button event; on a small display, where the capsule takes much of the
+ * strip, that's from the middle of the strip rightward.
  * The ui needs the down events, to know which strip a drag began in.  On the
  * frame page, touches on the body are not the ui's: they are the caller's to
  * act on, at y less how far down the body starts.  Returns nonzero if the ui
