@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+ <!--
+  Update in progress spinner, animated with SMIL: every part repeats on its
+  own period, so it looks alive at any time it is drawn at
+ -->
+
+ <!-- outer ring: a chase of fading dots, the ring turning slowly -->
+ <g fill="#1a5c3a">
+  <animateTransform attributeName="transform" type="rotate" from="0 48 48" to="360 48 48" dur="12s" repeatCount="indefinite"/>
+   <circle cx="48" cy="8" r="4.5" transform="rotate(0 48 48)"><animate attributeName="opacity" values="1;0.15" dur="1.2s" begin="-1.1s" repeatCount="indefinite"/></circle>
+   <circle cx="48" cy="8" r="4.5" transform="rotate(30 48 48)"><animate attributeName="opacity" values="1;0.15" dur="1.2s" begin="-1.0s" repeatCount="indefinite"/></circle>
+   <circle cx="48" cy="8" r="4.5" transform="rotate(60 48 48)"><animate attributeName="opacity" values="1;0.15" dur="1.2s" begin="-0.9s" repeatCount="indefinite"/></circle>
+   <circle cx="48" cy="8" r="4.5" transform="rotate(90 48 48)"><animate attributeName="opacity" values="1;0.15" dur="1.2s" begin="-0.8s" repeatCount="indefinite"/></circle>
+   <circle cx="48" cy="8" r="4.5" transform="rotate(120 48 48)"><animate attributeName="opacity" values="1;0.15" dur="1.2s" begin="-0.7s" repeatCount="indefinite"/></circle>
+   <circle cx="48" cy="8" r="4.5" transform="rotate(150 48 48)"><animate attributeName="opacity" values="1;0.15" dur="1.2s" begin="-0.6s" repeatCount="indefinite"/></circle>
+   <circle cx="48" cy="8" r="4.5" transform="rotate(180 48 48)"><animate attributeName="opacity" values="1;0.15" dur="1.2s" begin="-0.5s" repeatCount="indefinite"/></circle>
+   <circle cx="48" cy="8" r="4.5" transform="rotate(210 48 48)"><animate attributeName="opacity" values="1;0.15" dur="1.2s" begin="-0.4s" repeatCount="indefinite"/></circle>
+   <circle cx="48" cy="8" r="4.5" transform="rotate(240 48 48)"><animate attributeName="opacity" values="1;0.15" dur="1.2s" begin="-0.3s" repeatCount="indefinite"/></circle>
+   <circle cx="48" cy="8" r="4.5" transform="rotate(270 48 48)"><animate attributeName="opacity" values="1;0.15" dur="1.2s" begin="-0.2s" repeatCount="indefinite"/></circle>
+   <circle cx="48" cy="8" r="4.5" transform="rotate(300 48 48)"><animate attributeName="opacity" values="1;0.15" dur="1.2s" begin="-0.1s" repeatCount="indefinite"/></circle>
+   <circle cx="48" cy="8" r="4.5" transform="rotate(330 48 48)"><animate attributeName="opacity" values="1;0.15" dur="1.2s" begin="-0.0s" repeatCount="indefinite"/></circle>
+ </g>
+
+ <!-- a comet orbiting between the dots and the arcs, pointing the way it goes -->
+ <ellipse rx="5.5" ry="2" fill="#e8701a">
+  <animateMotion path="M48 14 A34 34 0 0 1 48 82 A34 34 0 0 1 48 14" rotate="auto" dur="3s" repeatCount="indefinite"/>
+ </ellipse>
+
+ <!-- two arcs turning opposite ways, the inner one easing in and out -->
+ <g fill="none" stroke-linecap="round">
+  <path d="M48 20 A28 28 0 0 1 72.25 62.00" stroke="#1a5c3a" stroke-width="5">
+   <animateTransform attributeName="transform" type="rotate" from="360 48 48" to="0 48 48" dur="2.4s" repeatCount="indefinite"/>
+  </path>
+  <path d="M48 28 A20 20 0 0 1 65.32 38.00" stroke="#e8701a" stroke-width="4">
+   <animateTransform attributeName="transform" type="rotate" values="0 48 48;360 48 48" keyTimes="0;1" calcMode="spline" keySplines="0.5 0 0.5 1" dur="1.6s" repeatCount="indefinite"/>
+  </path>
+ </g>
+
+ <!-- a pulsing core -->
+ <g transform="translate(48 48)">
+  <circle r="6" fill="#1a5c3a">
+   <animateTransform attributeName="transform" type="scale" values="1;1.4;1" keyTimes="0;0.5;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1" dur="1s" repeatCount="indefinite"/>
+  </circle>
+ </g>
+
+ <!-- two moons on a tilted elliptical orbit around the core -->
+ <g transform="rotate(-30 48 48)" fill="#e8701a">
+  <circle r="2.5">
+   <animateMotion path="M62 48 A14 6 0 0 1 34 48 A14 6 0 0 1 62 48" dur="1.8s" repeatCount="indefinite"/>
+  </circle>
+  <circle r="2.5">
+   <animateMotion path="M62 48 A14 6 0 0 1 34 48 A14 6 0 0 1 62 48" dur="1.8s" begin="-0.9s" repeatCount="indefinite"/>
+  </circle>
+ </g>
+</svg>

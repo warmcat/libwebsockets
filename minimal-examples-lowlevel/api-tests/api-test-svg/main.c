@@ -12,8 +12,12 @@
  * checks for transforms, and byte-exact agreement between one-shot and
  * arbitrarily-chunked streaming parses of every corpus document.
  *
+ * It also checks animated documents render exactly like the static
+ * documents they are equivalent to at the time they are drawn at.
+ *
  * --dump <dir> additionally writes each corpus document and its rendered
- * coverage as .svg / .pbm pairs for eyeballing.
+ * coverage as .svg / .pbm pairs for eyeballing.  --svg <file> renders a
+ * file to a .bmp instead, as it is at --t <ms> if it is animated.
  */
 
 #include <libwebsockets.h>
@@ -31,6 +35,7 @@ enum {
 	LWS_SW_OUT,
 	LWS_SW_SCALE,
 	LWS_SW_BG,
+	LWS_SW_T,
 	LWS_SW_DUMP,
 	LWS_SW_D,
 	LWS_SW_HELP,
@@ -46,6 +51,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_OUT]	= { "--out",		"Output .bmp path (default <svg>.bmp)" },
 	[LWS_SW_SCALE]	= { "--scale",		"Integer output scale (default 1)" },
 	[LWS_SW_BG]	= { "--bg",		"Background rrggbb for compositing (default ffffff)" },
+	[LWS_SW_T]	= { "--t",		"Render an animated SVG as it is at this many ms (default 0)" },
 	[LWS_SW_DUMP]	= { "--dump",		"Directory to dump corpus svg+pbm into" },
 	[LWS_SW_D]	= { "-d",		"Debug logs (e.g. -d 15)" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
@@ -2323,7 +2329,8 @@ eyeball_span_cb(void *user, int x0, int x1, uint32_t rgba)
 }
 
 static int
-eyeball(const char *inpath, const char *outpath, int scale, uint32_t bg)
+eyeball(const char *inpath, const char *outpath, int scale, uint32_t bg,
+	lws_usec_t t)
 {
 	uint8_t bgr[3] = { (uint8_t)(bg & 0xff), (uint8_t)((bg >> 8) & 0xff),
 			   (uint8_t)((bg >> 16) & 0xff) };
@@ -2368,6 +2375,8 @@ eyeball(const char *inpath, const char *outpath, int scale, uint32_t bg)
 	svg = lws_svg_new();
 	if (!svg)
 		goto bail2;
+
+	lws_svg_set_time(svg, t);
 
 	b = doc;
 	{
@@ -2472,6 +2481,418 @@ bail1:
 		close(fd);
 
 	return ret;
+}
+
+/* ------------------------------------------------------------------ */
+/* SMIL animation                                                       */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+	int		y;
+	uint32_t	last_rgba;
+	uint16_t	acc[64 * 64];
+} an_bm_t;
+
+static int
+an_cb(void *user, int x0, int x1, uint32_t rgba)
+{
+	an_bm_t *b = (an_bm_t *)user;
+
+	b->last_rgba = rgba;
+	while (x0 < x1)
+		b->acc[x0++ + b->y * 64] += (uint16_t)LWS_SVG_ALPHA(rgba);
+
+	return 0;
+}
+
+/*
+ * Render a 64 x 64 document with inner as its content, as it is at time t.
+ * chunk 0 parses it in one go and sets the time after the parse, otherwise
+ * it is parsed in chunks of that size with the time set before.  Returns
+ * nonzero if the parse was fatal; *animated says if it has animations.
+ */
+
+static int
+an_render(const char *inner, lws_usec_t t, char aa, int chunk, an_bm_t *b,
+	  char *animated)
+{
+	lws_svg_render_t ri = { .w = 64, .h = 64, .aa = aa };
+	lws_svg_t *s = lws_svg_new();
+	char doc[DOC_BUFSZ];
+	size_t len, pos = 0;
+	int fatal = 0;
+
+	memset(b, 0, sizeof(*b));
+	if (animated)
+		*animated = 0;
+	if (!s)
+		return 1;
+
+	len = (size_t)lws_snprintf(doc, sizeof(doc),
+			"<svg xmlns=\"http://www.w3.org/2000/svg\" "
+			"width=\"64\" height=\"64\">%s</svg>", inner);
+
+	if (chunk)
+		lws_svg_set_time(s, t);
+
+	while (pos < len && !fatal) {
+		size_t n = chunk ? (size_t)chunk : len, l;
+		const uint8_t *p = (const uint8_t *)doc + pos;
+
+		if (n > len - pos)
+			n = len - pos;
+		l = n;
+		fatal = !!(lws_svg_parse(s, &p, &l, 0) & LWS_SRET_FATAL);
+		pos += n - l;
+		if (l)
+			break;
+	}
+
+	if (!chunk)
+		lws_svg_set_time(s, t);
+
+	if (!fatal)
+		for (b->y = 0; b->y < 64; b->y++)
+			lws_svg_render_line(s, &ri, b->y, an_cb, b);
+
+	if (animated)
+		*animated = lws_svg_get_animated(s);
+	lws_svg_free(&s);
+
+	return fatal;
+}
+
+/*
+ * The animated document at time t must render exactly the same as the static
+ * one, with and without aa, parsed in one go or a byte at a time
+ */
+
+static void
+an_same(const char *name, const char *anim, lws_usec_t t, const char *stat)
+{
+	static an_bm_t a, b;
+	char animated, aa;
+
+	for (aa = 0; aa < 2; aa++) {
+		CHK(!an_render(stat, 0, aa, 0, &b, NULL),
+		    "anim %s: static fatal", name);
+		CHK(!an_render(anim, t, aa, 0, &a, &animated),
+		    "anim %s: fatal", name);
+		CHK(animated, "anim %s: not animated", name);
+		CHK(!memcmp(a.acc, b.acc, sizeof(a.acc)),
+		    "anim %s: aa %d at %dms differs from static", name, aa,
+		    (int)(t / LWS_US_PER_MS));
+		CHK(a.last_rgba == b.last_rgba,
+		    "anim %s: aa %d colour %08x vs %08x", name, aa,
+		    (unsigned int)a.last_rgba, (unsigned int)b.last_rgba);
+
+		CHK(!an_render(anim, t, aa, 1, &a, NULL),
+		    "anim %s: chunked fatal", name);
+		CHK(!memcmp(a.acc, b.acc, sizeof(a.acc)),
+		    "anim %s: aa %d chunked differs from static", name, aa);
+	}
+}
+
+#define AN_RECT "<rect x=\"28\" y=\"12\" width=\"8\" height=\"16\"/>"
+
+static void
+anim_checks(void)
+{
+	static an_bm_t a;
+	char animated;
+	long tot;
+	int i;
+
+	/* rotation, by a group and by the shape itself */
+
+	an_same("rotate-group",
+		"<g><animateTransform attributeName=\"transform\" type=\"rotate\" "
+		"from=\"0 32 32\" to=\"360 32 32\" dur=\"4s\" "
+		"repeatCount=\"indefinite\"/>" AN_RECT "</g>",
+		1 * LWS_US_PER_SEC,
+		"<g transform=\"rotate(90 32 32)\">" AN_RECT "</g>");
+
+	an_same("rotate-repeats",
+		"<g><animateTransform attributeName=\"transform\" type=\"rotate\" "
+		"from=\"0 32 32\" to=\"360 32 32\" dur=\"4s\" "
+		"repeatCount=\"indefinite\"/>" AN_RECT "</g>",
+		9 * LWS_US_PER_SEC,
+		"<g transform=\"rotate(90 32 32)\">" AN_RECT "</g>");
+
+	an_same("rotate-shape",
+		"<rect x=\"28\" y=\"12\" width=\"8\" height=\"16\">"
+		"<animateTransform attributeName=\"transform\" type=\"rotate\" "
+		"values=\"0 32 32;180 32 32\" dur=\"2s\" "
+		"repeatCount=\"indefinite\"/></rect>",
+		1500 * LWS_US_PER_MS,
+		"<g transform=\"rotate(135 32 32)\">" AN_RECT "</g>");
+
+	/* the static transform applies until begin, and it is replaced */
+
+	an_same("before-begin",
+		"<g transform=\"translate(4 0)\"><animateTransform "
+		"attributeName=\"transform\" type=\"rotate\" from=\"0 32 32\" "
+		"to=\"360 32 32\" begin=\"1s\" dur=\"4s\"/>" AN_RECT "</g>",
+		500 * LWS_US_PER_MS,
+		"<g transform=\"translate(4 0)\">" AN_RECT "</g>");
+
+	an_same("replaces",
+		"<g transform=\"translate(4 0)\"><animateTransform "
+		"attributeName=\"transform\" type=\"translate\" from=\"0 0\" "
+		"to=\"0 20\" dur=\"2s\"/>" AN_RECT "</g>",
+		1 * LWS_US_PER_SEC,
+		"<g transform=\"translate(0 10)\">" AN_RECT "</g>");
+
+	an_same("sum",
+		"<g transform=\"translate(4 0)\"><animateTransform "
+		"attributeName=\"transform\" type=\"translate\" from=\"0 0\" "
+		"to=\"0 20\" dur=\"2s\" additive=\"sum\"/>" AN_RECT "</g>",
+		1 * LWS_US_PER_SEC,
+		"<g transform=\"translate(4 10)\">" AN_RECT "</g>");
+
+	/* after the active duration: removed, or frozen */
+
+	an_same("removed",
+		"<g transform=\"translate(4 0)\"><animateTransform "
+		"attributeName=\"transform\" type=\"translate\" from=\"0 0\" "
+		"to=\"0 20\" dur=\"1s\" repeatCount=\"2\"/>" AN_RECT "</g>",
+		2500 * LWS_US_PER_MS,
+		"<g transform=\"translate(4 0)\">" AN_RECT "</g>");
+
+	an_same("frozen",
+		"<g><animateTransform attributeName=\"transform\" "
+		"type=\"translate\" from=\"0 0\" to=\"0 20\" dur=\"1s\" "
+		"repeatCount=\"1.5\" fill=\"freeze\"/>" AN_RECT "</g>",
+		5 * LWS_US_PER_SEC,
+		"<g transform=\"translate(0 10)\">" AN_RECT "</g>");
+
+	an_same("by",
+		"<g transform=\"translate(2 0)\"><animateTransform "
+		"attributeName=\"transform\" type=\"translate\" by=\"0 20\" "
+		"dur=\"2s\"/>" AN_RECT "</g>",
+		500 * LWS_US_PER_MS,
+		"<g transform=\"translate(2 5)\">" AN_RECT "</g>");
+
+	an_same("scale-to",
+		"<g><animateTransform attributeName=\"transform\" "
+		"type=\"scale\" to=\"2\" dur=\"2s\"/>"
+		"<rect x=\"4\" y=\"4\" width=\"8\" height=\"8\"/></g>",
+		1 * LWS_US_PER_SEC,
+		"<g transform=\"scale(1.5)\">"
+		"<rect x=\"4\" y=\"4\" width=\"8\" height=\"8\"/></g>");
+
+	/* keyTimes, discrete, and keySplines that are the linear curve */
+
+	an_same("keytimes",
+		"<g><animateTransform attributeName=\"transform\" "
+		"type=\"translate\" values=\"0 0;0 8;0 24\" keyTimes=\"0;0.75;1\" "
+		"dur=\"4s\"/>" AN_RECT "</g>",
+		3500 * LWS_US_PER_MS,
+		"<g transform=\"translate(0 16)\">" AN_RECT "</g>");
+
+	an_same("discrete",
+		"<g><animateTransform attributeName=\"transform\" "
+		"type=\"translate\" values=\"0 0;0 8;0 24\" calcMode=\"discrete\" "
+		"dur=\"3s\"/>" AN_RECT "</g>",
+		1500 * LWS_US_PER_MS,
+		"<g transform=\"translate(0 8)\">" AN_RECT "</g>");
+
+	an_same("spline-linear",
+		"<g><animateTransform attributeName=\"transform\" "
+		"type=\"translate\" values=\"0 0;0 16\" calcMode=\"spline\" "
+		"keySplines=\"0 0 1 1\" dur=\"2s\"/>" AN_RECT "</g>",
+		1 * LWS_US_PER_SEC,
+		"<g transform=\"translate(0 8)\">" AN_RECT "</g>");
+
+	/* motion along a path, paced, and turning to follow it */
+
+	an_same("motion-path",
+		"<rect x=\"0\" y=\"0\" width=\"8\" height=\"8\">"
+		"<animateMotion path=\"M 4 4 L 44 4 L 44 44\" dur=\"8s\"/>"
+		"</rect>",
+		6 * LWS_US_PER_SEC,
+		"<rect x=\"44\" y=\"24\" width=\"8\" height=\"8\"/>");
+
+	an_same("motion-auto",
+		"<rect x=\"-4\" y=\"-2\" width=\"8\" height=\"4\">"
+		"<animateMotion path=\"M 20 4 L 20 44\" rotate=\"auto\" "
+		"dur=\"4s\"/></rect>",
+		2 * LWS_US_PER_SEC,
+		"<g transform=\"translate(20 24) rotate(90)\">"
+		"<rect x=\"-4\" y=\"-2\" width=\"8\" height=\"4\"/></g>");
+
+	an_same("motion-values",
+		"<g><animateMotion values=\"0,0; 10,0; 10,20\" calcMode=\"linear\" "
+		"dur=\"2s\"/>" AN_RECT "</g>",
+		1500 * LWS_US_PER_MS,
+		"<g transform=\"translate(10 10)\">" AN_RECT "</g>");
+
+	/* nested animated groups, and an inner one placed by a transform */
+
+	an_same("nested",
+		"<g><animateTransform attributeName=\"transform\" type=\"rotate\" "
+		"from=\"0 32 32\" to=\"360 32 32\" dur=\"4s\"/>"
+		"<g transform=\"translate(2 0)\"><g><animateTransform "
+		"attributeName=\"transform\" type=\"translate\" from=\"0 0\" "
+		"to=\"0 8\" dur=\"2s\"/>" AN_RECT "</g></g></g>",
+		1 * LWS_US_PER_SEC,
+		"<g transform=\"rotate(90 32 32)\"><g transform=\"translate(2 0)\">"
+		"<g transform=\"translate(0 4)\">" AN_RECT "</g></g></g>");
+
+	/* opacity replaces the element's own, and applies to its children */
+
+	an_same("opacity",
+		"<g opacity=\"0.5\"><animate attributeName=\"opacity\" "
+		"values=\"1;0\" dur=\"2s\"/>" AN_RECT "</g>",
+		500 * LWS_US_PER_MS,
+		"<g opacity=\"0.75\">" AN_RECT "</g>");
+
+	an_same("opacity-removed",
+		"<rect x=\"28\" y=\"12\" width=\"8\" height=\"16\" opacity=\"0.5\">"
+		"<animate attributeName=\"opacity\" values=\"1;0\" dur=\"2s\"/>"
+		"</rect>",
+		3 * LWS_US_PER_SEC,
+		"<rect x=\"28\" y=\"12\" width=\"8\" height=\"16\" opacity=\"0.5\"/>");
+
+	an_same("opacity-nested",
+		"<g><animate attributeName=\"opacity\" from=\"1\" to=\"0\" "
+		"dur=\"2s\"/><g><animate attributeName=\"opacity\" from=\"1\" "
+		"to=\"0\" dur=\"4s\"/>" AN_RECT "</g></g>",
+		1 * LWS_US_PER_SEC,
+		"<g opacity=\"0.375\">" AN_RECT "</g>");
+
+	CHK(!an_render("<g><set attributeName=\"opacity\" to=\"0\" "
+		       "begin=\"1s\"/>" AN_RECT "</g>",
+		       1500 * LWS_US_PER_MS, 0, 0, &a, &animated) && animated,
+	    "anim set: fatal");
+	for (tot = 0, i = 0; i < 64 * 64; i++)
+		tot += a.acc[i];
+	CHK(!tot, "anim set: drawn after it hid it");
+
+	/*
+	 * Animations that can't be done are ignored, and the document is
+	 * drawn as if they weren't there
+	 */
+
+	{
+		static const char * const ignored[] = {
+			/* after something drawn in what it animates */
+			"<g>" AN_RECT "<animateTransform attributeName="
+			"\"transform\" type=\"rotate\" from=\"0\" to=\"90\" "
+			"dur=\"1s\"/></g>",
+			/* not the transform */
+			"<g><animateTransform attributeName=\"x\" "
+			"from=\"0\" to=\"9\" dur=\"1s\"/>" AN_RECT "</g>",
+			/* begins on an event */
+			"<g><animateTransform attributeName=\"transform\" "
+			"type=\"rotate\" from=\"0\" to=\"90\" begin=\"click\" "
+			"dur=\"1s\"/>" AN_RECT "</g>",
+			/* keyTimes don't agree with the values */
+			"<g><animateTransform attributeName=\"transform\" "
+			"type=\"rotate\" values=\"0;90;180\" keyTimes=\"0;1\" "
+			"dur=\"1s\"/>" AN_RECT "</g>",
+			/* keyTimes not from 0 to 1 */
+			"<g><animateTransform attributeName=\"transform\" "
+			"type=\"rotate\" values=\"0;90\" keyTimes=\"0.5;1\" "
+			"dur=\"1s\"/>" AN_RECT "</g>",
+			/* too few keySplines */
+			"<g><animateTransform attributeName=\"transform\" "
+			"type=\"rotate\" values=\"0;90;180\" calcMode=\"spline\" "
+			"keySplines=\"0 0 1 1\" dur=\"1s\"/>" AN_RECT "</g>",
+			/* keySplines out of range */
+			"<g><animateTransform attributeName=\"transform\" "
+			"type=\"rotate\" values=\"0;90\" calcMode=\"spline\" "
+			"keySplines=\"0 0 2 1\" dur=\"1s\"/>" AN_RECT "</g>",
+			/* a rotate with two numbers */
+			"<g><animateTransform attributeName=\"transform\" "
+			"type=\"rotate\" values=\"0 1;90 1\" dur=\"1s\"/>"
+			AN_RECT "</g>",
+			/* animation of another element */
+			"<g><animateTransform href=\"#x\" attributeName="
+			"\"transform\" type=\"rotate\" values=\"0;90\" "
+			"dur=\"1s\"/>" AN_RECT "</g>",
+			/* empty items */
+			"<g><animate attributeName=\"opacity\" values=\"1;;0\" "
+			"dur=\"1s\"/>" AN_RECT "</g>",
+			/* a colour */
+			"<g><animate attributeName=\"fill\" values=\"red;blue\" "
+			"dur=\"1s\"/>" AN_RECT "</g>",
+			/* inside defs */
+			"<defs><g><animate attributeName=\"opacity\" "
+			"values=\"1;0\" dur=\"1s\"/></g></defs>" AN_RECT,
+		};
+		static an_bm_t b;
+		size_t n;
+
+		CHK(!an_render(AN_RECT, 0, 0, 0, &b, NULL),
+		    "anim ignored: static fatal");
+
+		for (n = 0; n < LWS_ARRAY_SIZE(ignored); n++) {
+			CHK(!an_render(ignored[n], 500 * LWS_US_PER_MS, 0, 0,
+				       &a, &animated),
+			    "anim ignored %d: fatal", (int)n);
+			CHK(!animated, "anim ignored %d: animated", (int)n);
+			CHK(!memcmp(a.acc, b.acc, sizeof(a.acc)),
+			    "anim ignored %d: drawn differently", (int)n);
+		}
+	}
+
+	/* a values list longer than we hold is ignored too */
+
+	{
+		char big[DOC_BUFSZ], *p = big, *end = big + sizeof(big);
+
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				  "<g><animate attributeName=\"opacity\" "
+				  "dur=\"1s\" values=\"");
+		for (i = 0; i < 70; i++)
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+					  "%s0.5", i ? ";" : "");
+		lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+			     "\"/>" AN_RECT "</g>");
+
+		CHK(!an_render(big, 0, 0, 0, &a, &animated) && !animated,
+		    "anim long values: used");
+	}
+
+	/*
+	 * Durations and times at the extremes must not divide by zero or
+	 * overflow: the documents just need to render
+	 */
+
+	{
+		static const char * const extreme[] = {
+			"<g><animate attributeName=\"opacity\" values=\"1;0\" "
+			"dur=\"0s\" repeatCount=\"indefinite\"/>" AN_RECT "</g>",
+			"<g><animate attributeName=\"opacity\" values=\"1;0\" "
+			"dur=\"1us\" repeatCount=\"1e300\"/>" AN_RECT "</g>",
+			"<g><animate attributeName=\"opacity\" values=\"1;0\" "
+			"dur=\"99999999h\" repeatCount=\"99999999\" "
+			"fill=\"freeze\"/>" AN_RECT "</g>",
+			"<g><animate attributeName=\"opacity\" values=\"1;0\" "
+			"dur=\"1ms\" begin=\"-99999999h\" repeatDur=\"0\" "
+			"fill=\"freeze\"/>" AN_RECT "</g>",
+			"<g><animateMotion path=\"M 0 0\" dur=\"1s\"/>"
+			AN_RECT "</g>",
+			"<g><animateMotion path=\"M 0 0 L 0 0 L 0 0\" "
+			"rotate=\"auto\" dur=\"1s\"/>" AN_RECT "</g>",
+			"<g><animateTransform attributeName=\"transform\" "
+			"type=\"scale\" values=\"0;99999\" dur=\"1s\"/>"
+			AN_RECT "</g>",
+		};
+		static const lws_usec_t ts[] = {
+			0, 1, -1, 999999, (lws_usec_t)1 << 62,
+			-((lws_usec_t)1 << 62),
+		};
+		size_t n, m;
+
+		for (n = 0; n < LWS_ARRAY_SIZE(extreme); n++)
+			for (m = 0; m < LWS_ARRAY_SIZE(ts); m++)
+				CHK(!an_render(extreme[n], ts[m], (char)(m & 1),
+					       0, &a, NULL),
+				    "anim extreme %d at %d: fatal", (int)n,
+				    (int)m);
+	}
 }
 
 /* ------------------------------------------------------------------ */
@@ -3210,7 +3631,12 @@ main(int argc, const char **argv)
 		char tmp[300];
 		int scale = 1;
 		uint32_t bg = 0xffffff;
+		lws_usec_t t = 0;
 		int i;
+
+		if ((p2 = lws_cmdline_option(argc, argv,
+						switches[LWS_SW_T].sw)))
+			t = (lws_usec_t)atol(p2) * LWS_US_PER_MS;
 
 		if ((p2 = lws_cmdline_option(argc, argv,
 						switches[LWS_SW_SCALE].sw))) {
@@ -3237,7 +3663,7 @@ main(int argc, const char **argv)
 			out = tmp;
 		}
 
-		return eyeball(p, out, scale, bg);
+		return eyeball(p, out, scale, bg, t);
 	}
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_DUMP].sw)))
@@ -3331,6 +3757,11 @@ main(int argc, const char **argv)
 	fails0 = fails;
 	aa_checks();
 	score_case(&sc, "aa", checks0, fails0);
+
+	checks0 = checks;
+	fails0 = fails;
+	anim_checks();
+	score_case(&sc, "anim", checks0, fails0);
 
 	checks0 = checks;
 	fails0 = fails;

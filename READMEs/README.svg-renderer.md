@@ -36,7 +36,7 @@ needs it:
 
 |Allocation|Size|
 |---|---|
-|Parse context (includes the 24-deep element style stack)|about 2.3KB on a 64-bit build, with its chunk overhead|
+|Parse context (includes the 24-deep element style stack)|about 2.8KB on a 64-bit build, with its chunk overhead|
 |Attribute value accumulation buffer|256B when the first attribute value arrives, grows by doubling to the largest attribute|
 
 During parsing, a transient working array holds the current shape's
@@ -61,6 +61,8 @@ The retained scene items are:
 |Per shape|56B|
 |Per subpath|40B|
 |Per flattened point|8B|
+|Per animated element|about 150B|
+|Per animation|about 100B, and 20B per value|
 
 So a typical icon or chart SVG resolves to a few KB of retained scene.  For
 hostile input, scene growth is capped at 2048 shapes, 1024 subpaths per
@@ -142,6 +144,8 @@ overlap adds rather than cancels.
    skipped leniently; rules must appear before the elements they style
  - `transform` on groups and shapes: `matrix`, `translate`, `scale`,
    `rotate` (with optional centre), `skewX`, `skewY`, nested
+ - SMIL animation of transforms, motion along paths and opacity, see
+   "Animation" below
  - `width`/`height` with CSS units, `viewBox`, and all
    `preserveAspectRatio` policies
  - CSS colours in hex, `rgb()`/`rgba()` and named forms; `none` and
@@ -222,6 +226,79 @@ with aa set, the per-pixel coverage).  Lines may be requested in any order
 and repeatedly; the only mutation of the context is growth of the scratch
 buffers.
 
+## Animation
+
+A document can say how it changes over time with SMIL animation elements,
+like a vector animated gif, eg, a spinner with parts moving at different
+speeds, and the scene can be drawn as it is at any time:
+
+```
+LWS_VISIBLE LWS_EXTERN void
+lws_svg_set_time(lws_svg_t *svg, lws_usec_t t);
+
+LWS_VISIBLE LWS_EXTERN char
+lws_svg_get_animated(const lws_svg_t *svg);
+```
+
+The time is in us from the start of the document's timeline, 0 until it is
+set.  It can be set before, during or after the parse, and changed between
+rendering passes as often as wanted; what changes is worked out once, at the
+next line rendered.  Animations that repeat indefinitely look right with
+any free running clock, eg, `lws_now_usecs()`.  The same document and time
+always render exactly the same.
+
+Animation elements animate the element they are inside, which can be a group
+or a shape:
+
+|Element|Animates|
+|---|---|
+|`<animateTransform attributeName="transform" type="...">`|`translate`, `scale`, `rotate` (with optional centre), `skewX` or `skewY`, replacing the element's `transform`, or with `additive="sum"`, after it|
+|`<animateMotion>`|a translation along `path=""`, or between `values="x,y; ..."`, before the element's `transform`, with `rotate="auto"`, `"auto-reverse"` or a fixed angle|
+|`<animate attributeName="opacity">`, `<set attributeName="opacity">`|the element's opacity, replacing its own, multiplied into what's drawn in it|
+
+with `values`, or `from` / `to` / `by`, `keyTimes`, `keySplines`, `calcMode`
+(`discrete`, `linear`, `paced` or `spline`; `paced` is only different from
+`linear` for motion, where it is the default), `begin` (a time offset,
+which can be negative, so it is already running at 0), `dur`,
+`repeatCount`, `repeatDur`, `fill` (`freeze` or `remove`) and `additive`.
+Times are SMIL timecount values, eg, `1.5s`, `250ms`, `2min` or `0.5h`.
+
+```
+<g>
+ <animateTransform attributeName="transform" type="rotate"
+     from="0 48 48" to="360 48 48" dur="2s" repeatCount="indefinite"/>
+ <path d="M48 20 A28 28 0 0 1 72 62" stroke="#1a5c3a" stroke-width="5"
+     fill="none"/>
+</g>
+<circle r="3">
+ <animateMotion path="M8 48 A40 20 0 1 0 88 48 A40 20 0 1 0 8 48"
+     rotate="auto" dur="3s" repeatCount="indefinite"/>
+</circle>
+```
+
+Not supported: animation of other attributes (eg, fill colour, or geometry
+like `r` or `d`), animating another element with `href`, `begin` on events
+or other animations' times, `keyPoints` (a path is always paced),
+`accumulate`, `restart` and `<mpath>`.  An animation using one of them, or
+with values in error, eg, `keyTimes` that don't match the `values`, is
+ignored as SMIL says, and the element is drawn as if it wasn't there.
+
+Since the scene is built as the document streams in, an animation element
+must come before the shapes and groups in the element it animates: what is
+drawn inside an animated element is held in its coordinates, and the element
+becomes animated when its first animation element is seen.  An animation
+that comes later is ignored with a notice in the logs.  Browsers don't mind
+either way, so documents written like that look the same there.
+
+Nothing is drawn differently at parse time: an animated element's matrix
+and opacity are worked out for the time set, and the rasterizer maps the
+points of the shapes inside it through the matrix as it draws them.  Curves
+are flattened for the size the element is at in the document, so one scaled
+up a lot by its animation can look polygonal.
+
+`contrib/assets/update/update-1-spinner.svg` is an example with many parts
+moving at different speeds.
+
 ## Integration with dlo and lhp
 
 `LWS_WITH_SVG` (on by default) adds `LWSDLOSS_TYPE_SVG` alongside the PNG
@@ -262,15 +339,18 @@ once, which `lws-api-test-lhp-dlo --svg-live-max <n>` checks.
 `lws-api-test-svg` generates a corpus of around 200 documents covering each
 supported feature with analytic checks (exact span geometry, independent
 pixel-centre oracles, streaming chunk equivalence, transform invariances
-and robustness sweeps); `--dump <dir>` writes the corpus as `.svg`/`.pbm`
+and robustness sweeps), and checks animated documents draw exactly as the
+static documents they are equivalent to at the times they are drawn at; `--dump <dir>` writes the corpus as `.svg`/`.pbm`
 pairs for eyeballing.
 
 It can also render a single file for eyeballing, in the same way as the
 lhp dlo tool renders to a 24bpp top-down `.bmp`:
 
 ```
-$ lws-api-test-svg --svg icon.svg [--out icon.bmp] [--scale 2] [--bg 202020]
+$ lws-api-test-svg --svg icon.svg [--out icon.bmp] [--scale 2] [--bg 202020] [--t 500]
 ```
+
+`--t <ms>` draws an animated svg as it is at that time.
 
 The spans are composited in document order on to the background colour
 line-at-a-time and written as the `.bmp`; the exit status is nonzero if

@@ -1,0 +1,8 @@
+V<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<g opacity="0.8"><animateTransform attributeName="transform" type="rotate" values="0 32 32;120 32 32;360 32 32" keyTimes="0;0.25;1" calcMode="spline" keySplines="0.4 0 0.2 1;0 0 1 1" dur="2s" begin="-0.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;0.2;1" dur="1.5s" repeatDur="10s" fill="freeze"/>
+<rect x="28" y="4" width="8" height="16" rx="3"/>
+<g transform="translate(0 4)"><animateTransform attributeName="transform" type="scale" by="0.5" dur="1s" additive="sum"/><circle cx="32" cy="48" r="5"/></g>
+</g>
+<circle r="3" fill="#1a5c3a"><animateMotion path="M 8 32 A 24 12 0 1 0 56 32 A 24 12 0 1 0 8 32" rotate="auto" dur="3s" repeatCount="2.5"/><set attributeName="opacity" to="0" begin="7s"/></circle>
+<path d="M 0 0 L 8 0 L 4 8 Z"><animateMotion values="0,0; 56,0; 56,56" calcMode="discrete" dur="0.9s" repeatCount="indefinite"/></path>
+</svg>

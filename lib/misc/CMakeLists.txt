@@ -82,6 +82,7 @@ endif()
 if (LWS_WITH_SVG)
 	list(APPEND SOURCES
 		misc/svg.c
+		misc/svg-anim.c
 		misc/svg-raster.c)
 endif()
 if (LWS_WITH_GIF)

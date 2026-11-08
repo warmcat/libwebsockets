@@ -377,17 +377,20 @@ aa_band(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 
 	lws_start_foreach_dll(lws_dll2_t *, d, lws_dll2_get_head(&ctx->shapes)) {
 		lws_svg_shape_t *sh = lws_container_of(d, lws_svg_shape_t, list);
+		const lws_svg_node_t *nd = sh->node;
+		uint32_t rgba = svg_shape_rgba(sh);
 		int64_t raw0 = 0;
 		int alo = w, ahi = -1;
 		uint32_t si;
-		uint32_t base = sh->rgba & 0x00ffffff;
-		int fill_a = (int)LWS_SVG_ALPHA(sh->rgba);
+		uint32_t base = rgba & 0x00ffffff;
+		int fill_a = (int)LWS_SVG_ALPHA(rgba);
 
 		if (!fill_a)
 			continue;	/* nothing painted */
 
 		for (si = 0; si < sh->nsubs; si++) {
 			const lws_svg_sub_t *sub = &sh->subs[si];
+			lws_svg_pt_t pt;
 			int64_t px, py;
 			uint32_t i;
 
@@ -397,9 +400,11 @@ aa_band(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 			/*
 			 * A subpath entirely above or below this band has no
 			 * edge crossing it: skip walking its points, which for
-			 * a scene at the point cap is the whole cost
+			 * a scene at the point cap is the whole cost.  Inside
+			 * an animated node, its extent is in the node's
+			 * coordinates, so it is always walked.
 			 */
-			{
+			if (!nd || !nd->xf) {
 				int64_t d0 = aa_map(sub->ymin, vby, sy, oy),
 					d1 = aa_map(sub->ymax, vby, sy, oy);
 
@@ -410,16 +415,19 @@ aa_band(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 					continue;
 			}
 
-			px = aa_map(sub->pts[0].x, vbx, sx, ox);
-			py = aa_map(sub->pts[0].y, vby, sy, oy);
+			svg_pt_xf(nd, &sub->pts[0], &pt);
+			px = aa_map(pt.x, vbx, sx, ox);
+			py = aa_map(pt.y, vby, sy, oy);
 
 			/* fill closes open subpaths implicitly */
 
 			for (i = 0; i < sub->npts; i++) {
-				const lws_svg_pt_t *Q = &sub->pts[
-					i + 1 == sub->npts ? 0 : i + 1];
-				int64_t qx = aa_map(Q->x, vbx, sx, ox);
-				int64_t qy = aa_map(Q->y, vby, sy, oy);
+				int64_t qx, qy;
+
+				svg_pt_xf(nd, &sub->pts[
+					i + 1 == sub->npts ? 0 : i + 1], &pt);
+				qx = aa_map(pt.x, vbx, sx, ox);
+				qy = aa_map(pt.y, vby, sy, oy);
 
 				aa_edge(svg_scratch.aa_d, w, yt, yb,
 					px, py, qx, qy, &raw0, &alo, &ahi,
@@ -503,6 +511,11 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 	if (y < 0 || y >= ri->h || ri->w <= 0)
 		return LWS_SRET_OK;
 
+	/* where animated elements are at the time being drawn */
+
+	if (ctx->anim_dirty)
+		svg_anim_eval(ctx);
+
 	/*
 	 * Map user space into the raster according to the sizing policy.
 	 * Divisions are safe because the denominators are clamped
@@ -567,15 +580,21 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 
 	lws_start_foreach_dll(lws_dll2_t *, d, lws_dll2_get_head(&ctx->shapes)) {
 		lws_svg_shape_t *sh = lws_container_of(d, lws_svg_shape_t, list);
+		const lws_svg_node_t *nd = sh->node;
+		uint32_t rgba = svg_shape_rgba(sh);
 		size_t n = 0;
 		uint32_t si;
 
-		if (!LWS_SVG_ALPHA(sh->rgba))
+		if (!LWS_SVG_ALPHA(rgba))
 			continue;	/* nothing painted */
 
 		for (si = 0; si < sh->nsubs; si++) {
 			const lws_svg_sub_t *sub = &sh->subs[si];
+			lws_svg_pt_t pp, qq;
 			uint32_t i;
+
+			if (!sub->npts)
+				continue;
 
 			if ((size_t)(n + sub->npts + 1) > ctx->xings_need)
 				ctx->xings_need = n + sub->npts + 1;
@@ -590,10 +609,16 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 			 * ys, the quotient is bounded by the edge dx.
 			 */
 
+			svg_pt_xf(nd, &sub->pts[0], &qq);
+
 			for (i = 0; i < sub->npts; i++) {
-				const lws_svg_pt_t *p = &sub->pts[i];
-				const lws_svg_pt_t *q = &sub->pts[
-					i + 1 == sub->npts ? 0 : i + 1];
+				const lws_svg_pt_t *p = &pp, *q = &qq;
+
+				/* inside an animated node, mapped as we go */
+
+				pp = qq;
+				svg_pt_xf(nd, &sub->pts[
+					i + 1 == sub->npts ? 0 : i + 1], &qq);
 
 				if ((p->y > ys) != (q->y > ys)) {
 					int64_t dy = (int64_t)q->y - p->y;
@@ -619,7 +644,7 @@ lws_svg_render_line(lws_svg_t *ctx, const lws_svg_render_t *ri, int y,
 		qsort(svg_scratch.xings, n,
 			       sizeof(svg_scratch.xings[0]), cross_cmp);
 
-		e.rgba = sh->rgba;
+		e.rgba = rgba;
 
 		if (!sh->rule) {
 			/* nonzero winding */

@@ -35,6 +35,38 @@
  * transforms, viewBox / preserveAspectRatio mapping, group fill property
  * inheritance and opacity.  Strokes, gradients, text and filters are not
  * rendered in this phase of the work.
+ *
+ * A subset of SMIL animation is supported, so a document can describe how it
+ * changes over time, like a vector animated gif, eg, a spinner, and the scene
+ * can be drawn as it is at any time set with lws_svg_set_time().  Animation
+ * elements animate the element they are inside:
+ *
+ *  - <animateTransform attributeName="transform" type="translate | scale |
+ *    rotate | skewX | skewY">
+ *  - <animateMotion>, along a path="", or between values="x,y; ..." points,
+ *    with rotate="auto | auto-reverse | <degrees>"
+ *  - <animate attributeName="opacity">, and <set attributeName="opacity">
+ *
+ * with values="", or from="" to="" by="", keyTimes="", keySplines="",
+ * calcMode="discrete | linear | paced | spline" (paced only means anything
+ * for motion: it's linear for the others), begin="" as a time offset,
+ * dur="", repeatCount="", repeatDur="", fill="freeze | remove" and
+ * additive="replace | sum".  Times are timecount values, eg, "1.5s", "250ms"
+ * or "2min".
+ *
+ * Not supported: animation of other attributes, eg, fill colour or geometry,
+ * targeting another element with href="", begin="" on events or other
+ * elements' times, keyPoints="" (a path is always paced), accumulate="", and
+ * <mpath>.  An animation that uses them, or has values that are in error, is
+ * ignored as SMIL says, and the element is drawn as if it wasn't there.
+ *
+ * Animation elements must come before anything that is drawn in the element
+ * they animate: the scene is built as the document streams in, and what is
+ * drawn inside an animated element has to be held in its coordinates.  One
+ * that comes later is ignored, with a notice in the logs.  An element whose
+ * opacity is animated has its own opacity replaced by the animation's, which
+ * is multiplied into the opacity of what is drawn in it, as group opacity is
+ * already.
  */
 
 typedef struct lws_svg lws_svg_t;
@@ -146,6 +178,37 @@ LWS_VISIBLE LWS_EXTERN char
 lws_svg_get_doc_complete(const lws_svg_t *svg);
 
 /**
+ * lws_svg_set_time() - set the time the scene is drawn at
+ *
+ * \param svg: the SVG scene object
+ * \param t: the document time, in us
+ *
+ * Animations in the document are drawn as they are at time \p t, measured
+ * from the start of the document's timeline, which is 0 until this is
+ * called.  It can be set before, during or after the parse, and changed as
+ * often as wanted between rendering passes: what changes is worked out once,
+ * at the next line rendered.  Animations repeating indefinitely, eg, a
+ * spinner, look the same if \p t is any free running clock, eg,
+ * lws_now_usecs().
+ *
+ * It makes no difference to a document without animations.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_svg_set_time(lws_svg_t *svg, lws_usec_t t);
+
+/**
+ * lws_svg_get_animated() - does the document have animations we can draw?
+ *
+ * \param svg: the SVG scene object
+ *
+ * Returns nonzero if the document parsed so far has any animations that are
+ * drawn, so it looks different at different times, or 0 if it is static, or
+ * \p svg is NULL.
+ */
+LWS_VISIBLE LWS_EXTERN char
+lws_svg_get_animated(const lws_svg_t *svg);
+
+/**
  * lws_svg_set_render_size() - say what size the scene will be rendered at
  *
  * \param svg: the SVG scene object
@@ -235,7 +298,8 @@ typedef struct lws_svg_render {
  * span alpha carries the fractional coverage for compositing.
  *
  * Lines can be rendered in any order and repeatedly; the scene is not
- * modified except for internal scratch reallocation.  Calls on the same
+ * modified except for internal scratch reallocation, and working out where
+ * animated elements are at the time set with lws_svg_set_time().  Calls on the same
  * scene object are not reentrant against each other.
  *
  * Returns LWS_SRET_OK, or LWS_SRET_FATAL if an internal allocation failed.

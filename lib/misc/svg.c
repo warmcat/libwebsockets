@@ -54,7 +54,7 @@
  * radians in and out; sin / cos / tan results are Q16.16.
  */
 
-static int64_t
+int64_t
 svg_isqrt64(int64_t v)
 {
 	uint64_t op = (uint64_t)v, res = 0, one = 1ull << 62;
@@ -115,7 +115,7 @@ svg_tan(int64_t r_e8)
 
 
 
-static int64_t
+int64_t
 svg_atan2(int64_t y_e8, int64_t x_e8)
 {
 	lws_fx_t fy, fx, res;
@@ -137,7 +137,7 @@ svg_atan2(int64_t y_e8, int64_t x_e8)
 
 /* advance *p over whitespace and comma separators */
 
-static void
+void
 svg_ws(const char **p, const char *end)
 {
 	while (*p < end && (**p == ' ' || **p == '\t' || **p == '\r' ||
@@ -145,7 +145,7 @@ svg_ws(const char **p, const char *end)
 		(*p)++;
 }
 
-static const char *
+const char *
 svg_num(const char *p, const char *end, int64_t *r)
 {
 	/*
@@ -554,7 +554,7 @@ svg_colour(const char *s, size_t len, uint32_t *rgba)
  * x' = a·x + c·y + e; y' = b·x + d·y + f
  */
 
-static void
+void
 xf_ident(svg_c_t m[6])
 {
 	m[0] = SVG_Q16_1; m[1] = 0; m[2] = 0; m[3] = SVG_Q16_1; m[4] = 0; m[5] = 0;
@@ -562,7 +562,7 @@ xf_ident(svg_c_t m[6])
 
 /* r = m ∘ t (apply t first, then m); safe when r aliases m, saturating */
 
-static void
+void
 xf_comp(svg_c_t r[6], const svg_c_t m[6], const svg_c_t t[6])
 {
 	svg_c_t a = svg_qadd(svg_qmul(m[0], t[0]), svg_qmul(m[2], t[1]));
@@ -578,6 +578,82 @@ xf_comp(svg_c_t r[6], const svg_c_t m[6], const svg_c_t t[6])
 }
 
 /*
+ * Make the matrix for one transform function and its arguments, eg, from
+ * rotate(a cx cy).  Returns nonzero if there aren't enough arguments for it.
+ */
+
+int
+svg_xf_fn(svg_xf_t fn, const svg_c_t *arg, int na, svg_c_t t[6])
+{
+	int64_t rad;
+	svg_c_t co, si;
+	int i;
+
+	xf_ident(t);
+
+	switch (fn) {
+	case SVG_XF_MATRIX:
+		if (na != 6)
+			return 1;
+		for (i = 0; i < 6; i++)
+			t[i] = arg[i];
+		break;
+
+	case SVG_XF_TRANSLATE:
+		if (na >= 1)
+			t[4] = arg[0];
+		if (na >= 2)
+			t[5] = arg[1];
+		break;
+
+	case SVG_XF_SCALE:
+		if (na >= 1) {
+			t[0] = arg[0];
+			t[3] = na >= 2 ? arg[1] : arg[0];
+		}
+		break;
+
+	case SVG_XF_ROTATE:
+		if (na < 1)
+			return 1;
+
+		/* radians from degrees, in e8 */
+
+		rad = (int64_t)arg[0] * (SVG_E8_PI / 180) / SVG_Q16_1;
+		co = svg_cos(rad);
+		si = svg_sin(rad);
+
+		t[0] = co;
+		t[1] = si;
+		t[2] = -si;
+		t[3] = co;
+
+		/* optional rotation centre */
+
+		if (na >= 3) {
+			svg_c_t dx = arg[1], dy = arg[2];
+
+			t[4] = svg_qadd(svg_qsub(dx, svg_qmul(co, dx)),
+					svg_qmul(si, dy));
+			t[5] = svg_qsub(svg_qsub(dy, svg_qmul(si, dx)),
+					svg_qmul(co, dy));
+		}
+		break;
+
+	case SVG_XF_SKEWX:
+	case SVG_XF_SKEWY:
+		if (na < 1)
+			return 1;
+
+		t[fn == SVG_XF_SKEWX ? 2 : 1] = svg_tan((int64_t)arg[0] *
+					(SVG_E8_PI / 180) / SVG_Q16_1);
+		break;
+	}
+
+	return 0;
+}
+
+/*
  * Parse a transform list, composing on to out[].  Unknown functions are
  * skipped leniently.
  */
@@ -586,7 +662,7 @@ static int
 svg_transforms(const char *s, size_t len, svg_c_t out[6])
 {
 	const char *p = s, *end = s + len;
-	int na, i;
+	int na;
 
 	svg_ws(&p, end);
 
@@ -627,65 +703,28 @@ svg_transforms(const char *s, size_t len, svg_c_t out[6])
 		if (p < end)
 			p++;
 
-		xf_ident(t);
+		{
+			static const struct {
+				const char	*name;
+				svg_xf_t	fn;
+			} fns[] = {
+				{ "matrix",	SVG_XF_MATRIX },
+				{ "translate",	SVG_XF_TRANSLATE },
+				{ "scale",	SVG_XF_SCALE },
+				{ "rotate",	SVG_XF_ROTATE },
+				{ "skewX",	SVG_XF_SKEWX },
+				{ "skewY",	SVG_XF_SKEWY },
+			};
+			size_t f;
 
-		if (!strcmp(fn, "matrix") && na == 6) {
-			for (i = 0; i < 6; i++)
-				t[i] = arg[i];
-		} else
-			if (!strcmp(fn, "translate")) {
-				if (na >= 1)
-					t[4] = arg[0];
-				if (na >= 2)
-					t[5] = arg[1];
-			} else
-				if (!strcmp(fn, "scale")) {
-					if (na >= 1) {
-						t[0] = arg[0];
-						t[3] = na >= 2 ? arg[1] : arg[0];
-					}
-				} else
-					if (!strcmp(fn, "rotate") && na >= 1) {
-						/* radians from degrees, in e8 */
+			for (f = 0; f < LWS_ARRAY_SIZE(fns); f++)
+				if (!strcmp(fn, fns[f].name))
+					break;
 
-						int64_t rad = (int64_t)arg[0] *
-							(SVG_E8_PI / 180) / SVG_Q16_1;
-						svg_c_t co = svg_cos(rad);
-						svg_c_t si = svg_sin(rad);
-						svg_c_t dx = 0, dy = 0;
-
-						t[0] = co;
-						t[1] = si;
-						t[2] = -si;
-						t[3] = co;
-
-						/* optional rotation centre */
-
-						if (na >= 3) {
-							dx = arg[1];
-							dy = arg[2];
-							t[4] = svg_qadd(svg_qsub(dx,
-								     svg_qmul(co, dx)),
-								     svg_qmul(si, dy));
-							t[5] = svg_qsub(svg_qsub(dy,
-								     svg_qmul(si, dx)),
-								     svg_qmul(co, dy));
-						}
-					} else
-						if (!strcmp(fn, "skewX") && na >= 1)
-							t[2] = svg_tan(
-								(int64_t)arg[0] *
-								(SVG_E8_PI / 180) /
-									SVG_Q16_1);
-						else
-							if (!strcmp(fn, "skewY") &&
-							    na >= 1)
-								t[1] = svg_tan(
-									(int64_t)arg[0] *
-									(SVG_E8_PI / 180) /
-										SVG_Q16_1);
-							else
-								continue;  /* unknown fn */
+			if (f == LWS_ARRAY_SIZE(fns) ||
+			    svg_xf_fn(fns[f].fn, arg, na, t))
+				continue;	/* unknown fn, or unusable */
+		}
 
 		xf_comp(out, out, t);
 
@@ -811,6 +850,7 @@ work_free(lws_svg_t *ctx)
 	lws_free_set_NULL(ctx->wpts);
 	lws_free_set_NULL(ctx->wsubs);
 	lws_free_set_NULL(ctx->vbuf);
+	svg_anim_pend_free(ctx);
 	ctx->wpts_size = ctx->wpts_count = 0;
 	ctx->wsubs_size = ctx->wsubs_count = 0;
 	ctx->vsize = ctx->vlen = 0;
@@ -1130,8 +1170,8 @@ flatten_arc(lws_svg_t *ctx, svg_c_t x1, svg_c_t y1, svg_c_t rx, svg_c_t ry,
  * working arrays.
  */
 
-static int
-parse_path(lws_svg_t *ctx)
+int
+svg_parse_path(lws_svg_t *ctx)
 {
 	const char *p = ctx->vbuf, *end = ctx->vbuf + ctx->vlen;
 	char cmd = 0, prev_c = 0, prev_q = 0;
@@ -1538,7 +1578,7 @@ svg_heap_note(lws_svg_t *ctx, size_t transient)
 	ctx->heap_now = lwsac_total_alloc(ctx->ac) +
 			ctx->wpts_size * sizeof(*ctx->wpts) +
 			ctx->wsubs_size * sizeof(*ctx->wsubs) +
-			ctx->vsize;
+			ctx->vsize + ctx->apend_heap;
 
 	if (ctx->heap_now + transient > ctx->heap_peak)
 		ctx->heap_peak = ctx->heap_now + transient;
@@ -1579,7 +1619,7 @@ svg_ac_use(lws_svg_t *ctx, size_t nec)
 #define SVG_STROKE_MAX_POLY	100	/* points in one emitted polygon */
 
 static int commit_range(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba,
-			char rule, uint32_t first_sub);
+			char rule, uint32_t first_sub, lws_svg_node_t *node);
 
 /*
  * Append a closed polygon as a new working subpath, normalized to
@@ -2105,7 +2145,8 @@ stroke_commit(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba,
 			goto bail;
 	}
 
-	if (commit_range(ctx, m, rgba, 0 /* stroke is nonzero */, base_subs))
+	if (commit_range(ctx, m, rgba, 0 /* stroke is nonzero */, base_subs,
+			 eff->node))
 		goto bail;
 
 	ret = 0;
@@ -2120,9 +2161,9 @@ bail:
 }
 
 static int
-shape_commit(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule)
+shape_commit(lws_svg_t *ctx, const svg_lvl_t *eff)
 {
-	return commit_range(ctx, m, rgba, rule, 0);
+	return commit_range(ctx, eff->m, eff->rgba, eff->rule, 0, eff->node);
 }
 
 /*
@@ -2196,7 +2237,7 @@ wsub_count(const lws_svg_t *ctx, uint32_t i)
 
 static int
 commit_range(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule,
-	     uint32_t first_sub)
+	     uint32_t first_sub, lws_svg_node_t *node)
 {
 	size_t nsubs = 0, npts = 0;
 	lws_svg_shape_t *sh;
@@ -2236,6 +2277,7 @@ commit_range(lws_svg_t *ctx, const svg_c_t m[6], uint32_t rgba, char rule,
 		return 1;
 
 	memset(sh, 0, sizeof(*sh));
+	sh->node = node;
 	sh->rgba = rgba;
 	sh->rule = rule;
 	sh->subs = (lws_svg_sub_t *)(sh + 1);
@@ -2436,10 +2478,13 @@ classify(const char *name, char at_root)
 	    !strcmp(name, "pattern") || !strcmp(name, "linearGradient") ||
 	    !strcmp(name, "radialGradient") ||
 	    !strcmp(name, "image") || !strcmp(name, "foreignObject") ||
-	    !strcmp(name, "use") || !strcmp(name, "animate") ||
-	    !strcmp(name, "set") || !strcmp(name, "animateMotion") ||
-	    !strcmp(name, "animateTransform") || !strcmp(name, "script"))
+	    !strcmp(name, "use") || !strcmp(name, "script"))
 		return SVEK_SUPPRESS;
+
+	if (!strcmp(name, "animate") || !strcmp(name, "set") ||
+	    !strcmp(name, "animateMotion") ||
+	    !strcmp(name, "animateTransform"))
+		return SVEK_ANIM;
 
 	if (!strcmp(name, "style"))
 		return SVEK_STYLE;
@@ -2554,6 +2599,9 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 	int tier, i;
 
 	*l = *parent;
+
+	l->node_own = 0;
+	l->shape_kind = 0;
 
 	if (pd->has_transform)
 		xf_comp(l->m, parent->m, pd->tm);
@@ -2715,6 +2763,10 @@ level_compose(lws_svg_t *ctx, svg_lvl_t *parent, svg_pend_t *pd, svg_lvl_t *l,
 		alpha = 255;
 	if (salpha > 255)
 		salpha = 255;
+
+	l->a_pre = (uint8_t)alpha;
+	l->sa_pre = (uint8_t)salpha;
+	l->op_self = (uint32_t)opf;
 
 	alpha = (alpha * opf + SVG_E8_1 / 2) / SVG_E8_1;
 	salpha = (salpha * opf + SVG_E8_1 / 2) / SVG_E8_1;
@@ -3210,6 +3262,14 @@ attr_complete(lws_svg_t *ctx)
 	svg_pend_t *pd = &ctx->pend;
 	const char *n = ctx->aname;
 
+	if (ctx->ekind == SVEK_ANIM) {
+		/* an animation element's attributes mean other things */
+		if (ctx->root_seen)
+			svg_anim_attr(ctx);
+
+		return 0;
+	}
+
 	/* root sizing attributes */
 
 	if (ctx->ekind == SVEK_ROOT) {
@@ -3463,7 +3523,7 @@ attr_complete(lws_svg_t *ctx)
 		pd->has_d = 1;
 
 		if (ctx->root_seen && !ctx->stk[ctx->depth].suppress)
-			return parse_path(ctx);
+			return svg_parse_path(ctx);
 
 		return 0;
 	}
@@ -3483,13 +3543,66 @@ attr_complete(lws_svg_t *ctx)
 }
 
 /*
- * Build a shape's geometry unless the path data / points attribute already
- * built it at attribute completion, then commit it with the effective CTM
+ * Put a shape in the scene with the state of its level: its fill, then its
+ * stroke outline as a nonzero shape of its own.  The geometry is what's in the
+ * working arrays.
  */
 
 static int
-shape_open(lws_svg_t *ctx, svg_ekind_t k, svg_pend_t *pd)
+shape_commit_lvl(lws_svg_t *ctx, svg_lvl_t *eff, svg_ekind_t k)
 {
+	/*
+	 * A line has no fill of its own, and a fill of none would never paint
+	 * anything, so is not worth keeping
+	 */
+
+	if (k != SVEK_LINE && LWS_SVG_ALPHA(eff->rgba) &&
+	    shape_commit(ctx, eff))
+		return 1;
+
+	if (LWS_SVG_ALPHA(eff->stroke) &&
+	    stroke_commit(ctx, eff->m, eff->stroke, eff))
+		return 1;
+
+	work_done(ctx);
+
+	return 0;
+}
+
+/* a level for an element whose children are not drawn */
+
+static int
+lvl_push_suppressed(lws_svg_t *ctx)
+{
+	svg_lvl_t *l;
+
+	if (ctx->depth + 1 >= LWS_SVG_MAX_DEPTH)
+		return 1;
+
+	l = &ctx->stk[ctx->depth + 1];
+	*l = ctx->stk[ctx->depth];
+	l->suppress = 1;
+	l->shape_kind = 0;
+	l->node_own = 0;
+	ctx->depth++;
+
+	return 0;
+}
+
+/*
+ * Build a shape's geometry, unless the path data / points attribute already
+ * built it at attribute completion.
+ *
+ * A self-closing shape is committed now.  One with a separate close tag gets a
+ * level of its own and is committed at its close tag, since its children may
+ * be animations of it, that must be known before it can go in the scene.
+ * Other children of a shape are not drawn.
+ */
+
+static int
+shape_open(lws_svg_t *ctx, svg_ekind_t k, svg_pend_t *pd, char selfclose)
+{
+	svg_lvl_t eff;
 	int ret = 0;
 
 	switch (k) {
@@ -3530,34 +3643,30 @@ shape_open(lws_svg_t *ctx, svg_ekind_t k, svg_pend_t *pd)
 	if (ret)
 		return 1;
 
-	/* line is stroke-only: nothing to fill */
+	/*
+	 * compose the shape's own presentation deltas on to the inherited
+	 * level state, and commit with that
+	 */
 
-	{
-		svg_lvl_t eff;
+	level_compose(ctx, &ctx->stk[ctx->depth], pd, &eff, ctx->name);
 
-		/* compose the shape's own presentation deltas on to
-		 * the inherited level state, and commit with that */
+	if (selfclose) {
+		/* the element it's in has something drawn in it now */
+		ctx->otm_depth = -1;
 
-		level_compose(ctx, &ctx->stk[ctx->depth], pd, &eff,
-			      ctx->name);
-
-		/*
-		 * A line has no fill of its own, and a fill of none
-		 * would never paint anything, so is not worth keeping
-		 */
-
-		if (k != SVEK_LINE && LWS_SVG_ALPHA(eff.rgba) &&
-		    shape_commit(ctx, eff.m, eff.rgba, eff.rule))
-			return 1;
-
-		/* the stroke outline is its own nonzero shape */
-
-		if (LWS_SVG_ALPHA(eff.stroke) &&
-		    stroke_commit(ctx, eff.m, eff.stroke, &eff))
-			return 1;
+		return shape_commit_lvl(ctx, &eff, k);
 	}
 
-	work_done(ctx);
+	if (ctx->depth + 1 >= LWS_SVG_MAX_DEPTH)
+		return 1;
+
+	eff.suppress = 1;
+	eff.shape_kind = (uint8_t)k;
+	ctx->stk[++ctx->depth] = eff;
+
+	/* animations that follow may be of this shape */
+	memcpy(ctx->otm, pd->tm, sizeof(ctx->otm));
+	ctx->otm_depth = ctx->depth;
 
 	return 0;
 }
@@ -3582,6 +3691,8 @@ element_open(lws_svg_t *ctx, char selfclose)
 
 			level_compose(ctx, &ctx->stk[0], pd, &ctx->stk[0],
 				     "svg");
+			memcpy(ctx->otm, pd->tm, sizeof(ctx->otm));
+			ctx->otm_depth = 0;
 
 			tol_update(ctx);
 
@@ -3601,6 +3712,10 @@ element_open(lws_svg_t *ctx, char selfclose)
 			level_compose(ctx, &ctx->stk[ctx->depth], pd,
 				      &ctx->stk[ctx->depth + 1], ctx->name);
 			ctx->depth++;
+
+			/* animations that follow may be of this group */
+			memcpy(ctx->otm, pd->tm, sizeof(ctx->otm));
+			ctx->otm_depth = ctx->depth;
 		}
 		break;
 
@@ -3612,12 +3727,8 @@ element_open(lws_svg_t *ctx, char selfclose)
 		 */
 
 		if (!selfclose) {
-			if (ctx->depth + 1 >= LWS_SVG_MAX_DEPTH)
+			if (lvl_push_suppressed(ctx))
 				return 1;
-
-			ctx->stk[ctx->depth + 1] = ctx->stk[ctx->depth];
-			ctx->stk[ctx->depth + 1].suppress = 1;
-			ctx->depth++;
 			ctx->in_style = 1;
 			ctx->vlen = 0;
 		}
@@ -3625,14 +3736,8 @@ element_open(lws_svg_t *ctx, char selfclose)
 
 	case SVEK_SUPPRESS:
 	case SVEK_OTHER:
-		if (!selfclose) {
-			if (ctx->depth + 1 >= LWS_SVG_MAX_DEPTH)
-				return 1;
-
-			ctx->stk[ctx->depth + 1] = ctx->stk[ctx->depth];
-			ctx->stk[ctx->depth + 1].suppress = 1;
-			ctx->depth++;
-		}
+		if (!selfclose && lvl_push_suppressed(ctx))
+			return 1;
 		break;
 
 	case SVEK_RECT:
@@ -3642,24 +3747,30 @@ element_open(lws_svg_t *ctx, char selfclose)
 	case SVEK_POLYLINE:
 	case SVEK_POLYGON:
 	case SVEK_PATH:
-		if (ctx->root_seen && !ctx->stk[ctx->depth].suppress &&
-		    shape_open(ctx, k, pd))
-			return 1;
+		if (ctx->root_seen && !ctx->stk[ctx->depth].suppress) {
+			if (shape_open(ctx, k, pd, selfclose))
+				return 1;
+			break;
+		}
 
 		/*
 		 * A shape written with a separate close tag, eg, <rect></rect>,
-		 * has a level of its own, since its close tag pops one.  Its
-		 * children are not drawn.
+		 * has a level of its own, since its close tag pops one
 		 */
 
-		if (!selfclose) {
-			if (ctx->depth + 1 >= LWS_SVG_MAX_DEPTH)
-				return 1;
+		if (!selfclose && lvl_push_suppressed(ctx))
+			return 1;
+		break;
 
-			ctx->stk[ctx->depth + 1] = ctx->stk[ctx->depth];
-			ctx->stk[ctx->depth + 1].suppress = 1;
-			ctx->depth++;
-		}
+	case SVEK_ANIM:
+		/* an animation of the element it is inside */
+
+		if (svg_anim_open(ctx))
+			return 1;
+		svg_anim_pend_free(ctx);
+
+		if (!selfclose && lvl_push_suppressed(ctx))
+			return 1;
 		break;
 	}
 
@@ -3675,7 +3786,7 @@ element_open(lws_svg_t *ctx, char selfclose)
 static int
 vterm(lws_svg_t *ctx);
 
-static void
+static int
 element_close(lws_svg_t *ctx, const char *name)
 {
 	if (name && !strcmp(name, "style") && ctx->in_style) {
@@ -3693,10 +3804,19 @@ element_close(lws_svg_t *ctx, const char *name)
 			ctx->ts = SXS_DONE;
 		}
 
-		return;
+		return 0;
 	}
 
+	/* a shape that was waiting to see if it is animated goes in now */
+
+	if (ctx->stk[ctx->depth].shape_kind &&
+	    shape_commit_lvl(ctx, &ctx->stk[ctx->depth],
+			     (svg_ekind_t)ctx->stk[ctx->depth].shape_kind))
+		return 1;
+
 	ctx->depth--;
+
+	return 0;
 }
 
 /* append bytes to the attribute value accumulation buffer */
@@ -3795,6 +3915,9 @@ tok_step(lws_svg_t *ctx, const uint8_t c, char hold)
 
 			ctx->ekind = classify(ctx->name, !ctx->root_seen);
 			ctx->vlen = 0;
+
+			if (ctx->ekind == SVEK_ANIM && svg_anim_tag(ctx))
+				return -1;
 
 			if (c == '>') {
 				/* an element with no attributes */
@@ -4052,7 +4175,8 @@ tok_step(lws_svg_t *ctx, const uint8_t c, char hold)
 
 	case SXS_CLOSENAME:
 		if (c == '>') {
-			element_close(ctx, ctx->name);
+			if (element_close(ctx, ctx->name))
+				return -1;
 			ctx->ts = ctx->doc_complete ? SXS_DONE : SXS_TEXT;
 			break;
 		}
@@ -4206,6 +4330,9 @@ lws_svg_new(void)
 	ctx->stk[0].stroke = 0;			/* none */
 	ctx->stk[0].stroke_w = SVG_Q16_1;	/* 1 user unit */
 	ctx->stk[0].miterlimit = 4 * SVG_E8_1;
+	ctx->stk[0].a_pre = 0xff;
+	ctx->stk[0].op_self = SVG_E8_1;
+	ctx->otm_depth = -1;
 	xf_ident(ctx->pend.tm);
 
 	return ctx;

@@ -59,6 +59,14 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	if (!svg)
 		return 0;
 
+	{
+		static const lws_usec_t t[] = {
+			0, 777777, -3300000, (lws_usec_t)1 << 50
+		};
+
+		lws_svg_set_time(svg, t[(data[0] >> 4) & 3]);
+	}
+
 	/*
 	 * The first byte steers the harness rather than the parser, so the
 	 * mutations explore the state machine's chunk boundary handling
@@ -66,6 +74,7 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	 *
 	 *   bit 0:   hold at the root tag metadata first
 	 *   bits1-3: base-2 log of the chunk stride input is fed in
+	 *   bits4-5: the time animations are drawn at
 	 *   bit 6:   antialiased line rendering
 	 *   bit 7:   16px raster instead of 64px
 	 */
