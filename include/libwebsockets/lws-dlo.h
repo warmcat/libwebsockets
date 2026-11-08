@@ -653,6 +653,17 @@ typedef struct lws_display_render_state {
 						* came back for pages it
 						* couldn't have yet */
 
+	lws_usec_t			anim_t; /* the time, in us, that
+						* animated images, eg, svg with
+						* SMIL animation, are drawn as
+						* they are at: set by the caller
+						* before the render.  Indefinitely
+						* repeating animations look right
+						* with any free running clock,
+						* eg, lws_now_usecs().  0 if not
+						* set, so a render is the same
+						* each time */
+
 } lws_display_render_state_t;
 
 

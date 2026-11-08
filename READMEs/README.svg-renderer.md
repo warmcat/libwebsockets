@@ -336,6 +336,12 @@ back to it, as the raster images are.
 `lws_svg_get_live_peak()` returns the most svg scene objects that existed at
 once, which `lws-api-test-lhp-dlo --svg-live-max <n>` checks.
 
+An animated svg is drawn as it is at the render state's `.anim_t`, which the
+caller sets before the render, eg, to `lws_now_usecs()`.  It is 0 if it
+isn't set, so a render is the same every time.  Each time a page is drawn,
+its animations are drawn further along; there is not yet a way to redraw
+only an animated image's part of the display by itself.
+
 `lws-api-test-svg` generates a corpus of around 200 documents covering each
 supported feature with analytic checks (exact span geometry, independent
 pixel-centre oracles, streaming chunk equivalence, transform invariances

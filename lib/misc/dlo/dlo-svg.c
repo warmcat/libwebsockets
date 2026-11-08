@@ -270,6 +270,9 @@ lws_display_render_svg(struct lws_display_render_state *rs)
 	ri.h = end - top;
 	ri.aa = 1;	/* area-antialiased coverage through the line alpha */
 
+	/* animations are drawn as they are at the render's time */
+	lws_svg_set_time(dlo_svg->svg, rs->anim_t);
+
 	sc.rs = rs;
 	sc.x = s;
 
