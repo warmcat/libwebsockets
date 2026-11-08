@@ -349,6 +349,9 @@ typedef struct tpt_nat {
 	int			cur, rx_after_rebind, strays;
 } tpt_nat_t;
 
+/* the spoofing step's spoofer, below */
+static struct lws *spoofer;
+
 /* the migration step's, and the spoofing step's */
 static tpt_nat_t nat, nat2;
 
@@ -418,6 +421,19 @@ nat_rx(tpt_nat_t *t, struct lws *wsi, const void *in, size_t len)
 	/* only the front's answers are let back in */
 	if (lws_sa46_compare_ads(&lws_get_udp(wsi)->sa46, &front) ||
 	    lws_get_udp(wsi)->sa46.sa4.sin_port != front.sa4.sin_port) {
+		lws_sockaddr46 src = lws_get_udp(wsi)->sa46;
+		char ads[64];
+
+		/*
+		 * Say who it came from: the backend, the spoofer, or something
+		 * outside the test that reused the port
+		 */
+		if (lws_sa46_write_numeric_address(&src, ads, sizeof(ads)) < 0)
+			ads[0] = '\0';
+		lwsl_user("  NAT: stray %u bytes (first 0x%02x) from %s:%d, "
+			  "backend %d, spoofer %d\n", (unsigned int)len,
+			  len ? *(const uint8_t *)in : 0, ads, port_of(&src),
+			  port_back, spoofer ? bound_port(spoofer) : 0);
 		t->strays++;
 		return;
 	}
@@ -431,7 +447,6 @@ nat_rx(tpt_nat_t *t, struct lws *wsi, const void *in, size_t len)
  * The spoofer: a udp socket on 127.0.0.1, which the backend trusts to relay
  * QUIC, but not the front's socket
  */
-static struct lws *spoofer;
 static lws_sorted_usec_list_t sul_spoof;
 static int spoofer_rx, spoofer_resets, spoof_sent, flood_sent;
 
