@@ -823,6 +823,19 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    `justify-content` / `align-items`**: it stays at the container's top left
    while text items beside it are placed.  Wrap it in a div (dlo-ui.c does).
 
+ - **lhp drops text laid out below the surface** (`dlo-lhp.c`, "text that
+   lands below the surface can never be seen"), and stops there, so content
+   meant to be scrolled into view, eg, dlo-ui's dialog panel moved by its
+   dlo, silently ends at the display's bottom edge.  Lay it out on a taller
+   surface with `rs->layout_h` (the viewport stays the display); dlo-ui sets
+   it for the dialog page.  Symptom: the links found after layout stop at
+   the last one wholly above the display's height.
+
+ - **A `display: block` `<a>` drew no border** with either `border:` or
+   the `border-style` / `-width` / `-color` longhands, in a dlo-ui dialog
+   rendered by api-test-dlo-ui; `background-color` on it draws.  The lhp
+   settings example shades its hostname "editbox" that way.
+
  - **The context makes things the first time lhp browses**: the secure
    streams vhost and its tls context, a few KB.  A test checking an lhp user
    gives back its heap must measure across a second pass, as
