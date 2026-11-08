@@ -28,8 +28,12 @@
 
 #if OPENSSL_VERSION_NUMBER >= 0x40000000L
 #define CAST_X509_EXTENSION(x)	(x)
+/* OpenSSL 4 X509_get_X509_PUBKEY() returns const; LibreSSL / wolfSSL
+ * X509_PUBKEY_get0_param() still want it non-const */
+#define LWS_X509_PUBKEY_CONST	const
 #else
 #define CAST_X509_EXTENSION(x)	((X509_EXTENSION *)(x))
+#define LWS_X509_PUBKEY_CONST
 #endif
 
 #if !defined(LWS_PLAT_OPTEE)
@@ -758,7 +762,7 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 {
 	int id, n, ret = -1, count;
 	ASN1_OBJECT *obj = NULL;
-	X509_PUBKEY *pubkey;
+	LWS_X509_PUBKEY_CONST X509_PUBKEY *pubkey;
 	BIGNUM *mpi[4];
 	EVP_PKEY *pkey;
 #if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
