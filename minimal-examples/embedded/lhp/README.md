@@ -37,11 +37,10 @@ kept in the middle of the list: when the display is too short for the whole
 list, eg, the 64px high heltec OLED, it scrolls as the boot moves on.
 
 If no wifi credentials are stored, once a scan has found some APs, the
-settings' "WLAN" page is shown instead, once, to pick one and type its
-passphrase, see "Settings" below.  When its credentials are stored, the wifi
-netdev, which keeps scanning while it isn't joined, joins the AP when it next
-sees it, and the boot list is shown again; pressing the "WLAN" title goes
-back too.  While the boot list is up, pressing its "Boot" title shows the
+settings are shown instead, once, to set the passphrase of one, see
+"Settings" below.  When its credentials are stored, the wifi netdev, which
+keeps scanning while it isn't joined, joins the AP when it next sees it, and
+the boot list is shown again; pressing the "Settings" title goes back too.  While the boot list is up, pressing its "Boot" title shows the
 settings.
 
 The ui's title strip is given the example's own colours, by the css it
@@ -111,39 +110,59 @@ saying how charged it is and whether it's charging.
 
 Pressing the status capsule on a touch display, or clicking a button named
 `settings`, shows the settings, made by `settings-ui.c`, which has nothing
-platform-specific in it, as pages of the strip ui:
+platform-specific in it.  It's a dialog of the strip ui
+(`lws_dlo_ui_dialog()`), titled "Settings": html it writes, and what to do
+when a link in it is pressed, so it's also an example of how an application
+can make a dialog of its own settings.  It has
 
- - "Settings": "WLAN", and "Hostname: ..." saying the hostname
- - "WLAN": the APs scanned, strongest first, one row per network, then
-   those we have credentials for that aren't in range, dimmed.  Those we
-   have credentials for are highlighted
- - an AP we have credentials for, titled with its SSID: "Change passphrase",
-   or "Forget" to remove them with `lws_netdev_credentials_remove()`
+ - "WLAN": a table of the APs, kept up to date while it's shown: those
+   scanned, strongest first, one row per network, then those we have
+   credentials for that aren't in range, dimmed.  Each row has the SSID, over
+   a smaller line of what we know about it, then the icons to press:
+    - a key, if we have its passphrase
+    - how it authenticates, eg, "WPA2", if it's in range
+    - how the last try to join it went: a check if it was joined, a cross if
+      its passphrase was refused, or a warning sign if it failed some other
+      way, eg, it didn't answer
+    - a globe, if the internet was ever reached through it
+    - a cog, to set its passphrase, or for an open AP, to add it
+    - a bin, to forget it with `lws_netdev_credentials_remove()`, if we have
+      credentials for it
 
-Pressing an AP we have no credentials for shows the edit page, titled
-"Passphrase", with its keyboard, to type it in, unless it is open.  It's
-shown as it is typed, so typos can be seen; dragging the keyboard moves it
-around to reach the keys.  It starts empty, even if a passphrase is stored
-for the AP: what is stored is never shown, not even its length.  When Done
-is pressed with at least the 8 characters WPA needs, the credentials are
-stored with `lws_netdev_credentials_add()`.  Credentials can be stored for
-any number of APs: the wifi netdev joins the strongest one it sees that it
-has credentials for.
+ - "Hostname": the hostname, shaded like an editbox, which pressing edits
 
-Pressing the hostname shows it on the edit page, to change it.  It's stored
-with `lws_netdev_hostname_set()` and given in DHCP from the next time an
-address is acquired: a single DNS label of up to 32 of a-z, 0-9 and '-', not
-starting or ending with '-'.  Done with nothing typed goes back to the
-default, `lws-` and the last three bytes of the MAC in hex.
+How joining went, and the internet being reached, are noted by the netdev in
+the stored credentials, so they're known after a reboot.  Changing the
+passphrase forgets how joining went, but not that the internet was reached.
+The icons are from `contrib/assets/settings`, and the key and globe from
+`contrib/assets/boot-status`.
 
-Pressing the title goes back a page, and from "Settings", back to what was
-shown before.  While the settings are shown, the carousel waits; after
-them, the page that was shown is drawn again, and it goes on.
+Pressing the cog shows the edit page, titled "Passphrase", with its
+keyboard, to type it in.  It's shown as it is typed, so typos can be seen;
+dragging the keyboard moves it around to reach the keys.  It starts empty,
+even if a passphrase is stored for the AP: what is stored is never shown,
+not even its length.  Only when Done is pressed with at least the 8
+characters WPA needs, the credentials are stored with
+`lws_netdev_credentials_add()`; pressing the title abandons it.  Credentials
+can be stored for any number of APs: the wifi netdev joins the strongest one
+it sees that it has credentials for.
+
+Pressing the hostname shows it on the edit page, to change it.  However the
+edit is left, by Done, the title, or the settings being closed, it's stored
+with `lws_netdev_hostname_set()` if it's valid, and given in DHCP from the
+next time an address is acquired: a single DNS label of up to 32 of a-z, 0-9
+and '-', not starting or ending with '-'.  Done with something invalid
+keeps it being edited; nothing typed goes back to the default, `lws-` and
+the last three bytes of the MAC in hex.
+
+Pressing the title, or the status capsule again, closes the settings, back
+to what was shown before.  While the settings are shown, the carousel waits;
+after them, the page that was shown is drawn again, and it goes on.
 
 The settings need a way to move around them and the keyboard: a touch
 display, or buttons named `up`, `down`, `left`, `right` and `enter`, and
 optionally `esc` to go back.  Their clicks go to `lws_dlo_ui_interaction()`,
-which moves a cursor over the list and the keyboard.  The boards here only
+which moves a cursor over the dialog's links and the keyboard.  The boards here only
 have a single `user` button, so for now only
 `esp32s3-waveshare-240-240-touch` can show the settings; a board given those
 buttons, and a `settings` one, in its `lws_button_map_t` needs no other
@@ -252,8 +271,8 @@ chosen from the start.
 
 ## Setting up wifi
 
-On boards that can show the settings, pick the AP and type its passphrase
-on the device, see "Settings" above.
+On boards that can show the settings, press the cog of the AP and type its
+passphrase on the device, see "Settings" above.
 
 Other boards can't do that yet.  Edit ./main/devices.c in your
 platform-specific subdir, enable this section and set your wifi SSID and

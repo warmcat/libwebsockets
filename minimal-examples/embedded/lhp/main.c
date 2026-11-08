@@ -16,18 +16,19 @@
  * (see boot-ui.c) as they are reached.  Until the network is up it can only
  * use what is built in, a font and the stage icons, from the dlo filesystem.
  * If no wifi credentials are stored, once a scan has found some APs, the
- * settings' "WLAN" page (see settings-ui.c) lists them instead, for the user
- * to pick one and type its passphrase.  Once the system is OPERATIONAL and
+ * settings dialog (see settings-ui.c) lists them instead, for the user to set
+ * the passphrase of one.  Once the system is OPERATIONAL and
  * the first update check has told us we're on the latest firmware (or failed,
  * or there's no OTA), the boot list is replaced by the frame: the same title
  * strip, saying which page is shown, over the application html.
  *
  * At the right of the title strip, a status capsule shows the wlan signal,
  * and the battery on boards with one.  Pressing it, or a button named
- * "settings", shows the settings: the APs we can join, and the hostname.
- * They need a touch display, or buttons named "up", "down", "left", "right"
- * and "enter" to move around them and the keyboard, and "esc" if there is
- * one, to go back.
+ * "settings", shows the settings dialog: the APs we can join, how joining
+ * them went, and the hostname.  Pressing it again, or the dialog's title,
+ * closes it, and what was shown goes on.  They need a touch display, or
+ * buttons named "up", "down", "left", "right" and "enter" to move around them
+ * and the keyboard, and "esc" if there is one, to go back.
  *
  * The application is a placeholder for now: it visits each URL in the
  * board's carousel once, rendering it on the display via LHP, and showing
@@ -329,7 +330,7 @@ settings_usable(void)
 }
 
 static void
-settings_open(lhp_settings_page_t page, unsigned int flags)
+settings_open(unsigned int flags)
 {
 	if (!sui || lhp_settings_shown(&settings) || !settings_usable())
 		return;
@@ -345,12 +346,12 @@ settings_open(lhp_settings_page_t page, unsigned int flags)
 	}
 
 	lwsl_notice("%s\n", __func__);
-	lhp_settings_open(&settings, sui, page, flags);
+	lhp_settings_open(&settings, sui, flags);
 }
 
 /*
- * The settings were finished with.  We're told from inside the ui's
- * callbacks, which go back to its list page after: decide what to show from
+ * The settings were closed by the user.  We're told from inside the ui's
+ * callbacks, which may show the dialog again after: decide what to show from
  * the event loop instead.
  */
 
@@ -391,20 +392,11 @@ settings_exit(void *opaque)
 static int
 sui_row(void *opaque, int idx, lws_dlo_ui_row_t *row)
 {
-	if (lhp_settings_shown(&settings))
-		return lhp_settings_row(&settings, idx, row);
-
+	/* the settings are a dialog: the only list is the boot one */
 	if (ui == UI_BOOT)
 		return lhp_boot_row(&boot, idx, row);
 
 	return 1;
-}
-
-static void
-sui_pick(void *opaque, int idx)
-{
-	if (lhp_settings_shown(&settings))
-		lhp_settings_pick(&settings, idx);
 }
 
 static int
@@ -417,8 +409,8 @@ sui_done(void *opaque, const char *text)
 }
 
 /*
- * Pressing the title goes back a page in the settings.  On the boot list, it
- * shows them, eg, to add credentials for another AP, or change them for one
+ * Pressing the title closes the settings.  On the boot list, it shows them,
+ * eg, to add credentials for another AP, or change them for one
  */
 
 static void
@@ -430,7 +422,7 @@ sui_title(void *opaque)
 	}
 
 	if (ui == UI_BOOT)
-		settings_open(LHP_SET_TOP, 0);
+		settings_open(0);
 }
 
 /*
@@ -516,7 +508,6 @@ sui_create(void)
 	i.cx = cx;
 	i.lds = &lds;
 	i.row = sui_row;
-	i.pick = sui_pick;
 	i.title = sui_title;
 	i.done = sui_done;
 	i.frame_redraw = sui_frame_redraw;
@@ -593,8 +584,7 @@ sui_show(void)
 	if (!settings_offered && scan_count_shown &&
 	    !(boot.reached & (1u << LHP_BOOT_SETUP)) && settings_usable()) {
 		settings_offered = 1;
-		lhp_settings_open(&settings, sui, LHP_SET_WLAN,
-				  LHP_SET_FL_EXIT_ON_STORE);
+		lhp_settings_open(&settings, sui, LHP_SET_FL_EXIT_ON_STORE);
 		return;
 	}
 
@@ -1248,9 +1238,17 @@ smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
 		} else if (!acted &&
 			   !lws_json_simple_strcmp(buf, len, "\"event\":",
 						   "click") &&
-			   is_button(buf, len, "settings"))
-			/* a button, or pressing the status capsule */
-			settings_open(LHP_SET_TOP, 0);
+			   is_button(buf, len, "settings")) {
+			/*
+			 * A button, or pressing the status capsule: it shows
+			 * the settings, or if they're shown, closes them as
+			 * their title would, keeping a hostname being edited
+			 */
+			if (lhp_settings_shown(&settings))
+				lhp_settings_exit(&settings);
+			else
+				settings_open(0);
+		}
 
 		/*
 		 * Any kind of user interaction brings the display back up and
@@ -1285,6 +1283,17 @@ smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
 	    !lws_json_simple_strcmp(buf, len, "\"type\":", "linkdown"))
 		/* the capsule shows it at once */
 		status_update();
+
+	/*
+	 * The settings show how joining each AP went, and if the internet was
+	 * reached through it: what the netdev noted for these is listed when
+	 * the dialog is laid out
+	 */
+	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "linkup") ||
+	    !lws_json_simple_strcmp(buf, len, "\"type\":", "linkdown") ||
+	    !lws_json_simple_strcmp(buf, len, "\"type\":", "ipacq") ||
+	    !lws_json_simple_strcmp(buf, len, "\"type\":", "cpd"))
+		lhp_settings_changed(&settings);
 
 	if (ui != UI_BOOT)
 		return 0;
@@ -1432,6 +1441,7 @@ teardown(uint32_t heap_before)
 	lws_display_render_free_ids(&rs);
 	page_drop();
 	sui_drop();
+	lhp_settings_deinit(&settings);
 	lhp_boot_deinit(&boot);
 
 	lws_display_state_off(&lds);
@@ -1532,7 +1542,8 @@ app_main(void)
 		goto spin;
 
 	/* the settings, shown on the strip ui when asked for */
-	lhp_settings_init(&settings, cx, wnd, settings_exit, NULL);
+	if (lhp_settings_init(&settings, cx, wnd, settings_exit, NULL))
+		goto spin;
 
 	/* the boot overlay, shown when the display is ready */
 

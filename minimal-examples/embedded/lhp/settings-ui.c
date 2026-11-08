@@ -1,5 +1,5 @@
 /*
- * lhp settings pages
+ * lhp settings dialog
  *
  * Written in 2010-2026 by Andy Green <andy@warmcat.com>
  *
@@ -12,30 +12,53 @@
 #include "settings-ui.h"
 #include <string.h>
 
-/* rows of the "Settings" page */
+#include "boot-icons.h"
 
-enum {
-	TOP_ROW_WLAN,
-	TOP_ROW_HOSTNAME,
+/*
+ * The icons, in the dlo filesystem, since the settings may be shown before
+ * there is any network.  The key and globe are the boot overlay's, meaning
+ * the same things here.
+ */
 
-	TOP_ROWS
+static const struct {
+	const char		*name;
+	const uint8_t		*data;
+	size_t			len;
+} icons[] = {
+	{ "set-key.svg",	boot_icon_setup,	sizeof(boot_icon_setup) },
+	{ "set-net.svg",	boot_icon_internet,	sizeof(boot_icon_internet) },
+	{ "set-cog.svg",	settings_icon_cog,	sizeof(settings_icon_cog) },
+	{ "set-bin.svg",	settings_icon_forget,	sizeof(settings_icon_forget) },
+	{ "set-ok.svg",		settings_icon_ok,	sizeof(settings_icon_ok) },
+	{ "set-no.svg",		settings_icon_refused,	sizeof(settings_icon_refused) },
+	{ "set-fail.svg",	settings_icon_failed,	sizeof(settings_icon_failed) },
 };
 
 /*
- * Rows of an AP's page.  An open AP has no passphrase to change, so it only
- * has the Forget row.  It's the last, so the cursor doesn't start on it.
+ * The dialog's css.  Each AP's row is two cells, so it fits a small display:
+ * its SSID over a smaller line of what we know about it, then the icons to
+ * press, which are bigger, with some room around them, to be easier to hit
+ * with a finger.  The hostname is shaded, like an editbox.
  */
 
-enum {
-	AP_ROW_PASSPHRASE,
-	AP_ROW_FORGET,
-};
+static const char dlg_css[] =
+	"a { text-decoration: none; color: #000 }"
+	".s { color: #24476b; margin-top: 4px }"
+	".d { color: #888 }"
+	".st { font-size: 0.75em }"
+	"table { border-spacing: 0 }"
+	"td { padding: 2px 0; vertical-align: middle }"
+	"img { width: 1.25em; height: 1.25em }"
+	"a.i { display: inline-block; padding: 2px }"
+	"a.i img { width: 24px; height: 24px }"
+	"a.e { display: block; background-color: #e4e8ec; padding: 3px 4px;"
+		" margin: 2px 0 8px 0 }";
 
-static int
-ap_row(const lhp_settings_t *s, int idx)
-{
-	return s->ssid_open ? (idx ? -1 : AP_ROW_FORGET) : idx;
-}
+/*
+ * The most html an AP's row can be, with all its icons and an SSID of 32
+ * characters that each need escaping, eg, &quot;
+ */
+#define AP_ROW_HTML_MAX		512
 
 /* WPA passphrases are 8 to 63 characters */
 #define PASSPHRASE_MIN		8
@@ -116,12 +139,16 @@ aps_update(lhp_settings_t *s)
 			a = &s->aps[s->ap_count++];
 			memset(a, 0, sizeof(*a));
 			memcpy(a->ssid, ssid, sizeof(a->ssid));
+			a->auth = (uint8_t)w->authmode;
 			a->open = w->authmode == LWS_WIFI_AUTH_OPEN;
 			a->seen = 1;
 		} lws_end_foreach_dll(d);
 	}
 
-	/* which we have credentials for, and those we have that weren't seen */
+	/*
+	 * Which we have credentials for, how joining them went, and those we
+	 * have that weren't seen
+	 */
 
 	lws_netdev_credentials_hold(nds);
 
@@ -131,66 +158,134 @@ aps_update(lhp_settings_t *s)
 						lws_wifi_creds_t, list);
 
 		n = ap_find(s, cr->ssid);
-		if (n >= 0) {
-			s->aps[n].stored = 1;
-			continue;
+		if (n < 0) {
+			if (s->ap_count == LHP_SET_AP_MAX || !cr->ssid[0])
+				continue;
+
+			n = s->ap_count++;
+			a = &s->aps[n];
+			memset(a, 0, sizeof(*a));
+			lws_strncpy(a->ssid, cr->ssid, sizeof(a->ssid));
+			a->open = !cr->passphrase[0];
 		}
 
-		if (s->ap_count == LHP_SET_AP_MAX || !cr->ssid[0])
-			continue;
-
-		a = &s->aps[s->ap_count++];
-		memset(a, 0, sizeof(*a));
-		lws_strncpy(a->ssid, cr->ssid, sizeof(a->ssid));
-		a->open = !cr->passphrase[0];
+		a = &s->aps[n];
 		a->stored = 1;
+		a->last_join = cr->last_join;
+		a->internet = cr->internet;
 	} lws_end_foreach_dll(c);
 
 	lws_netdev_credentials_release(nds);
 }
 
-/* say what the page shows now: the ui draws it when the display is free */
-
 static void
-show(lhp_settings_t *s, lhp_settings_page_t page)
+img(lws_dlo_ui_html_t *h, const char *name)
 {
-	s->page = (uint8_t)page;
-
-	switch (page) {
-	case LHP_SET_TOP:
-		lws_dlo_ui_set_title(s->ui, "Settings");
-		lws_dlo_ui_set_list(s->ui, TOP_ROWS, -1);
-		break;
-
-	case LHP_SET_WLAN:
-		aps_update(s);
-		lws_dlo_ui_set_title(s->ui, "WLAN");
-		/* with none, there's a row saying so */
-		lws_dlo_ui_set_list(s->ui, s->ap_count ? s->ap_count : 1, -1);
-		break;
-
-	case LHP_SET_AP:
-		lws_dlo_ui_set_title(s->ui, s->ssid);
-		lws_dlo_ui_set_list(s->ui, s->ssid_open ? 1 : 2, -1);
-		break;
-
-	default:
-		break;
-	}
-}
-
-static void
-finish(lhp_settings_t *s)
-{
-	s->page = LHP_SET_NONE;
-	s->editing = LHP_SET_EDIT_NONE;
-
-	if (s->exit_cb)
-		s->exit_cb(s->opaque);
+	lws_dlo_ui_html_printf(h, "<img src=\"%s\">", name);
 }
 
 /*
- * Store the credentials for the AP that was picked.  The wifi netdev scans
+ * The dialog's html, written each time it's laid out: the APs are listed
+ * again then, so the indexes in its links are those of what is shown
+ */
+
+static void
+dlg_html(void *opaque, lws_dlo_ui_html_t *h)
+{
+	char hn[LWS_NETDEV_HOSTNAME_MAX + 1];
+	lhp_settings_t *s = (lhp_settings_t *)opaque;
+	const lhp_settings_ap_t *a;
+	int n;
+
+	aps_update(s);
+
+	lws_dlo_ui_html_printf(h, "<div class=\"s\">WLAN</div>");
+
+	if (!s->ap_count)
+		/* there's nothing to pick, but say why */
+		lws_dlo_ui_html_printf(h, "<div class=\"d\">%s</div>",
+				       s->wnd ? "Scanning..." : "No WLAN");
+	else
+		lws_dlo_ui_html_printf(h, "<table>");
+
+	for (n = 0; n < s->ap_count; n++) {
+		a = &s->aps[n];
+
+		/* those we have credentials for but can't see are dimmed */
+		lws_dlo_ui_html_printf(h, "<tr%s><td><div>",
+				       a->seen ? "" : " class=\"d\"");
+		lws_dlo_ui_html_text(h, a->ssid);
+		lws_dlo_ui_html_printf(h, "</div><div class=\"st\">");
+		if (a->stored && !a->open)
+			img(h, "set-key.svg");
+		if (a->seen)
+			lws_dlo_ui_html_printf(h, "%s ", lws_wifi_auth_name(
+						(lws_wifi_auth_t)a->auth));
+
+		/* how the last try to join it went */
+		switch (a->last_join) {
+		case LWS_WIFI_JOIN_OK:
+			img(h, "set-ok.svg");
+			break;
+		case LWS_WIFI_JOIN_AUTH_FAILED:
+			img(h, "set-no.svg");
+			break;
+		case LWS_WIFI_JOIN_FAILED:
+			img(h, "set-fail.svg");
+			break;
+		default:
+			break;
+		}
+
+		if (a->internet)
+			img(h, "set-net.svg");
+		lws_dlo_ui_html_printf(h, "</div></td><td>");
+		/* an open AP that's stored has no passphrase to set */
+		if (!a->open || !a->stored)
+			lws_dlo_ui_html_printf(h, "<a class=\"i\" href=\"set:%d\">"
+					       "<img src=\"set-cog.svg\"></a>", n);
+		if (a->stored)
+			lws_dlo_ui_html_printf(h, "<a class=\"i\" "
+					       "href=\"forget:%d\"><img "
+					       "src=\"set-bin.svg\"></a>", n);
+		lws_dlo_ui_html_printf(h, "</td></tr>");
+	}
+
+	if (s->ap_count)
+		lws_dlo_ui_html_printf(h, "</table>");
+
+	if (lws_netdev_hostname_get(lws_netdevs_from_ctx(s->cx), hn,
+				    sizeof(hn)) < 0)
+		lws_strncpy(hn, "-", sizeof(hn));
+
+	lws_dlo_ui_html_printf(h, "<div class=\"s\">Hostname</div>"
+				  "<a class=\"e\" href=\"host\">");
+	lws_dlo_ui_html_text(h, hn);
+	lws_dlo_ui_html_printf(h, "</a>");
+}
+
+/* the AP a link is for, eg, "set:3" for prefix "set:", or -1 */
+
+static int
+ap_of(const lhp_settings_t *s, const char *href, const char *prefix)
+{
+	size_t pl = strlen(prefix);
+	int n = 0;
+
+	if (strncmp(href, prefix, pl) || !href[pl])
+		return -1;
+
+	for (href += pl; *href; href++) {
+		if (*href < '0' || *href > '9' || n >= LHP_SET_AP_MAX)
+			return -1;
+		n = (n * 10) + (*href - '0');
+	}
+
+	return n < s->ap_count ? n : -1;
+}
+
+/*
+ * Store the credentials for the AP being edited.  The wifi netdev scans
  * while it isn't joined, and joins the strongest AP it has credentials for.
  */
 
@@ -205,14 +300,10 @@ store(lhp_settings_t *s, const char *passphrase)
 
 	lwsl_user("%s: stored credentials for %s\n", __func__, s->ssid);
 
-	s->editing = LHP_SET_EDIT_NONE;
-
-	if (s->flags & LHP_SET_FL_EXIT_ON_STORE) {
-		finish(s);
-		return 0;
-	}
-
-	show(s, LHP_SET_WLAN);
+	if (s->flags & LHP_SET_FL_EXIT_ON_STORE)
+		lhp_settings_exit(s);
+	else
+		lws_dlo_ui_dialog_changed(s->ui);
 
 	return 0;
 }
@@ -238,7 +329,9 @@ edit_hostname(lhp_settings_t *s)
 {
 	char hn[LWS_NETDEV_HOSTNAME_MAX + 1];
 
-	if (lws_dlo_ui_edit(s->ui, "Hostname", LWS_NETDEV_HOSTNAME_MAX, 0)) {
+	/* however the edit is left, it's stored if it's valid */
+	if (lws_dlo_ui_edit(s->ui, "Hostname", LWS_NETDEV_HOSTNAME_MAX,
+			    LWS_DLO_UI_EDIT_KEEP)) {
 		lwsl_err("%s: unable to edit hostname\n", __func__);
 		return;
 	}
@@ -251,212 +344,196 @@ edit_hostname(lhp_settings_t *s)
 		lws_dlo_ui_edit_set(s->ui, hn);
 }
 
-void
+/* a link on the dialog was pressed */
+
+static void
+dlg_action(void *opaque, const char *href)
+{
+	lhp_settings_t *s = (lhp_settings_t *)opaque;
+	int n;
+
+	if (!strcmp(href, "host")) {
+		edit_hostname(s);
+		return;
+	}
+
+	n = ap_of(s, href, "set:");
+	if (n >= 0) {
+		lws_strncpy(s->ssid, s->aps[n].ssid, sizeof(s->ssid));
+		if (s->aps[n].open)
+			/* there's nothing to type */
+			store(s, "");
+		else
+			edit_passphrase(s);
+		return;
+	}
+
+	n = ap_of(s, href, "forget:");
+	if (n < 0)
+		return;
+
+	if (lws_netdev_credentials_remove(lws_netdevs_from_ctx(s->cx),
+					  s->aps[n].ssid))
+		lwsl_err("%s: unable to forget %s\n", __func__, s->aps[n].ssid);
+	else
+		lwsl_user("%s: forgot %s\n", __func__, s->aps[n].ssid);
+
+	lws_dlo_ui_dialog_changed(s->ui);
+}
+
+int
 lhp_settings_init(lhp_settings_t *s, struct lws_context *cx,
 		  lws_netdev_instance_wifi_t *wnd,
 		  lhp_settings_exit_cb_t exit_cb, void *opaque)
 {
+	lws_dlo_filesystem_t f;
+	size_t n;
+
 	memset(s, 0, sizeof(*s));
 	s->cx = cx;
 	s->wnd = wnd;
 	s->exit_cb = exit_cb;
 	s->opaque = opaque;
+
+	memset(&f, 0, sizeof(f));
+	for (n = 0; n < LWS_ARRAY_SIZE(icons); n++) {
+		f.name = icons[n].name;
+		f.data = icons[n].data;
+		f.len = icons[n].len;
+		if (!lws_dlo_file_register(cx, &f))
+			return 1;
+	}
+
+	return 0;
+}
+
+void
+lhp_settings_deinit(lhp_settings_t *s)
+{
+	size_t n;
+
+	lhp_settings_close(s);
+
+	for (n = 0; n < LWS_ARRAY_SIZE(icons); n++)
+		lws_dlo_file_unregister_by_name(s->cx, icons[n].name);
 }
 
 void
 lhp_settings_open(lhp_settings_t *s, struct lws_dlo_ui *ui,
-		  lhp_settings_page_t page, unsigned int flags)
+		  unsigned int flags)
 {
+	lws_dlo_ui_dialog_t d;
+
 	s->ui = ui;
 	s->flags = (uint8_t)flags;
 	s->editing = LHP_SET_EDIT_NONE;
 
-	show(s, page == LHP_SET_WLAN ? LHP_SET_WLAN : LHP_SET_TOP);
+	memset(&d, 0, sizeof(d));
+	d.html = dlg_html;
+	d.action = dlg_action;
+	d.opaque = s;
+	d.css = dlg_css;
+	d.html_max = LHP_SET_AP_MAX * AP_ROW_HTML_MAX + 512;
+
+	lws_dlo_ui_set_title(ui, "Settings");
+	if (lws_dlo_ui_dialog(ui, &d)) {
+		lwsl_err("%s: unable to show the dialog\n", __func__);
+		return;
+	}
+
+	s->shown = 1;
 }
 
 void
 lhp_settings_close(lhp_settings_t *s)
 {
-	s->page = LHP_SET_NONE;
+	if (!s->shown)
+		return;
+
+	if (s->editing != LHP_SET_EDIT_NONE)
+		/* the edit is told it ended while the settings still own it */
+		lws_dlo_ui_edit_abandon(s->ui);
+
+	s->shown = 0;
 	s->editing = LHP_SET_EDIT_NONE;
+}
+
+void
+lhp_settings_exit(lhp_settings_t *s)
+{
+	if (!s->shown)
+		return;
+
+	lhp_settings_close(s);
+
+	if (s->exit_cb)
+		s->exit_cb(s->opaque);
 }
 
 int
 lhp_settings_shown(const lhp_settings_t *s)
 {
-	return s->page != LHP_SET_NONE;
+	return s->shown;
 }
 
 void
 lhp_settings_scan(lhp_settings_t *s)
 {
-	if (s->page == LHP_SET_WLAN && scan_sig(s) != s->scan_sig)
-		show(s, LHP_SET_WLAN);
-}
-
-int
-lhp_settings_row(lhp_settings_t *s, int idx, lws_dlo_ui_row_t *row)
-{
-	char hn[LWS_NETDEV_HOSTNAME_MAX + 1];
-
-	switch (s->page) {
-	case LHP_SET_TOP:
-		switch (idx) {
-		case TOP_ROW_WLAN:
-			lws_strncpy(row->text, "WLAN", sizeof(row->text));
-			return 0;
-		case TOP_ROW_HOSTNAME:
-			if (lws_netdev_hostname_get(lws_netdevs_from_ctx(s->cx),
-						    hn, sizeof(hn)) < 0)
-				lws_strncpy(hn, "-", sizeof(hn));
-			lws_snprintf(row->text, sizeof(row->text),
-				     "Hostname: %s", hn);
-			return 0;
-		}
-		return 1;
-
-	case LHP_SET_WLAN:
-		if (!s->ap_count && !idx) {
-			/* there's nothing to pick, but say why */
-			lws_strncpy(row->text, s->wnd ? "Scanning..." :
-						"No WLAN", sizeof(row->text));
-			row->state = LWS_DLO_UI_ROW_DIM;
-			return 0;
-		}
-		if (idx < 0 || idx >= s->ap_count)
-			return 1;
-
-		lws_strncpy(row->text, s->aps[idx].ssid, sizeof(row->text));
-		/*
-		 * The ones we can join are highlighted, those we have
-		 * credentials for but can't see now are dimmed
-		 */
-		if (!s->aps[idx].seen)
-			row->state = LWS_DLO_UI_ROW_DIM;
-		else if (s->aps[idx].stored)
-			row->state = LWS_DLO_UI_ROW_FOCUS;
-		return 0;
-
-	case LHP_SET_AP:
-		switch (ap_row(s, idx)) {
-		case AP_ROW_PASSPHRASE:
-			lws_strncpy(row->text, "Change passphrase",
-				    sizeof(row->text));
-			return 0;
-		case AP_ROW_FORGET:
-			lws_strncpy(row->text, "Forget", sizeof(row->text));
-			return 0;
-		}
-		return 1;
-
-	default:
-		return 1;
-	}
+	if (s->shown && scan_sig(s) != s->scan_sig)
+		lws_dlo_ui_dialog_changed(s->ui);
 }
 
 void
-lhp_settings_pick(lhp_settings_t *s, int idx)
+lhp_settings_changed(lhp_settings_t *s)
 {
-	switch (s->page) {
-	case LHP_SET_TOP:
-		if (idx == TOP_ROW_WLAN)
-			show(s, LHP_SET_WLAN);
-		else if (idx == TOP_ROW_HOSTNAME)
-			edit_hostname(s);
-		break;
-
-	case LHP_SET_WLAN:
-		if (idx < 0 || idx >= s->ap_count)
-			break;
-
-		lws_strncpy(s->ssid, s->aps[idx].ssid, sizeof(s->ssid));
-		s->ssid_open = s->aps[idx].open;
-
-		if (s->aps[idx].stored) {
-			show(s, LHP_SET_AP);
-			break;
-		}
-
-		if (s->ssid_open)
-			store(s, "");
-		else
-			edit_passphrase(s);
-		break;
-
-	case LHP_SET_AP:
-		if (ap_row(s, idx) == AP_ROW_PASSPHRASE) {
-			edit_passphrase(s);
-			break;
-		}
-		if (ap_row(s, idx) != AP_ROW_FORGET)
-			break;
-
-		if (lws_netdev_credentials_remove(lws_netdevs_from_ctx(s->cx),
-						  s->ssid))
-			lwsl_err("%s: unable to forget %s\n", __func__,
-				 s->ssid);
-		else
-			lwsl_user("%s: forgot %s\n", __func__, s->ssid);
-		show(s, LHP_SET_WLAN);
-		break;
-
-	default:
-		break;
-	}
+	if (s->shown)
+		lws_dlo_ui_dialog_changed(s->ui);
 }
 
-/* pressing the title goes back a page, or from "Settings", out of them */
+/* pressing the title closes the settings */
 
 void
 lhp_settings_title(lhp_settings_t *s)
 {
-	switch (s->page) {
-	case LHP_SET_AP:
-		show(s, LHP_SET_WLAN);
-		break;
-	case LHP_SET_WLAN:
-		show(s, LHP_SET_TOP);
-		break;
-	case LHP_SET_TOP:
-		finish(s);
-		break;
-	default:
-		break;
-	}
+	lhp_settings_exit(s);
 }
 
-/* text is what was typed, a secret if it's a passphrase, or NULL if abandoned */
+/*
+ * text is what was typed: a secret if it's a passphrase, or NULL if that was
+ * abandoned.  A hostname is given however its edit ended.
+ */
 
 int
 lhp_settings_done(lhp_settings_t *s, const char *text)
 {
 	lhp_settings_edit_t e = (lhp_settings_edit_t)s->editing;
 
-	if (!text) {
-		/* back to the page it was edited from */
-		s->editing = LHP_SET_EDIT_NONE;
+	/* the edit is over, unless we keep it, before anything else happens */
+	s->editing = LHP_SET_EDIT_NONE;
+
+	if (!text)
 		return 0;
-	}
 
 	switch (e) {
 	case LHP_SET_EDIT_PASSPHRASE:
-		if (strlen(text) < PASSPHRASE_MIN)
-			/* keep typing */
+		if (strlen(text) < PASSPHRASE_MIN || store(s, text)) {
+			/* keep typing, or try again */
+			s->editing = (uint8_t)e;
 			return 1;
-		if (store(s, text))
-			/* keep it, to try again */
-			return 1;
-		s->editing = LHP_SET_EDIT_NONE;
+		}
 		return 0;
 
 	case LHP_SET_EDIT_HOSTNAME:
 		/* nothing typed goes back to the default hostname */
-		if (lws_netdev_hostname_set(lws_netdevs_from_ctx(s->cx), text))
-			/* not a valid hostname: keep editing it */
+		if (lws_netdev_hostname_set(lws_netdevs_from_ctx(s->cx), text)) {
+			/*
+			 * Not a valid hostname: after Done, it's still being
+			 * edited; otherwise the edit ends, leaving it as it was
+			 */
+			s->editing = (uint8_t)e;
 			return 1;
-		s->editing = LHP_SET_EDIT_NONE;
-		/* the hostname row says what it is now */
-		show(s, LHP_SET_TOP);
+		}
+		/* the dialog shows it, being laid out again after the edit */
 		return 0;
 
 	default:

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+ <!-- COG: set or change it, eg, an AP's passphrase: a cog -->
+ <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#505a64">
+  <circle cx="12" cy="12" r="6" stroke-width="2" fill="#505a64" fill-opacity="0.15"/>
+  <circle cx="12" cy="12" r="2" stroke-width="1.5"/>
+  <path d="M12 2.5V5.5M12 18.5V21.5M2.5 12H5.5M18.5 12H21.5M5.3 5.3L7.4 7.4M16.6 16.6L18.7 18.7M5.3 18.7L7.4 16.6M16.6 7.4L18.7 5.3" stroke-width="2.5"/>
+ </g>
+</svg>

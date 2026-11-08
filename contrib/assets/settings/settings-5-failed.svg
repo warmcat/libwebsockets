@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+ <!-- FAILED: the last try failed for some other reason, eg, the AP didn't
+      answer: triangle with an exclamation mark -->
+ <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#d07000">
+  <path d="M12 3L21.5 20H2.5Z" stroke-width="1.5" fill="#d07000" fill-opacity="0.15"/>
+  <path d="M12 9V14" stroke-width="2.5"/>
+ </g>
+ <circle cx="12" cy="17" r="1.25" fill="#d07000"/>
+</svg>

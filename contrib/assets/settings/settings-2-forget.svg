@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+ <!-- FORGET: throw away what is stored, eg, an AP's credentials: a bin -->
+ <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#b03030">
+  <path d="M4 6.5H20M9.5 6.5V4H14.5V6.5" stroke-width="2"/>
+  <path d="M6 6.5L7 20.5H17L18 6.5" stroke-width="2" fill="#b03030" fill-opacity="0.15"/>
+  <path d="M10 10V17M14 10V17" stroke-width="1.5"/>
+ </g>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+ <!-- REFUSED: the last try was refused, eg, the AP rejected the passphrase:
+      circle with a cross -->
+ <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#c03030">
+  <circle cx="12" cy="12" r="9" stroke-width="1.5" fill="#c03030" fill-opacity="0.15"/>
+  <path d="M8.5 8.5L15.5 15.5M15.5 8.5L8.5 15.5" stroke-width="2.5"/>
+ </g>
+</svg>
