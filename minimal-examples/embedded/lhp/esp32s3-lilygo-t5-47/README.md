@@ -7,7 +7,7 @@ transport, `lws-esp32-epd-direct.h`: the panel's source driver data bus is
 the S3's i80 LCD bus, the gate clock comes from an RMT channel, and the other
 control lines and the panel supplies are on a 74HCT4094 shift register.
 
-It's black and white only for now, and the touch panel isn't supported yet.
+It's black and white only for now.
 
 ## Choosing the IO routing
 
@@ -38,6 +38,27 @@ GPIO|Signal|Suggested scope channel
 D1 - D7 are on 36 - 42, the 4094 data and clock on 34 and 35, and SPV on 47.
 The watch has no 4094, so what would be on its outputs (XOE, MODE1, the
 supply enables) isn't seen.  Its button is BOOT, on GPIO0.
+
+## Touch
+
+The LilyGo boards' touch panel is a Goodix GT911, on its own i2c bus, SDA on
+GPIO18 and SCL on GPIO17, with its INT on GPIO47 and its reset not
+connected.  It uses `lws-gt911-i2c.h`.  The watch routing has no touch,
+since it uses those gpios for the panel signals.
+
+Pressing a link follows it, and the page shown can be dragged, to see the
+rest of one bigger than the display.  Each drag redraws the panel, as an
+update of only the pixels that change.
+
+When it comes up, the driver logs what the chip says about itself, its
+address, the resolution and orientation it reports in, and how its INT is
+configured, something like
+
+```
+N: gt911_describe: ts: GT911 fw 0x1060 at 0x5d: config v65, 540 x 960, 5 contacts, INT falling
+```
+
+and warns if the resolution isn't the `.wh_native` in `main/devices.c`.
 
 ## How the passes are run
 
@@ -133,3 +154,9 @@ code, and need checking on a real board:
 
  - the waveforms in `main/devices.c`, which give pixels about the drive
    LilyGo's own code does, but in fewer, longer passes
+
+ - the touch panel's resolution and orientation, `.wh_native` and `.flags`
+   in `main/devices.c`, and that its INT, configured in the chip, works
+   with a falling edge.  These follow LilyGo's example code, which is for
+   the S3 boards generally; it's not checked yet against the V2.3 or V2.4
+   schematic

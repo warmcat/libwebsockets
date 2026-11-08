@@ -27,6 +27,11 @@
  *
  * The watch routing is the default for now.  The real boards need
  * sdkconfig changed for their 8MB octal PSRAM, see the README.
+ *
+ * On the LilyGo boards, there's a GT911 touch panel over the display, on
+ * its own i2c bus.  The watch's gpios for that are used for the panel
+ * signals, and its own touch panel is something else, so the watch routing
+ * has no touch.
  */
 
 #include "../../main.h"
@@ -380,6 +385,54 @@ static const lws_display_epd_direct_t disp = {
 	.power_off_idle_ms		= 1000,
 };
 
+#if T547_ROUTING != T547_ROUTING_WATCH
+
+/*
+ * i2c for the touch panel, bitbanged on GPIO18 (SDA) and GPIO17 (SCL)
+ */
+
+static void
+esp32_i2c_delay(void)
+{
+	volatile int n = 0;
+
+	while (n < 2)
+		n++;
+}
+
+static const lws_bb_i2c_t li2c = {
+	.bb_ops				= lws_bb_i2c_ops,
+	.scl				= GPIO_NUM_17,
+	.sda				= GPIO_NUM_18,
+	.gpio				= &lws_gpio_plat,
+	.delay				= esp32_i2c_delay
+};
+
+/*
+ * The GT911 touch panel, its INT on GPIO47 and its reset not connected.
+ * It reports the panel as portrait, 540 x 960, so its coordinates are
+ * swapped and y inverted onto the landscape display, following LilyGo's
+ * example code.  At init it logs the resolution and orientation it says it
+ * has, and its i2c address, which the driver probes for.
+ */
+
+static const lws_touch_gt911_t touch = {
+	.touch = {
+		lws_touch_gt911_ops,
+		.gpio			= &lws_gpio_plat,
+		.name			= "ts",
+		.wh_native		= { 540, 960 },
+		.wh_px			= { 960, 540 },
+		.irq_gpio		= GPIO_NUM_47,
+		.irq_edge		= LWSGGPIO_IRQ_FALLING,
+		.flags			= LWSTOUCH_FL_SWAP_XY |
+					  LWSTOUCH_FL_INVERT_Y,
+	},
+	.i2c				= &li2c.bb_ops,
+};
+
+#endif
+
 /*
  * Settings stored in platform nv
  */
@@ -460,6 +513,17 @@ init_plat_devices(struct lws_context *cx)
 		return 1;
 	}
 
+#if T547_ROUTING != T547_ROUTING_WATCH
+	/* ... and i2c and the touch panel over it */
+
+	li2c.bb_ops.init(&li2c.bb_ops);
+	tcs = lws_touch_create(cx, &touch.touch);
+	if (!tcs) {
+		lwsl_err("%s: could not create touch\n", __func__);
+		return 1;
+	}
+#endif
+
 	return 0;
 }
 
@@ -471,6 +535,7 @@ init_plat_devices(struct lws_context *cx)
 void
 deinit_plat_devices(struct lws_context *cx)
 {
+	lws_touch_destroy(&tcs);
 	lws_display_epd_direct_destroy(&lds);
 
 	lws_button_controller_destroy(bcs);
