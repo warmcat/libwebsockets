@@ -175,6 +175,15 @@ typedef enum {
  * Generic WIFI credentials
  */
 
+/* how the last attempt to join an AP with its credentials went */
+
+typedef enum {
+	LWS_WIFI_JOIN_UNKNOWN,		/* not tried since they were stored */
+	LWS_WIFI_JOIN_OK,		/* joined it and got an address */
+	LWS_WIFI_JOIN_AUTH_FAILED,	/* it refused us, eg, wrong passphrase */
+	LWS_WIFI_JOIN_FAILED,		/* couldn't join it for another reason */
+} lws_wifi_join_t;
+
 typedef struct lws_wifi_creds {
 	lws_dll2_t			list;
 
@@ -189,6 +198,11 @@ typedef struct lws_wifi_creds {
 	char				passphrase[64];
 	char				ssid[33];
 	uint8_t				alg;
+	uint8_t				last_join;
+	/**< lws_wifi_join_t: how the last attempt to join the AP went.  It
+	 * goes back to LWS_WIFI_JOIN_UNKNOWN when the passphrase changes */
+	uint8_t				internet;
+	/**< nonzero once captive portal detection passed while joined to it */
 } lws_wifi_creds_t;
 
 /*
@@ -210,13 +224,27 @@ typedef struct lws_netdev_instance_wifi {
 
 	uint8_t				flags;
 	uint8_t				state; /* lws_netdev_wifi_state_t */
+	uint8_t				joined;
+	/**< current_attempt_ssid was joined and gave us an address */
 } lws_netdev_instance_wifi_t;
 
 /*
  * Logical scan results sorted list item
  */
 
-#define LWS_WIFI_AUTHMODE_OPEN		0
+/* how an AP authenticates, as the scan saw it */
+
+typedef enum {
+	LWS_WIFI_AUTH_OPEN,		/* no passphrase */
+	LWS_WIFI_AUTH_WEP,
+	LWS_WIFI_AUTH_WPA,
+	LWS_WIFI_AUTH_WPA2,
+	LWS_WIFI_AUTH_WPA_WPA2,
+	LWS_WIFI_AUTH_WPA3,
+	LWS_WIFI_AUTH_WPA2_WPA3,
+	LWS_WIFI_AUTH_ENTERPRISE,	/* 802.1X, not a passphrase */
+	LWS_WIFI_AUTH_OTHER,		/* none of those, or unknown */
+} lws_wifi_auth_t;
 
 typedef struct lws_wifi_sta {
 	lws_dll2_t			list;
@@ -231,8 +259,7 @@ typedef struct lws_wifi_sta {
 	lws_wifi_rssi_t			rssi[8];
 	int16_t				rssi_avg;
 	uint8_t				authmode;
-	/**< LWS_WIFI_AUTHMODE_OPEN if no passphrase is needed, otherwise the
-	 * platform's own nonzero value for how the AP authenticates */
+	/**< lws_wifi_auth_t */
 
 	uint8_t				rssi_count;
 	uint8_t				rssi_next;
@@ -261,7 +288,8 @@ lws_netdev_credentials_settings_get(lws_netdevs_t *nds);
  * \param passphrase: its passphrase, "" for an open AP
  *
  * Adds the credentials to those stored in the settings, replacing any for
- * the same SSID, and stores them all again.  Credentials for any number of
+ * the same SSID, and stores them all again.  If the passphrase changed, how
+ * the last attempt to join went is forgotten.  Credentials for any number of
  * APs can be stored: the wifi netdev joins the strongest AP it sees that it
  * has credentials for, trying the others in turn if that fails.  It scans
  * every few seconds while it is not joined, so it finds the AP by itself.
@@ -318,6 +346,30 @@ lws_netdev_credentials_hold(lws_netdevs_t *nds);
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_netdev_credentials_release(lws_netdevs_t *nds);
+
+/**
+ * lws_wifi_auth_name() - a short name for how an AP authenticates
+ *
+ * \param auth: lws_wifi_auth_t
+ *
+ * Returns eg, "WPA2", or "Open", for showing to the user.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_wifi_auth_name(lws_wifi_auth_t auth);
+
+/**
+ * lws_netdev_wifi_link_lost() - the platform lost, or failed to make, the link
+ *
+ * \param wnd: the wifi netdev
+ * \param auth_failed: nonzero if the AP refused us, eg, the passphrase is wrong
+ *
+ * The platform calls this when it loses the association to the AP it was
+ * trying, current_attempt_ssid, or fails to make it.  If the AP refused us, or
+ * we never got an address from it this time, it's recorded with its
+ * credentials, see lws_wifi_creds_t .last_join.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_netdev_wifi_link_lost(lws_netdev_instance_wifi_t *wnd, int auth_failed);
 
 /*
  * The hostname, at most this many characters

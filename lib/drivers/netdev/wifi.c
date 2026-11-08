@@ -164,6 +164,7 @@ lws_netdev_wifi_scan_select(lws_netdev_instance_wifi_t *wnd)
 		lws_strncpy(wnd->current_attempt_ssid, (const char *)&pw[1],
 			    sizeof(wnd->current_attempt_ssid));
 		memcpy(wnd->current_attempt_bssid, pw->bssid, LWS_ETH_ALEN);
+		wnd->joined = 0;
 		wnd->inst.ops->connect(&wnd->inst, pc->ssid, pc->passphrase,
 					pw->bssid);
 	} else {
@@ -252,6 +253,7 @@ lws_netdev_wifi_redo_last(lws_netdev_instance_wifi_t *wnd)
 	lws_strncpy(wnd->current_attempt_ssid, ssid_copy,
 		    sizeof(wnd->current_attempt_ssid));
 	memcpy(wnd->current_attempt_bssid, bssid, LWS_ETH_ALEN);
+	wnd->joined = 0;
 	wnd->inst.ops->connect(&wnd->inst, ssid_copy, pp, bssid);
 
 	lws_netdev_credentials_release(netdevs);

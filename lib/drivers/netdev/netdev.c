@@ -29,6 +29,8 @@ static const lws_struct_map_t lsm_wifi_creds[] = {
 	LSM_CARRAY	(lws_wifi_creds_t, passphrase,		"passphrase"),
 	LSM_UNSIGNED	(lws_wifi_creds_t, alg,			"alg"),
 	LSM_CARRAY	(lws_wifi_creds_t, bssid_hex,		"bssid"),
+	LSM_UNSIGNED	(lws_wifi_creds_t, last_join,		"last_join"),
+	LSM_UNSIGNED	(lws_wifi_creds_t, internet,		"internet"),
 };
 
 static const lws_struct_map_t lsm_netdev_credentials[] = {
@@ -56,11 +58,11 @@ lws_netdev_credentials_settings_set(lws_netdevs_t *nds)
 
 	/*
 	 * Each one, if every character of its ssid and passphrase had to be
-	 * escaped as \uXXXX, and its names, alg and bssid
+	 * escaped as \uXXXX, and its names, alg, bssid and history
 	 */
 	max = 64 + lws_dll2_count(&nds->owner_creds) *
 		(6 * (sizeof(((lws_wifi_creds_t *)0)->ssid) +
-		      sizeof(((lws_wifi_creds_t *)0)->passphrase)) + 96);
+		      sizeof(((lws_wifi_creds_t *)0)->passphrase)) + 128);
 
 	buf = lws_malloc(max, __func__);
 	if (!buf)
@@ -257,6 +259,9 @@ lws_netdev_credentials_add(lws_netdevs_t *nds, const char *ssid,
 
 	/* any BSS of it */
 	memset(c->bssid, 0, sizeof(c->bssid));
+	/* a different passphrase hasn't been tried yet */
+	if (strcmp(c->passphrase, passphrase))
+		c->last_join = LWS_WIFI_JOIN_UNKNOWN;
 	lws_strncpy(c->passphrase, passphrase, sizeof(c->passphrase));
 
 	r = lws_netdev_credentials_settings_set(nds);
@@ -289,6 +294,64 @@ lws_netdev_credentials_remove(lws_netdevs_t *nds, const char *ssid)
 	lws_netdev_credentials_release(nds);
 
 	return r;
+}
+
+/*
+ * Record how joining the AP went with its credentials, if there are any for
+ * it.  They're only stored again if that changed what was stored, so the
+ * flash isn't written each time we join.  join is lws_wifi_join_t, or -1 to
+ * leave it, and internet is nonzero once it reached the internet.
+ */
+
+static void
+creds_note(lws_netdevs_t *nds, const char *ssid, int join, int internet)
+{
+	lws_wifi_creds_t *c;
+
+	if (!ssid[0])
+		return;
+
+	lws_netdev_credentials_hold(nds);
+
+	c = creds_by_ssid(nds, ssid);
+	if (c && ((join >= 0 && c->last_join != (uint8_t)join) ||
+		  (internet && !c->internet))) {
+		if (join >= 0)
+			c->last_join = (uint8_t)join;
+		if (internet)
+			c->internet = 1;
+		lws_netdev_credentials_settings_set(nds);
+	}
+
+	lws_netdev_credentials_release(nds);
+}
+
+void
+lws_netdev_wifi_link_lost(lws_netdev_instance_wifi_t *wnd, int auth_failed)
+{
+	lws_netdevs_t *nds = lws_netdevs_from_ndi(&wnd->inst);
+
+	/* losing a link we had made is nothing against its credentials */
+	if (auth_failed || !wnd->joined)
+		creds_note(nds, wnd->current_attempt_ssid,
+			   auth_failed ? LWS_WIFI_JOIN_AUTH_FAILED :
+					 LWS_WIFI_JOIN_FAILED, 0);
+
+	wnd->joined = 0;
+}
+
+const char *
+lws_wifi_auth_name(lws_wifi_auth_t auth)
+{
+	static const char * const names[] = {
+		"Open", "WEP", "WPA", "WPA2", "WPA/2", "WPA3", "WPA2/3",
+		"802.1X"
+	};
+
+	if ((unsigned int)auth >= LWS_ARRAY_SIZE(names))
+		return "?";
+
+	return names[auth];
 }
 
 int
@@ -472,6 +535,24 @@ lws_netdev_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 
 	/* deal with anything from whole-network perspective */
 
+	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "cpd") &&
+	    !lws_json_simple_strcmp(buf, len, "\"result\":", "OK")) {
+		/* the AP we're joined to reaches the internet */
+		lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(
+						&ctx->netdevs.owner)) {
+			lws_netdev_instance_t *ni = lws_container_of(p,
+						lws_netdev_instance_t, list);
+			lws_netdev_instance_wifi_t *wnd =
+					(lws_netdev_instance_wifi_t *)ni;
+
+			if (ni->type == LWSNDTYP_WIFI && wnd->joined)
+				creds_note(&ctx->netdevs,
+					   wnd->current_attempt_ssid, -1, 1);
+		} lws_end_foreach_dll(p);
+
+		return 0;
+	}
+
 	/* pass through netdev-specific messages to correct platform handler */
 
 	iface = lws_json_simple_find(buf, len, "\"if\":", &al);
@@ -503,6 +584,12 @@ lws_netdev_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 							"\"ipv6\":", &al);
 				if (!ev)
 					return 0;
+
+				/* its credentials work */
+				wnd->joined = 1;
+				creds_note(&ctx->netdevs,
+					   wnd->current_attempt_ssid,
+					   LWS_WIFI_JOIN_OK, 0);
 
 				lws_snprintf(setname, sizeof(setname),
 						"netdev.last.%s", iface);

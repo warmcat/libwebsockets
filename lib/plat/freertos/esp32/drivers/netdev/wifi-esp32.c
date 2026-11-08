@@ -134,6 +134,27 @@ lws_netdev_wifi_connect_plat(lws_netdev_instance_t *nd, const char *ssid,
 }
 
 /*
+ * How the AP authenticates, generically.  Only the names every supported
+ * esp-idf version has are used, the others are LWS_WIFI_AUTH_OTHER
+ */
+
+static lws_wifi_auth_t
+lws_esp32_auth(wifi_auth_mode_t a)
+{
+	switch (a) {
+	case WIFI_AUTH_OPEN:		return LWS_WIFI_AUTH_OPEN;
+	case WIFI_AUTH_WEP:		return LWS_WIFI_AUTH_WEP;
+	case WIFI_AUTH_WPA_PSK:		return LWS_WIFI_AUTH_WPA;
+	case WIFI_AUTH_WPA2_PSK:	return LWS_WIFI_AUTH_WPA2;
+	case WIFI_AUTH_WPA_WPA2_PSK:	return LWS_WIFI_AUTH_WPA_WPA2;
+	case WIFI_AUTH_WPA2_ENTERPRISE:	return LWS_WIFI_AUTH_ENTERPRISE;
+	case WIFI_AUTH_WPA3_PSK:	return LWS_WIFI_AUTH_WPA3;
+	case WIFI_AUTH_WPA2_WPA3_PSK:	return LWS_WIFI_AUTH_WPA2_WPA3;
+	default:			return LWS_WIFI_AUTH_OTHER;
+	}
+}
+
+/*
  * This is called from the SMD / lws thread context, after we heard there were
  * scan results on this netdev
  */
@@ -208,10 +229,7 @@ lws_esp32_scan_update(lws_netdev_instance_wifi_t *wnd)
 				    lws_netdev_wifi_rssi_sort_compare);
 
 		w->ch = ar->primary;
-		/* only open must be LWS_WIFI_AUTHMODE_OPEN, the rest nonzero */
-		w->authmode = ar->authmode == WIFI_AUTH_OPEN ?
-				LWS_WIFI_AUTHMODE_OPEN :
-				(uint8_t)(ar->authmode ? ar->authmode : 0xff);
+		w->authmode = (uint8_t)lws_esp32_auth(ar->authmode);
 		w->last_seen = now;
 
 next:
@@ -246,6 +264,25 @@ lws_netdev_wifi_scan_plat(lws_netdev_instance_t *nd)
  * the esp-idf symbol names for them change between versions.  1 - 66 are the
  * 802.11 reason codes, 200+ are esp-idf's own.
  */
+
+/*
+ * The disconnect reasons that mean the AP didn't accept us, which with a
+ * passphrase usually means it's wrong: the 4-way handshake fails or times out
+ */
+
+static int
+lws_esp32_reason_is_auth(unsigned int r)
+{
+	switch (r) {
+	case 2:		/* auth expired */
+	case 15:	/* 4-way handshake timeout */
+	case 202:	/* auth fail */
+	case 204:	/* handshake timeout */
+		return 1;
+	default:
+		return 0;
+	}
+}
 
 static const char *
 lws_esp32_disconnect_reason(unsigned int r)
@@ -591,6 +628,10 @@ lws_esp32_link_lost(lws_netdev_instance_wifi_esp32_t *wnde32, void *buf,
 	lwsl_notice("%s: %s: disconnected, reason %u (%s), rssi %d\n",
 		    __func__, wnde32->wnd.inst.name, reason,
 		    lws_esp32_disconnect_reason(reason), rssi);
+
+	/* recorded against the AP's credentials if it refused us */
+	lws_netdev_wifi_link_lost(&wnde32->wnd,
+				  lws_esp32_reason_is_auth(reason));
 
 	lws_sul_cancel(&wnde32->sul_link_stats);
 

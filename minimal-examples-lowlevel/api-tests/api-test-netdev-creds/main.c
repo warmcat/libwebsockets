@@ -42,7 +42,22 @@
  *
  *  - setting "" forgets it, back to the default
  *
- * and that a wifi netdev's rssi is asked of it, and other netdevs have none
+ * and that a wifi netdev's rssi is asked of it, and other netdevs have none.
+ *
+ * For each AP's history kept with its credentials, that
+ *
+ *  - it starts unknown, and failing to join is recorded, as a refusal if the
+ *    AP refused us, but losing a link that was made isn't
+ *
+ *  - with SMD, getting an address on the AP records it as joined, and
+ *    captive portal detection passing then records it reached the internet
+ *
+ *  - it's only stored again when it changed
+ *
+ *  - storing a different passphrase forgets how joining went, but the same
+ *    one doesn't
+ *
+ * and that the AP authentication types have names.
  */
 
 #include <libwebsockets.h>
@@ -59,6 +74,8 @@ static struct {
 } blobs[BLOBS];
 
 static int fail;
+/* how many times the credentials were stored */
+static int creds_writes;
 
 /* a netdev, as far as the hostname and rssi go */
 
@@ -82,7 +99,15 @@ fake_rssi(struct lws_netdev_instance *nd, int *rssi)
 	return 0;
 }
 
+static int
+fake_event(struct lws_netdev_instance *nd, lws_usec_t timestamp, void *buf,
+	   size_t len)
+{
+	return 0;
+}
+
 static const lws_netdev_ops_t fake_ops = {
+	.event		= fake_event,
 	.hostname	= fake_hostname,
 	.rssi		= fake_rssi,
 };
@@ -123,6 +148,9 @@ mem_set(lws_settings_instance_t *si, const char *name, const uint8_t *src,
 	}
 	if (f < 0)
 		return 1;
+
+	if (!strcmp(name, "netdev.creds"))
+		creds_writes++;
 
 	free(blobs[f].data);
 	blobs[f].data = malloc(len);
@@ -182,11 +210,132 @@ stored(lws_netdevs_t *nds, const char *ssid, char *pp, size_t pp_len)
 	return found ? n : -n - 1;
 }
 
+/* how joining ssid went, as stored: returns nonzero if it isn't stored */
+
+static int
+history(lws_netdevs_t *nds, const char *ssid, int *join, int *internet)
+{
+	int r = 1;
+
+	lws_netdev_credentials_hold(nds);
+
+	lws_start_foreach_dll(struct lws_dll2 *, p,
+			      lws_dll2_get_head(&nds->owner_creds)) {
+		lws_wifi_creds_t *c = lws_container_of(p, lws_wifi_creds_t,
+						       list);
+
+		if (!strcmp(c->ssid, ssid)) {
+			*join = c->last_join;
+			*internet = c->internet;
+			r = 0;
+		}
+	} lws_end_foreach_dll(p);
+
+	lws_netdev_credentials_release(nds);
+
+	return r;
+}
+
+/* the AP history kept with the credentials, using a wifi netdev */
+
+static void
+test_history(struct lws_context *cx, lws_netdevs_t *nds)
+{
+	static lws_netdev_instance_wifi_t wnd;
+	int join, inet, w;
+
+	memset(&wnd, 0, sizeof(wnd));
+	wnd.inst.type = LWSNDTYP_WIFI;
+	wnd.inst.ops = &fake_ops;
+	wnd.inst.name = "wl0";
+	lws_dll2_add_tail(&wnd.inst.list, &nds->owner);
+
+	expect(!lws_netdev_credentials_add(nds, "home", "newpassphrase") &&
+	       !history(nds, "home", &join, &inet) &&
+	       join == LWS_WIFI_JOIN_UNKNOWN && !inet, "history unknown");
+
+	/* failing to join it */
+
+	lws_strncpy(wnd.current_attempt_ssid, "home",
+		    sizeof(wnd.current_attempt_ssid));
+	w = creds_writes;
+	lws_netdev_wifi_link_lost(&wnd, 1);
+	expect(!history(nds, "home", &join, &inet) &&
+	       join == LWS_WIFI_JOIN_AUTH_FAILED && creds_writes == w + 1,
+	       "auth failure recorded");
+	lws_netdev_wifi_link_lost(&wnd, 1);
+	expect(creds_writes == w + 1, "unchanged history not stored");
+	lws_netdev_wifi_link_lost(&wnd, 0);
+	expect(!history(nds, "home", &join, &inet) &&
+	       join == LWS_WIFI_JOIN_FAILED, "failure recorded");
+
+	/* an AP we have no credentials for has no history */
+
+	lws_strncpy(wnd.current_attempt_ssid, "elsewhere",
+		    sizeof(wnd.current_attempt_ssid));
+	w = creds_writes;
+	lws_netdev_wifi_link_lost(&wnd, 1);
+	expect(creds_writes == w && history(nds, "elsewhere", &join, &inet),
+	       "no history without credentials");
+
+#if defined(LWS_WITH_SYS_SMD)
+	{
+		lws_usec_t until = lws_now_usecs() + 5 * LWS_US_PER_SEC;
+
+		/*
+		 * An address on it: joined.  Captive portal detection is
+		 * bypassed, so it passes at once, and it reached the internet
+		 */
+
+		lws_strncpy(wnd.current_attempt_ssid, "home",
+			    sizeof(wnd.current_attempt_ssid));
+		lws_smd_msg_printf(cx, LWSSMDCL_NETWORK,
+				   "{\"type\":\"ipacq\",\"if\":\"wl0\","
+				   "\"ipv4\":\"192.168.1.2\"}");
+
+		do {
+			lws_service(cx, 0);
+			if (!history(nds, "home", &join, &inet) &&
+			    join == LWS_WIFI_JOIN_OK && inet)
+				break;
+		} while (lws_now_usecs() < until);
+
+		expect(join == LWS_WIFI_JOIN_OK && inet && wnd.joined,
+		       "joined and reached internet");
+
+		/* losing a link that was made is nothing against them */
+
+		w = creds_writes;
+		lws_netdev_wifi_link_lost(&wnd, 0);
+		expect(!history(nds, "home", &join, &inet) &&
+		       join == LWS_WIFI_JOIN_OK && !wnd.joined &&
+		       creds_writes == w, "link lost after joining");
+
+		/* the same passphrase keeps it, a new one forgets the join */
+
+		expect(!lws_netdev_credentials_add(nds, "home", "newpassphrase") &&
+		       !history(nds, "home", &join, &inet) &&
+		       join == LWS_WIFI_JOIN_OK && inet, "same passphrase");
+		expect(!lws_netdev_credentials_add(nds, "home", "another1") &&
+		       !history(nds, "home", &join, &inet) &&
+		       join == LWS_WIFI_JOIN_UNKNOWN && inet, "new passphrase");
+	}
+#endif
+
+	lws_dll2_remove(&wnd.inst.list);
+
+	expect(!strcmp(lws_wifi_auth_name(LWS_WIFI_AUTH_OPEN), "Open") &&
+	       !strcmp(lws_wifi_auth_name(LWS_WIFI_AUTH_WPA2), "WPA2") &&
+	       !strcmp(lws_wifi_auth_name(LWS_WIFI_AUTH_OTHER), "?") &&
+	       !strcmp(lws_wifi_auth_name((lws_wifi_auth_t)200), "?"),
+	       "auth names");
+}
+
 int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	char pp[64], ssid[33], big[64];
+	char pp[64], ssid[33], big[64], toolong[65];
 	struct lws_context *cx;
 	lws_netdevs_t *nds;
 	size_t heap;
@@ -195,6 +344,8 @@ main(int argc, const char **argv)
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.port = CONTEXT_PORT_NO_LISTEN;
+	/* the AP history test has captive portal detection pass at once */
+	info.options |= LWS_SERVER_OPTION_CPD_BYPASS;
 
 	lwsl_user("LWS API Test - netdev credentials\n");
 
@@ -259,12 +410,16 @@ main(int argc, const char **argv)
 
 	/* too long */
 
-	memset(ssid, 'a', sizeof(ssid));
-	expect(lws_netdev_credentials_add(nds, ssid, "x") &&
+	/* one character longer than an SSID can be */
+	memset(big, 'a', sizeof(ssid));
+	big[sizeof(ssid)] = '\0';
+	expect(lws_netdev_credentials_add(nds, big, "x") &&
 	       lws_netdev_credentials_add(nds, NULL, "x") &&
 	       lws_netdev_credentials_add(nds, "", "x"), "bad ssid refused");
-	memset(big, 'b', sizeof(big));
-	expect(lws_netdev_credentials_add(nds, "home", big) &&
+	/* one character longer than a passphrase can be */
+	memset(toolong, 'b', sizeof(toolong) - 1);
+	toolong[sizeof(toolong) - 1] = '\0';
+	expect(lws_netdev_credentials_add(nds, "home", toolong) &&
 	       lws_netdev_credentials_add(nds, "home", NULL),
 	       "bad passphrase refused");
 	expect(stored(nds, "home", pp, sizeof(pp)) == 2 &&
@@ -376,6 +531,14 @@ main(int argc, const char **argv)
 	expect(!nds->ac_creds && !nds->refcount_creds &&
 	       !lws_dll2_get_head(&nds->owner_creds), "freed");
 	expect(lws_get_allocated_heap() == heap, "heap");
+
+	/*
+	 * Last, since the context acts on the address the netdev gets too,
+	 * eg, it starts captive portal detection, which holds some heap
+	 */
+	test_history(cx, nds);
+	expect(!nds->ac_creds && !nds->refcount_creds &&
+	       !lws_dll2_get_head(&nds->owner_creds), "history: freed");
 
 	lws_settings_deinit(&nds->si);
 	lws_context_destroy(cx);

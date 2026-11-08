@@ -42,6 +42,25 @@ and for the hostname, `lws_netdev_hostname_get()` and
 and that `lws_netdev_wifi_rssi()` asks a wifi netdev, and other netdevs have
 none.
 
+For the history of each AP kept with its credentials (`lws_wifi_creds_t`
+`.last_join` and `.internet`), that
+
+ - it starts unknown, and `lws_netdev_wifi_link_lost()` records failing to
+   join, as a refusal if the AP refused us, but losing a link that was made
+   isn't held against the AP
+
+ - with `LWS_WITH_SYS_SMD`, the netdev getting an address on the AP records
+   it as joined, and captive portal detection passing then (bypassed here,
+   so it passes at once) records it reached the internet
+
+ - it's only stored again when it changed, so the flash isn't written each
+   time
+
+ - storing a different passphrase forgets how joining went, but the same
+   one doesn't
+
+and that `lws_wifi_auth_name()` names the AP authentication types.
+
 It needs `LWS_WITH_DRIVERS`.
 
 ## build

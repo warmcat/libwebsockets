@@ -116,7 +116,7 @@ aps_update(lhp_settings_t *s)
 			a = &s->aps[s->ap_count++];
 			memset(a, 0, sizeof(*a));
 			memcpy(a->ssid, ssid, sizeof(a->ssid));
-			a->open = w->authmode == LWS_WIFI_AUTHMODE_OPEN;
+			a->open = w->authmode == LWS_WIFI_AUTH_OPEN;
 			a->seen = 1;
 		} lws_end_foreach_dll(d);
 	}
