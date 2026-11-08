@@ -612,10 +612,10 @@ ui_pscroll_max(const struct lws_dlo_ui *ui)
 	return m < 0 ? 0 : m;
 }
 
-/* the panel's content is moved to where it's scrolled to */
+/* how far the panel is scrolled is kept to how far it can be */
 
 static void
-ui_pscroll_apply(struct lws_dlo_ui *ui)
+ui_pscroll_clamp(struct lws_dlo_ui *ui)
 {
 	int m = ui_pscroll_max(ui);
 
@@ -623,6 +623,17 @@ ui_pscroll_apply(struct lws_dlo_ui *ui)
 		ui->pscroll = m;
 	if (ui->pscroll < 0)
 		ui->pscroll = 0;
+}
+
+/*
+ * The panel's content is moved to where it's scrolled to.  Only when it's
+ * laid out, or a scan starts: the render mustn't see it move under it
+ */
+
+static void
+ui_pscroll_apply(struct lws_dlo_ui *ui)
+{
+	ui_pscroll_clamp(ui);
 
 	if (ui->pc)
 		lws_fx_set(ui->pc->box.y, -ui->pscroll, 0);
@@ -1494,10 +1505,10 @@ ui_pcur_show(struct lws_dlo_ui *ui)
 			ui->pscroll = ht->y - t;
 		if (ht->y + ht->h + t > ui->pscroll + vh)
 			ui->pscroll = ht->y + ht->h + t - vh;
-		ui_pscroll_apply(ui);
+		ui_pscroll_clamp(ui);
 	}
 
-	ui_ring_place(ui);
+	/* the panel and the cursor are moved when it's next drawn */
 	ui->dirty |= UI_STRIP_PANEL;
 	lws_dlo_ui_kick(ui);
 }
@@ -1585,8 +1596,10 @@ ui_scan_start(struct lws_dlo_ui *ui)
 		lws_fx_set(ui->kb->box.x, ui->kx, 0);
 		lws_fx_set(ui->kb->box.y, ui->ky, 0);
 	}
-	/* and the dialog's content where it's scrolled to */
+	/* and the dialog's content where it's scrolled to, and its cursor */
 	ui_pscroll_apply(ui);
+	if (ui->page_strips == UI_PAGE_DIALOG)
+		ui_ring_place(ui);
 
 	ui->phase = UI_SCAN;
 	ui->i.lds->display_busy = 1;
@@ -2433,7 +2446,6 @@ lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len)
 	if (ui->nav && ui->page_strips == UI_PAGE_DIALOG) {
 		/* it's being touched: the cursor goes, without a new layout */
 		ui->nav = 0;
-		ui_ring_place(ui);
 		ui->dirty |= UI_STRIP_PANEL;
 		lws_dlo_ui_kick(ui);
 	} else if (ui->nav && ui->page_strips != UI_PAGE_FRAME) {
@@ -2468,7 +2480,7 @@ lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len)
 			/* the panel follows the finger */
 			v = ui->pscroll;
 			ui->pscroll -= dy;
-			ui_pscroll_apply(ui);
+			ui_pscroll_clamp(ui);
 			if (ui->pscroll == v)
 				return 1;
 			ui->dirty |= UI_STRIP_PANEL;
