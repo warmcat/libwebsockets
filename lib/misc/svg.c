@@ -3338,6 +3338,83 @@ attr_complete(lws_svg_t *ctx)
 }
 
 /*
+ * Build a shape's geometry unless the path data / points attribute already
+ * built it at attribute completion, then commit it with the effective CTM
+ */
+
+static int
+shape_open(lws_svg_t *ctx, svg_ekind_t k, svg_pend_t *pd)
+{
+	int ret = 0;
+
+	switch (k) {
+	case SVEK_RECT:
+		ret = build_rect(ctx, pd);
+		break;
+	case SVEK_CIRCLE:
+		ret = build_ellipse(ctx,
+				pd->gok[0] ? pd->g[0] : 0,
+				pd->gok[1] ? pd->g[1] : 0,
+				pd->gok[2] ? pd->g[2] : 0,
+				pd->gok[2] ? pd->g[2] : 0);
+		break;
+	case SVEK_ELLIPSE:
+		ret = build_ellipse(ctx,
+				pd->gok[0] ? pd->g[0] : 0,
+				pd->gok[1] ? pd->g[1] : 0,
+				pd->gok[2] ? pd->g[2] : 0,
+				pd->gok[3] ? pd->g[3] : 0);
+		break;
+	case SVEK_LINE:
+		ret = build_line(ctx, pd);
+		break;
+	case SVEK_POLYLINE:
+	case SVEK_POLYGON:
+		if (!pd->has_points)
+			work_reset(ctx);
+		break;
+	case SVEK_PATH:
+		if (!pd->has_d)
+			work_reset(ctx);
+		break;
+	default:
+		work_reset(ctx);
+		break;
+	}
+
+	if (ret)
+		return 1;
+
+	/* line is stroke-only: nothing to fill */
+
+	{
+		svg_lvl_t eff;
+
+		/* compose the shape's own presentation deltas on to
+		 * the inherited level state, and commit with that */
+
+		level_compose(ctx, &ctx->stk[ctx->depth], pd, &eff,
+			      ctx->name);
+
+		/* a line has no fill of its own */
+
+		if (k != SVEK_LINE &&
+		    shape_commit(ctx, eff.m, eff.rgba, eff.rule))
+			return 1;
+
+		/* the stroke outline is its own nonzero shape */
+
+		if (LWS_SVG_ALPHA(eff.stroke) &&
+		    stroke_commit(ctx, eff.m, eff.stroke, &eff))
+			return 1;
+	}
+
+	work_reset(ctx);
+
+	return 0;
+}
+
+/*
  * Element dispatch at tag end.  For containers this pushes the style stack
  * (unless self-closing); shapes build and commit their geometry.
  */
@@ -3347,7 +3424,6 @@ element_open(lws_svg_t *ctx, char selfclose)
 {
 	svg_ekind_t k = ctx->ekind;
 	svg_pend_t *pd = &ctx->pend;
-	int ret = 0;
 
 	switch (k) {
 	case SVEK_ROOT:
@@ -3439,78 +3515,24 @@ element_open(lws_svg_t *ctx, char selfclose)
 	case SVEK_POLYLINE:
 	case SVEK_POLYGON:
 	case SVEK_PATH:
-		if (!ctx->root_seen || ctx->stk[ctx->depth].suppress)
-			break;
-
-		/*
-		 * Build the geometry unless the path data / points attribute
-		 * already built it at attribute completion, then commit it
-		 * with the effective CTM.
-		 */
-
-		switch (k) {
-		case SVEK_RECT:
-			ret = build_rect(ctx, pd);
-			break;
-		case SVEK_CIRCLE:
-			ret = build_ellipse(ctx,
-					pd->gok[0] ? pd->g[0] : 0,
-					pd->gok[1] ? pd->g[1] : 0,
-					pd->gok[2] ? pd->g[2] : 0,
-					pd->gok[2] ? pd->g[2] : 0);
-			break;
-		case SVEK_ELLIPSE:
-			ret = build_ellipse(ctx,
-					pd->gok[0] ? pd->g[0] : 0,
-					pd->gok[1] ? pd->g[1] : 0,
-					pd->gok[2] ? pd->g[2] : 0,
-					pd->gok[3] ? pd->g[3] : 0);
-			break;
-		case SVEK_LINE:
-			ret = build_line(ctx, pd);
-			break;
-		case SVEK_POLYLINE:
-		case SVEK_POLYGON:
-			if (!pd->has_points)
-				work_reset(ctx);
-			break;
-		case SVEK_PATH:
-			if (!pd->has_d)
-				work_reset(ctx);
-			break;
-		default:
-			work_reset(ctx);
-			break;
-		}
-
-		if (ret)
+		if (ctx->root_seen && !ctx->stk[ctx->depth].suppress &&
+		    shape_open(ctx, k, pd))
 			return 1;
 
-		/* line is stroke-only: nothing to fill */
+		/*
+		 * A shape written with a separate close tag, eg, <rect></rect>,
+		 * has a level of its own, since its close tag pops one.  Its
+		 * children are not drawn.
+		 */
 
-		{
-			svg_lvl_t eff;
-
-			/* compose the shape's own presentation deltas on to
-			 * the inherited level state, and commit with that */
-
-			level_compose(ctx, &ctx->stk[ctx->depth], pd, &eff,
-				      ctx->name);
-
-			/* a line has no fill of its own */
-
-			if (k != SVEK_LINE &&
-			    shape_commit(ctx, eff.m, eff.rgba, eff.rule))
+		if (!selfclose) {
+			if (ctx->depth + 1 >= LWS_SVG_MAX_DEPTH)
 				return 1;
 
-			/* the stroke outline is its own nonzero shape */
-
-			if (LWS_SVG_ALPHA(eff.stroke) &&
-			    stroke_commit(ctx, eff.m, eff.stroke, &eff))
-				return 1;
+			ctx->stk[ctx->depth + 1] = ctx->stk[ctx->depth];
+			ctx->stk[ctx->depth + 1].suppress = 1;
+			ctx->depth++;
 		}
-
-		work_reset(ctx);
 		break;
 	}
 

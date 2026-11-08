@@ -1866,6 +1866,25 @@ build_corpus_structural(void)
 	cc->flags = CC_F_EMPTY;
 	cc->exp_w = cc->exp_h = 64;
 
+	/*
+	 * A shape with a separate close tag closes only itself: its close
+	 * tag once popped the group it was in, so the group's close tag
+	 * ended the document and the last rect was lost
+	 */
+
+	cc = cc_add("shape-close-tag",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<g transform=\"translate(2,0)\">"
+		"<rect x=\"2\" y=\"2\" width=\"10\" height=\"10\"><title>a</title></rect>"
+		"<rect x=\"20\" y=\"2\" width=\"10\" height=\"10\"></rect>"
+		"</g>"
+		"<rect x=\"40\" y=\"40\" width=\"10\" height=\"10\"/></svg>");
+	cc->exp_area = 300;
+	cc->area_tol = 0;
+	cc->bbox[0] = 4; cc->bbox[1] = 2; cc->bbox[2] = 49; cc->bbox[3] = 49;
+	cc->bbox_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
 	/* zero and negative geometry is dropped, rest renders */
 
 	cc = cc_add("degenerate",
