@@ -1011,9 +1011,16 @@ main(int argc, const char **argv)
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_SERVE_FONTS].sw))
 		info.pss_policies_json = serve_fonts_policy;
 #endif
+	/*
+	 * Captive portal detection would go out to the internet behind the
+	 * render, and the heap it holds while it does comes and goes on its
+	 * own timing, which --pan-heap-max would see as the render's.  A tool
+	 * rendering a page has no use for it.
+	 */
 	info.options |= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 			LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
-			LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW;
+			LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
+			LWS_SERVER_OPTION_CPD_BYPASS;
 
 	/*
 	 * Real sites can return a large block of response headers in one go,
