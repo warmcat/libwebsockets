@@ -99,13 +99,17 @@ enum qsmp_mode {
 	QSMP_MODE_PIPELINE,
 };
 
-/* a client's opaque user data: the tsi it asked on, its mode and its slot */
+/*
+ * A client's opaque user data: the tsi it asked on, its mode and its slot.
+ * The slot is kept + 1 so the first plain connection on tsi 0 isn't NULL,
+ * which would look like no opaque at all.
+ */
 #define QSMP_OPAQUE(tsi, mode, slot) ((void *)((intptr_t)(tsi) | \
 					  ((intptr_t)(mode) << 8) | \
-					  ((intptr_t)(slot) << 16)))
+					  ((intptr_t)((slot) + 1) << 16)))
 #define QSMP_TSI(o)		((int)((intptr_t)(o) & 0xff))
 #define QSMP_MODE(o)		((int)(((intptr_t)(o) >> 8) & 0xff))
-#define QSMP_SLOT(o)		((int)((intptr_t)(o) >> 16))
+#define QSMP_SLOT(o)		((int)((intptr_t)(o) >> 16) - 1)
 
 #define QSMP_CONNS		(QSMP_ROUNDS * QSMP_PER_ROUND) /* per thread */
 
@@ -373,20 +377,27 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct qsmp_pss_cli *pss = (struct qsmp_pss_cli *)user;
 	void *o = lws_get_opaque_user_data(wsi);
-	int tsi = QSMP_TSI(o);
-	struct qsmp_conn *c = NULL;
+	int tsi = QSMP_TSI(o), sl = QSMP_SLOT(o);
+	struct qsmp_conn *slot = NULL, *c;
 	char buf[LWS_PRE + 1024], *px = buf + LWS_PRE;
 	int lenx = (int)sizeof(buf) - LWS_PRE;
 
 	/* one of our requests, rather than the h3 control or qpack streams? */
-	if (o && tsi < threads && QSMP_SLOT(o) < svc[tsi].nconn &&
-	    svc[tsi].conn[QSMP_SLOT(o)].wsi == wsi)
-		c = &svc[tsi].conn[QSMP_SLOT(o)];
+	if (o && tsi < threads && sl >= 0 && sl < svc[tsi].nconn)
+		slot = &svc[tsi].conn[sl];
+	/* ... and the wsi it is on now */
+	c = slot && slot->wsi == wsi ? slot : NULL;
 
 	switch (reason) {
 	case LWS_CALLBACK_WSI_DESTROY:
-		if (c)
-			c->wsi = NULL;
+		if (!c)
+			break;
+		if (!c->done)
+			lwsl_warn("%s: tsi %d conn %d, mode %d: %s went before "
+				  "it finished, %sestablished\n", __func__,
+				  tsi, sl, c->mode, lws_wsi_tag(wsi),
+				  pss && pss->established ? "" : "not ");
+		c->wsi = NULL;
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_INIT:
@@ -406,9 +417,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		if (pss)
 			pss->established = 1;
 		/* the request may have moved to another wsi since it asked */
-		if (!c && o && tsi < threads && QSMP_SLOT(o) < svc[tsi].nconn &&
-		    !svc[tsi].conn[QSMP_SLOT(o)].done)
-			svc[tsi].conn[QSMP_SLOT(o)].wsi = wsi;
+		if (slot && !slot->done)
+			slot->wsi = wsi;
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
@@ -425,8 +435,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!pss || pss->done)
 			break;
 		pss->done = 1;
-		if (c)
-			c->done = 1;
+		if (slot)
+			slot->done = 1;
 		qsmp_on_thread(tsi);
 		/*
 		 * Not counted at ESTABLISHED: a request joining a connection
@@ -450,8 +460,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			 QSMP_MODE(o), in ? (const char *)in : "(null)");
 		qsmp_cli_check_inited();
 		qsmp_on_thread(tsi);
-		if (c)
-			c->done = 1;
+		if (slot)
+			slot->done = 1;
 		if (pss) {
 			if (pss->done)
 				break;
@@ -472,6 +482,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_err("%s: mode %d: closed before completing\n", __func__,
 			 QSMP_MODE(o));
 		pss->done = 1;
+		if (slot)
+			slot->done = 1;
 		qsmp_count(&failed, 1);
 		qsmp_finish_if_done();
 		break;
@@ -582,9 +594,9 @@ sul_dump_cb(lws_sorted_usec_list_t *sul)
 		if (c->done)
 			continue;
 
-		lwsl_err("%s: tsi %d conn %d, mode %d: never finished%s\n",
+		lwsl_err("%s: tsi %d conn %d, mode %d: never finished, %s\n",
 			 __func__, s->tsi, n, c->mode,
-			 c->wsi ? "" : ", its wsi is gone");
+			 c->wsi ? lws_wsi_tag(c->wsi) : "its wsi is gone");
 		if (c->wsi)
 			lws_quic_dump(c->wsi);
 	}
