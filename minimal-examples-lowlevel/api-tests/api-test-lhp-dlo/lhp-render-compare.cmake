@@ -4,7 +4,8 @@
 # cmake -DTOOL=<lws-api-test-lhp-dlo> -DHTML=<page.html> -DOUT=<scratch prefix>
 #       [-DHTML_B=<page.html>] [-DW=600 -DH=448] [-DFLAGS_A=<switches>]
 #       [-DFLAGS_B=<switches>] [-DCOMMON=<switches for both>]
-#       [-DASSET_CACHE_HEAP=<bytes>] -P lhp-render-compare.cmake
+#       [-DASSET_CACHE_HEAP=<bytes> | -DNO_ASSET_CACHE=1]
+#       -P lhp-render-compare.cmake
 #
 # The page is rendered to a .bmp with FLAGS_A and again with FLAGS_B, each
 # getting its own empty asset cache, and the two renders must be byte for
@@ -14,6 +15,11 @@
 #
 # With ASSET_CACHE_HEAP, each render's asset cache is an in-memory only one of
 # that many bytes instead, as a device with no filesystem has.
+#
+# With NO_ASSET_CACHE, the renders have no asset cache at all.  A file-backed
+# cache scans its dirs in the background a second after it is created, holding
+# a batch of what it found on the heap while it does, so a render measuring the
+# heap along the way must not have one unless it is what is being measured.
 #
 # With HTML_B, the second render is of that page instead, eg, the same
 # images in another encoding that must come out the same.
@@ -35,7 +41,9 @@ foreach(SIDE A B)
 	file(REMOVE_RECURSE ${CACHE_DIR})
 	file(REMOVE ${OUT}-${SIDE}.bmp)
 
-	if (ASSET_CACHE_HEAP)
+	if (NO_ASSET_CACHE)
+		set(cache_flags)
+	elseif (ASSET_CACHE_HEAP)
 		set(cache_flags --asset-cache-heap ${ASSET_CACHE_HEAP})
 	else()
 		set(cache_flags --asset-cache ${CACHE_DIR})

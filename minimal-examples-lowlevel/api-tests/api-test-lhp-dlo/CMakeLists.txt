@@ -497,13 +497,16 @@ if (requirements)
 		# panning a retained display list over more and more of a long
 		# page holds no more heap: what the text was drawn with is let
 		# go when it can't be seen.  The last view is the same as the
-		# view rendered streaming
+		# view rendered streaming.  The page has no assets, and a file
+		# cache's background scan would hold heap of its own during
+		# the pans on a slow builder, so it renders with no cache
 		add_test(NAME api-test-lhp-dlo-pan-heap
 			 COMMAND ${CMAKE_COMMAND}
 				-DTOOL=$<TARGET_FILE:${SAMP}>
 				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/pan-heap.html
 				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/pan-heap
 				-DW=120 -DH=100
+				-DNO_ASSET_CACHE=1
 				"-DCOMMON=--layout-h;4000"
 				"-DFLAGS_A=--retained;--pan;0,0:0,300:0,600:0,900:0,1200:0,1500:0,1800:0,2100;--pan-heap-max;8192"
 				"-DFLAGS_B=--pan;0,2100"
