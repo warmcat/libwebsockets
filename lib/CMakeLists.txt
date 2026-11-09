@@ -592,7 +592,7 @@ if (LWS_WITH_SANSIO_LINK_TEST AND LWS_WITH_NETWORK AND SOURCES_SANSIO)
 		# library provides it
 		foreach(_s ${SOURCES})
 			if (_s MATCHES "^tls/(.*/)?lws-gen" OR
-			    _s MATCHES "^tls/(chacha|poly1305)\\.c$")
+			    _s MATCHES "^tls/(chacha|poly1305|keccak|mlkem)\\.c$")
 				list(APPEND _sio_substrate ${_s})
 			endif()
 		endforeach()

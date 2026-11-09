@@ -110,6 +110,7 @@
 #include <libwebsockets/lws-genaes.h>
 #include <libwebsockets/lws-genchacha.h>
 #include <libwebsockets/lws-genec.h>
+#include <libwebsockets/lws-genkem.h>
 
 #include <libwebsockets/lws-jwk.h>
 #include <libwebsockets/lws-jose.h>

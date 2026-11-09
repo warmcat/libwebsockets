@@ -31,7 +31,7 @@ OBJ=$B/lib/CMakeFiles/websockets.dir
 SANSIO='\.dir/sansio/'
 IO='\.dir/(io|plat|tls|event-libs|system/async-dns)/'
 # the generic crypto in lib/tls is not the transport's: neither half's
-NEITHER='/tls/(.*/)?lws-gen|/tls/(chacha|poly1305)\.c\.o'
+NEITHER='/tls/(.*/)?lws-gen|/tls/(chacha|poly1305|keccak|mlkem)\.c\.o'
 
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT

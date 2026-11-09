@@ -96,6 +96,19 @@ enum lws_gencrypto_okp_tok {
 	LWS_GENCRYPTO_OKP_KEYEL_COUNT
 };
 
+/*
+ * KEM (eg, ML-KEM) key elements, all as the FIPS 203 byte strings.  Not
+ * used with JWK.
+ */
+
+enum lws_gencrypto_kem_tok {
+	LWS_GENCRYPTO_KEM_KEYEL_EK,	/* encapsulation (public) key */
+	LWS_GENCRYPTO_KEM_KEYEL_DK,	/* decapsulation (private) key */
+	LWS_GENCRYPTO_KEM_KEYEL_SEED,	/* 64-byte d || z the keys derive from */
+
+	LWS_GENCRYPTO_KEM_KEYEL_COUNT
+};
+
 /* largest number of key elements for any algorithm */
 #define LWS_GENCRYPTO_MAX_KEYEL_COUNT LWS_GENCRYPTO_RSA_KEYEL_COUNT
 

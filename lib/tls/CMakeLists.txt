@@ -890,7 +890,10 @@ endif()
 		tls/lws-genchacha.c)
 	if (LWS_WITH_GENCRYPTO)
 		list(APPEND SOURCES
-			tls/lws-genaes-common.c)
+			tls/lws-genaes-common.c
+			tls/keccak.c
+			tls/mlkem.c
+			tls/lws-genkem.c)
 	endif()
 
 
