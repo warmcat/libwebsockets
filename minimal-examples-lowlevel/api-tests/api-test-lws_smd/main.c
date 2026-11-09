@@ -197,7 +197,7 @@ bail:
 #define STARTUP_TTL_US		(100 * LWS_US_PER_MS)
 #define STARTUP_WAIT_US		(3 * STARTUP_TTL_US)
 
-static int startup_rx;
+static int startup_rx, startup_expired;
 
 static int
 smd_cb_startup(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
@@ -218,16 +218,32 @@ startup_wait(void)
 #endif
 }
 
-/* service until the participant has had n messages, or for a second */
+static void
+startup_deadline_cb(lws_sorted_usec_list_t *sul)
+{
+	startup_expired = 1;
+}
+
+/*
+ * Service until the participant has had n messages, or for a second.  The sul
+ * makes sure the event loop wakes for the deadline, since when nothing is
+ * delivered there may be nothing else scheduled to end its wait.
+ */
 
 static int
 startup_service(struct lws_context *cx, int n)
 {
-	lws_usec_t until = lws_now_usecs() + LWS_US_PER_SEC;
+	lws_sorted_usec_list_t sul;
 
-	while (startup_rx < n && lws_now_usecs() < until)
+	memset(&sul, 0, sizeof(sul));
+	startup_expired = 0;
+	lws_sul_schedule(cx, 0, &sul, startup_deadline_cb, LWS_US_PER_SEC);
+
+	while (startup_rx < n && !startup_expired)
 		if (lws_service(cx, 0) < 0)
 			break;
+
+	lws_sul_cancel(&sul);
 
 	return startup_rx >= n;
 }
