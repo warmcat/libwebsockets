@@ -37,6 +37,9 @@ real panel would, if the waveforms suited it.  It checks
 
  - the panel supplies are turned off once the passes are done
 
+ - being bistable, the display only animates anything if it says how often
+   it can usefully be updated, `.anim_hz`, and then no more often than that
+
 Where there are pthreads, it then runs all of it again with the passes run on
 a thread of their own, through `lws_epd_direct_runner_t`, the way a platform
 would run them on another core.  The runner can be held before a pass, so the

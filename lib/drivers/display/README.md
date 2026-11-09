@@ -35,6 +35,20 @@ display state to transition to ACTIVE smoothly, taking care of waking the displa
 and waiting out a display-specific wake period, and sequencing the backlight
 transition to active level as specified in the display structure.
 
+## Animation
+
+Something animated on a display, eg, a spinner, is moved on by updating the
+display again.  `.anim_hz` says how often at most that's useful, and
+`lws_display_anim_interval()` gives how often to do it, or 0 if the display
+can't usefully show animation at all, eg, an EPD taking seconds for each
+update, when nothing animated should be put on it.  A bistable display is
+taken to be like that unless it gives `.anim_hz`, eg, a directly-driven EPD
+that can show differential updates a few times a second.
+
+With a retained display list, an update for that only needs to draw again
+what `lws_display_render_damage()` says changed, the lines of what is
+animated: a display with `.ic.band` can be sent only those lines.
+
 ## Directly-driven EPD panels
 
 Some EPD panels, eg, the ED047TC1 on the LilyGo T5 4.7", have no controller:

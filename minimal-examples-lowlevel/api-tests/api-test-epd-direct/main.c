@@ -870,6 +870,34 @@ test_full_refresh(void)
 	disp.full_refresh_every = 0;
 }
 
+/*
+ * Being bistable, the panel only shows something animated if the display says
+ * how often it can usefully be updated for it, and then no more often than
+ * that.  A display that isn't bistable can be updated as often as wanted.
+ */
+
+static void
+test_anim_interval(void)
+{
+	lws_display_t d = disp.disp;
+	lws_usec_t i;
+
+	d.anim_hz = 0;
+	i = lws_display_anim_interval(&d, 500 * LWS_US_PER_MS);
+	check(!i, "animated at %dus with no .anim_hz\n", (int)i);
+
+	d.anim_hz = 4;
+	i = lws_display_anim_interval(&d, 100 * LWS_US_PER_MS);
+	check(i == 250 * LWS_US_PER_MS, "%dus, not limited to 4Hz\n", (int)i);
+	i = lws_display_anim_interval(&d, 500 * LWS_US_PER_MS);
+	check(i == 500 * LWS_US_PER_MS, "%dus, not as asked\n", (int)i);
+
+	d.bistable = 0;
+	d.anim_hz = 0;
+	i = lws_display_anim_interval(&d, 100 * LWS_US_PER_MS);
+	check(i == 100 * LWS_US_PER_MS, "%dus, not as asked\n", (int)i);
+}
+
 static void
 run_tests(const lws_epd_direct_runner_t *runner)
 {
@@ -926,6 +954,7 @@ main(int argc, const char **argv)
 		return 1;
 	}
 
+	test_anim_interval();
 	run_tests(NULL);
 
 #if defined(TEST_THREADS)

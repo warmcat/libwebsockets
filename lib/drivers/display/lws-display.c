@@ -124,6 +124,19 @@ lws_display_state_active(lws_display_state_t *lds)
 				 waiting_ms * LWS_US_PER_MS);
 }
 
+lws_usec_t
+lws_display_anim_interval(const lws_display_t *disp, lws_usec_t want)
+{
+	lws_usec_t least;
+
+	if (!disp->anim_hz)
+		return disp->bistable ? 0 : want;
+
+	least = LWS_US_PER_SEC / disp->anim_hz;
+
+	return want > least ? want : least;
+}
+
 void
 lws_display_state_off(lws_display_state_t *lds)
 {

@@ -180,6 +180,13 @@ typedef struct lws_display {
 	/**< the display keeps showing what it was last updated with, with no
 	 * power, eg, an EPD.  What was left on it at the end is visible for
 	 * as long as it is stored, so it should be left white then */
+	uint8_t				anim_hz;
+	/**< 0, or the most times a second the display can usefully be
+	 * updated, to show something animated on it, eg, a spinner.  0 means
+	 * a display that isn't .bistable can be updated as often as it can be
+	 * drawn, and one that is can't show animation at all, eg, an EPD
+	 * taking seconds for each update, so nothing animated should be put
+	 * on it.  See lws_display_anim_interval() */
 } lws_display_t;
 
 /*
@@ -267,6 +274,20 @@ lws_display_state_set_brightness(lws_display_state_t *lds,
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_display_state_active(lws_display_state_t *lds);
+
+/**
+ * lws_display_anim_interval() - how often to update a display to animate it
+ *
+ * \param disp: the display
+ * \param want: how often the caller would like to update it, in us
+ *
+ * Returns how often, in us, something animated on the display, eg, a spinner,
+ * should be moved on: \p want, or longer if the display can't usefully be
+ * updated that often, see .anim_hz.  Returns 0 if the display can't show
+ * animation at all, when nothing animated should be shown on it.
+ */
+LWS_VISIBLE LWS_EXTERN lws_usec_t
+lws_display_anim_interval(const lws_display_t *disp, lws_usec_t want);
 
 /*
  * lws_display_state_off() - turns off the related display
