@@ -342,20 +342,10 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 			return 0;
 
 		/*
-		 * A failed opendir() below leaves cache_subdir at 0, so we come
-		 * back in here next time... only allocate if we don't have one
-		 * already, otherwise we orphan the previous allocation
+		 * The batch is only allocated when the scan finds its first
+		 * file, so scanning an empty cache holds no heap
 		 */
 
-		if (!lds->batch) {
-			lds->batch = lws_malloc(sizeof(struct file_entry) *
-					BATCH_COUNT, "cache_trim");
-			if (!lds->batch) {
-				lwsl_err("%s: OOM\n", __func__);
-
-				return 1;
-			}
-		}
 		lds->agg_size = 0;
 		lws_dll2_owner_clear(&lds->batch_sorted);
 		lds->batch_in_use = 0;
@@ -439,10 +429,25 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 			 */
 			lws_dll2_remove(&newest->sorted);
 			p = newest;
-		} else
+		} else {
 			/* we are still accepting anything to fill the batch */
 
+			if (!lds->batch) {
+				lds->batch = lws_malloc(sizeof(struct file_entry) *
+						BATCH_COUNT, "cache_trim");
+				if (!lds->batch) {
+					lwsl_err("%s: OOM\n", __func__);
+
+					/* give up this scan, start over next time */
+
+					lds->cache_subdir = 0;
+					ret = 1;
+					goto done;
+				}
+			}
+
 			p = &lds->batch[lds->batch_in_use++];
+		}
 
 		lws_dll2_clear(&p->sorted);
 		lws_strncpy(p->name, de->d_name, sizeof(p->name));

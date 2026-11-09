@@ -8,8 +8,9 @@
  *
  * Tests the file-backed blob lws-cache-ttl level: write-through, gets from
  * the backing files, invalidation, per-item expiry, per-item payload size
- * cap, and that the background sul maintenance incrementally brings the
- * store under its size limit without ever blocking the event loop.
+ * cap, that the background sul maintenance incrementally brings the store
+ * under its size limit without ever blocking the event loop, and that
+ * scanning a cache with nothing in it holds no heap.
  */
 
 #include <libwebsockets.h>
@@ -41,6 +42,16 @@ static const char *scratch = "./cache-blob-scratch";
 
 #define TEST_LIMIT_BYTES		(192 * 1024)
 #define TEST_MAX_PAYLOAD		(64 * 1024)
+
+/*
+ * The empty cache scan check: how long to watch the heap, from before the
+ * first scan starts (a second after the cache is created) until well into it,
+ * and how much of it may be held.  The batch it must not hold is ~20KB.
+ */
+
+#define EMPTY_SCAN_SAMPLES		40
+#define EMPTY_SCAN_SAMPLE_MS		50
+#define EMPTY_SCAN_HEAP_SLACK		(4 * 1024)
 
 static uint8_t payload[80 * 1024];
 
@@ -121,6 +132,7 @@ main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	const void *data;
 	size_t size;
+	size_t heap_base, heap_max;
 	uint64_t was;
 	const char *p;
 	time_t start;
@@ -139,10 +151,6 @@ main(int argc, const char **argv)
 
 	for (n = 0; n < (int)sizeof(payload); n++)
 		payload[n] = (uint8_t)(n ^ 0x5a);
-
-	/*
-	 * Part 1: write-through, get from the file store, invalidate
-	 */
 
 	memset(&info, 0, sizeof(info));
 	info.port = CONTEXT_PORT_NO_LISTEN;
@@ -186,6 +194,37 @@ main(int argc, const char **argv)
 		if (!blob || !l1)
 			goto bail;
 	}
+
+	/*
+	 * Part 0: the maintenance scan starts a second after the blob cache
+	 * is created, and with nothing in the cache, it scans again and again.
+	 * Its batch of candidates for deletion is only allocated when it
+	 * finds a file, so the heap doesn't grow while it scans an empty
+	 * cache.  The heap is sampled between services, so only what is held
+	 * across them shows.
+	 */
+
+	CHK(cache_bytes() == 0, "scratch dir not empty at start");
+
+	wait_ms(10); /* let the context settle into its first service */
+	heap_base = heap_max = lws_get_allocated_heap();
+
+	for (n = 0; n < EMPTY_SCAN_SAMPLES; n++) {
+		size_t h;
+
+		wait_ms(EMPTY_SCAN_SAMPLE_MS);
+		h = lws_get_allocated_heap();
+		if (h > heap_max)
+			heap_max = h;
+	}
+
+	CHK(heap_max < heap_base + EMPTY_SCAN_HEAP_SLACK,
+	    "scanning the empty cache held %u bytes of heap",
+	    (unsigned int)(heap_max - heap_base));
+
+	/*
+	 * Part 1: write-through, get from the file store, invalidate
+	 */
 
 	CHK(!lws_cache_write_through(l1, "https://example.com/a.png", payload,
 				     48 * 1024,
