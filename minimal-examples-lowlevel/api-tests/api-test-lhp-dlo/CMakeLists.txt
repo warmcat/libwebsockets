@@ -443,7 +443,9 @@ if (requirements)
 		# another's width, with its animated svg moved on, comes out
 		# as the page laid out with them like that would, when only
 		# the lines lws_display_render_damage() gives are drawn again:
-		# those of the svg and of the bar the changes are in
+		# those of the svg and of the bar the changes are in.  The
+		# element widened starts empty, 0px wide with overflow: hidden,
+		# which is kept in the layout since its id was asked for
 		if (LWS_WITH_SVG)
 		add_test(NAME api-test-lhp-dlo-in-place-render
 			 COMMAND ${CMAKE_COMMAND}

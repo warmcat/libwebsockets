@@ -5929,6 +5929,31 @@ lhp_resolve_var_color(lhp_ctx_t *ctx, const lcsp_atr_t *a)
 	return ra && ra->unit == LCSP_UNIT_RGBA ? ra : a;
 }
 
+/* is the element one the caller asked for by its id */
+
+static int
+lhp_id_wanted(lhp_ctx_t *ctx, lhp_pstack_t *ps)
+{
+	const char *pname;
+
+	if (!ctx->ids || !lws_dll2_get_head(ctx->ids))
+		return 0;
+
+	pname = lws_html_get_atr(ps, "id", 2);
+	if (!pname)
+		return 0;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(ctx->ids)) {
+		lws_display_id_t *id = lws_container_of(d, lws_display_id_t, list);
+
+		if (!strcmp(pname, id->id))
+			return 1;
+
+	} lws_end_foreach_dll(d);
+
+	return 0;
+}
+
 /*
  * Resolve the css for the element at the top of the parse stack: collect the
  * stanzas whose selectors match it (sorted by specificity, source order
@@ -6102,9 +6127,11 @@ lws_css_cascade(lhp_ctx_t *ctx)
 
 	/*
 	 * The "visually hidden" idiom for screen-reader text: a box of 1px
-	 * or less with overflow: hidden shows nothing in a browser
+	 * or less with overflow: hidden shows nothing in a browser.  But one
+	 * whose id the caller asked for is kept: it's not junk, and it may be
+	 * shown later, eg, an empty bar's fill widened in place
 	 */
-	if (!ps->hidden) {
+	if (!ps->hidden && !lhp_id_wanted(ctx, ps)) {
 		const lcsp_atr_t *ov = lws_css_cascade_get_prop_atr(ctx,
 							LCSP_PROP_OVERFLOW);
 
