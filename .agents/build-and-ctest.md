@@ -221,7 +221,11 @@
    clock when something unrelated wakes the loop.  Bound waits with a sul
    whose callback calls `lws_cancel_service(cx)`; a flag set in the
    callback alone is not seen until the next wake.  See `service_until()`
-   in `api-test-lws_stub`.
+   in `api-test-lws_stub`.  The same goes for a flag set from another
+   thread: the loop may have woken for that thread's last message
+   already, so it needs its own `lws_cancel_service()` after the flag.
+   Linux often has something else waking the loop and hides this; macOS
+   slim builds don't, and sleep to the 30s plat periodic sul.
  - **Don't count `lws_service()` returns to detect a spinning loop.**
    Before 279c65470 (G-348) the service wait was truncated to whole ms,
    so the last <1ms before every timer was spent in `poll(0)` turns,
