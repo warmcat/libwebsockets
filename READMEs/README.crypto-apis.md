@@ -68,6 +68,14 @@ combinations are acceptable by querying the parsed JW structs).
  - P256 / P384 / P521 (sic) curves
  - Ed25519 / Ed448 curves (requires building with OpenSSL `LWS_WITH_OPENSSL`)
 
+### Generic KEM
+
+ - ML-KEM-512 / ML-KEM-768 / ML-KEM-1024 (FIPS 203), on every tls backend
+
+Where the tls library has its own ML-KEM (today, OpenSSL 3.5+), it is used;
+otherwise lws uses its own implementation.  Keys and ciphertexts are the
+FIPS 203 byte strings either way, so the two interoperate.
+
 ## Using the generic layer
 
 All the necessary includes are part of `libwebsockets.h`.
@@ -80,9 +88,11 @@ Enable `-DLWS_WITH_GENCRYPTO=1` at cmake.
 |genrsa|[./include/libwebsockets/lws-genrsa.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genrsa.h)|Provides RSA encryption, decryption, signing, verification, key generation and creation|
 |genaes|[./include/libwebsockets/lws-genaes.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genaes.h)|Provides AES in all common variants for encryption and decryption|
 |genec|[./include/libwebsockets/lws-genec.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genec.h)|Provides Elliptic Curve for encryption, decryption, signing, verification, key generation and creation|
+|genkem|[./include/libwebsockets/lws-genkem.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genkem.h)|Provides ML-KEM key generation, encapsulation and decapsulation|
 |x509|[./include/libwebsockets/lws-x509.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-x509.h)|Apis for X.509 Certificate loading, parsing, and stack verification, plus JWK key extraction from PEM X.509 certificate / private key|
 
-Unit tests for these apis, which serve as usage examples, can be found in [./minimal-examples/api-tests/api-test-gencrypto](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-gencrypto)
+Unit tests for these apis, which serve as usage examples, can be found in [./minimal-examples/api-tests/api-test-gencrypto](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-gencrypto),
+and for genkem, [./minimal-examples-lowlevel/api-tests/api-test-genkem](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples-lowlevel/api-tests/api-test-genkem)
 
 ### Keys in the generic layer
 
