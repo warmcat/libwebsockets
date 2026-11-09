@@ -3769,6 +3769,11 @@ extern int rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add);
  * wsi->ws.  A protocol written for ws, that sets up its pss in ESTABLISHED or
  * uses the ws frame accessors in RECEIVE, must never be given a session,
  * however the peer names it or wherever it is mounted.
+ *
+ * Servers written before v5.1 do not have the pvo, and their sessions are
+ * refused with a 404 before any callback, so the first time a protocol on a
+ * vhost is passed over for lacking it, say so at warn.  Only once per vhost,
+ * since the peer decides how often it happens.
  */
 static const struct lws_protocols *
 lws_h3_wt_protocol(struct lws_vhost *vh, const char *name)
@@ -3784,8 +3789,19 @@ lws_h3_wt_protocol(struct lws_vhost *vh, const char *name)
 		return NULL;
 
 	pvo = lws_vhost_protocol_options(vh, prot->name);
-	if (!pvo || !lws_pvo_search(pvo->options, "webtransport"))
+	if (!pvo || !lws_pvo_search(pvo->options, "webtransport")) {
+		if (!vh->wt_optin_warned) {
+			vh->wt_optin_warned = 1;
+			lwsl_vhost_warn(vh, "protocol '%s' not given a "
+					"WebTransport session: it has no "
+					"\"webtransport\" pvo option (needed "
+					"since v5.1, see "
+					"READMEs/README.webtransport.md)",
+					prot->name);
+		}
+
 		return NULL;
+	}
 
 	return prot;
 }
