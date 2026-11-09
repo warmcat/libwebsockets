@@ -517,7 +517,7 @@ qsmp_connect(int tsi, enum qsmp_mode mode)
 	if (s->nconn == QSMP_CONNS)
 		return;
 	c = &s->conn[s->nconn];
-	c->mode = mode;
+	c->mode = (int)mode;
 
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
