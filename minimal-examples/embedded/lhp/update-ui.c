@@ -118,9 +118,47 @@ icon_fit(const lws_surface_info_t *ic, int y0, int y1, int *iy)
 	return 0;
 }
 
+/* the elements lhp_update_progress() changes, and the bar it sizes the fill by */
+
+const char * const lhp_update_ids[] = { "b", "f", "pd", "pf", "p", NULL };
+
+int
+lhp_update_progress(lws_display_render_state_t *rs, int pc)
+{
+	lws_display_id_t *b = lws_display_render_get_id(rs, "b");
+	static const char * const pcs[] = { "pd", "pf", "p" };
+	lws_display_id_t *id;
+	char t[8];
+	lws_fx_t w;
+	size_t n;
+
+	if (!b || !b->exists)
+		return 1;
+
+	if (pc < 0)
+		pc = 0;
+	if (pc > 100)
+		pc = 100;
+
+	/* as lhp_update_html() sizes it, in the bar as it was laid out */
+	lws_fx_set(w, (b->box.w.whole * pc) / 100, 0);
+	if (lws_display_render_set_width(rs, "f", &w))
+		return 1;
+
+	/* the percentage is in one or two places, depending on the display */
+	lws_snprintf(t, sizeof(t), "%d%%", pc);
+	for (n = 0; n < LWS_ARRAY_SIZE(pcs); n++) {
+		id = lws_display_render_get_id(rs, pcs[n]);
+		if (id && id->exists && lws_display_render_set_text(rs, pcs[n], t))
+			return 1;
+	}
+
+	return 0;
+}
+
 int
 lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
-		const char *variant, int pc)
+		const char *variant, int pc, int spinner)
 {
 	int w = ic->wh_px[0].whole, h = ic->wh_px[1].whole, th, fs, tl, pad,
 	    bh, by, bx0, bx1, bw, bx, fw, gap, vl, vfs, vy, py = 0, is = 0,
@@ -188,15 +226,17 @@ lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
 		if (!inside)
 			py = by + bh + gap;
 
-		a = icon_fit(ic, th + gap, vy - gap, &ay);
-		b = icon_fit(ic, inside ? by + bh + gap : py + pl + gap,
-			     h - gap, &by2);
-		if (a >= b) {
-			is = a;
-			iy = ay;
-		} else {
-			is = b;
-			iy = by2;
+		if (spinner) {
+			a = icon_fit(ic, th + gap, vy - gap, &ay);
+			b = icon_fit(ic, inside ? by + bh + gap :
+						  py + pl + gap, h - gap, &by2);
+			if (a >= b) {
+				is = a;
+				iy = ay;
+			} else {
+				is = b;
+				iy = by2;
+			}
 		}
 	} else {
 		/*
@@ -211,7 +251,7 @@ lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
 			is = LHP_UPDATE_ICON_PX;
 		if (is > w)
 			is = w;
-		if (is < 16)
+		if (is < 16 || !spinner)
 			is = 0;
 
 		iy = th + (h - th - a - (is ? is + gap : 0)) / 2;
@@ -291,17 +331,15 @@ lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
 			uw_printf(&uw, "%c", c);
 	}
 
+	/* the fill is there even when it's empty, to be widened in place */
+
 	uw_printf(&uw, "</div><div id=\"b\">");
 	if (inside)
-		uw_printf(&uw, "<div class=\"p\">%d%%</div>", pc);
-	if (fw) {
-		uw_printf(&uw, "<div id=\"f\">");
-		if (inside)
-			uw_printf(&uw, "<div class=\"p\" id=\"pf\">%d%%</div>",
-				  pc);
-		uw_printf(&uw, "</div>");
-	}
-	uw_printf(&uw, "</div>");
+		uw_printf(&uw, "<div class=\"p\" id=\"pd\">%d%%</div>", pc);
+	uw_printf(&uw, "<div id=\"f\">");
+	if (inside)
+		uw_printf(&uw, "<div class=\"p\" id=\"pf\">%d%%</div>", pc);
+	uw_printf(&uw, "</div></div>");
 	if (!inside)
 		uw_printf(&uw, "<div class=\"p\" id=\"p\">%d%%</div>", pc);
 

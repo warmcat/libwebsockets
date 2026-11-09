@@ -82,16 +82,26 @@ circle; on a rectangular one, it goes in the middle of the space below the
 strip, with the update spinner as big as there is room for.  Drawing it
 takes time from fetching and flashing the update, so after the first, it is
 redrawn every 0.5s, moving the spinner on and showing the progress by then.
-A bistable display, eg, an EPD, is only redrawn every 3s, and only if the
-progress changed.
+A display that can't show animation (`lws_display_anim_interval()` is 0),
+eg, an EPD taking seconds for each update, has no spinner, and is only
+redrawn every 3s, and only if the progress changed.
 
 The spinner is an svg animated with SMIL,
 `contrib/assets/update/update-1-spinner.svg`, built in by `boot-icons.cmake`
 like the stage icons.  `lhp-ss.c` sets the render state's `.anim_t` to the
 time each page is drawn, so each time the update display is redrawn, the
-spinner has moved on.  It is not animated between redraws: the whole page
-is drawn each time, and there's no way yet to redraw only the spinner's
-part of the display.
+spinner has moved on.
+
+The page is only laid out once.  Its display list is kept, and after that
+the progress is changed in place, by `lhp_update_progress()`: the fill's
+width with `lws_display_render_set_width()` and the percentage with
+`lws_display_render_set_text()`, found by their ids.  Then
+`lws_display_render_damage()` says what of the display changed, the lines of
+the bar and of the spinner, which is animated, and `redraw_damage()` in
+`lhp-ss.c` draws only those again, if the display can be sent a band of its
+lines (`.band`, eg, the round LCD).  They're all drawn first, then sent to the
+display together, so they appear at once.  A display that can only be
+updated whole has all of the page drawn again, as it was laid out.
 
 ## Frame and status
 

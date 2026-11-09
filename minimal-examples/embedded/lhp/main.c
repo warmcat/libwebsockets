@@ -66,11 +66,14 @@ lhp_battery_cb_t plat_battery;
 /*
  * How often the update display is drawn again, to move its spinner on and
  * show the progress: drawing it takes time from fetching and flashing the
- * update.  A bistable display, eg, an EPD, taking seconds to update, is only
- * drawn again when the progress changed, and less often.
+ * update, so only what changed is drawn again, if it can be.  A display that
+ * can't show animation, eg, an EPD taking seconds to update, has no spinner,
+ * and is only drawn again when the progress changed, and less often.
  */
 #define UPDATE_SHOW_US		(LWS_US_PER_SEC / 2)
-#define UPDATE_SHOW_BISTABLE_US	(3 * LWS_US_PER_SEC)
+#define UPDATE_SHOW_STILL_US	(3 * LWS_US_PER_SEC)
+/* the update page's url, once it's laid out */
+#define UPDATE_URL		"file://dlofs/update.html"
 /* how often the status capsule is brought up to date */
 #define STATUS_US		(5 * LWS_US_PER_SEC)
 /* the longest the first page waits for the frame to be drawn before it */
@@ -238,10 +241,13 @@ page_drop(void)
 	page = NULL;
 }
 
-/* takes ownership of html, a heap allocation of len bytes and more */
+/*
+ * Takes ownership of html, a heap allocation of len bytes and more.  ids, if
+ * not NULL, are of the elements that are changed in place once it's laid out
+ */
 
 static int
-page_show(const char *name, char *html, int len)
+page_show(const char *name, char *html, int len, const char * const *ids)
 {
 	lws_dlo_filesystem_t f;
 	char url[64];
@@ -263,7 +269,7 @@ page_show(const char *name, char *html, int len)
 
 	/* the display is brought up when the page is on it */
 	lws_snprintf(url, sizeof(url), "file://dlofs/%s", name);
-	if (init_browse(cx, &rs, url, 0)) {
+	if (init_browse(cx, &rs, url, 0, ids)) {
 		lwsl_err("%s: init_browse %s failed\n", __func__, url);
 		lds.display_busy = 0;
 		page_drop();
@@ -280,7 +286,7 @@ static void
 app_browse(const char *url)
 {
 	/* the display is brought up when the page is on it */
-	if (init_browse(cx, &rs, url, 1)) {
+	if (init_browse(cx, &rs, url, 1, NULL)) {
 		lwsl_err("%s: init_browse %s failed\n", __func__, url);
 		lds.display_busy = 0;
 		return;
@@ -639,17 +645,41 @@ boot_have_creds(void)
 	return have;
 }
 
+/*
+ * The update page already on the display is brought up to date in place: the
+ * progress changed on it, and only that and the spinner drawn again.  Returns
+ * 0 if that was started, or there was nothing to do, else nonzero, when the
+ * page must be made and laid out again
+ */
+
+static int
+update_in_place(void)
+{
+	if (strcmp(lds.current_url, UPDATE_URL))
+		/* something else was shown meanwhile */
+		return 1;
+
+	if (update_pc != update_pc_shown && lhp_update_progress(&rs, update_pc))
+		return 1;
+
+	return redraw_damage(&rs) > 0;
+}
+
 static void
 update_show(void)
 {
-	char *html = malloc(2048);
+	char *html;
 	int len;
-
-	if (!html)
-		return;
 
 	/* stop the application meanwhile */
 	lws_sul_cancel(&sul_app);
+
+	if (update_pc_shown >= 0 && !update_in_place())
+		goto shown;
+
+	html = malloc(2048);
+	if (!html)
+		return;
 
 	len = lhp_update_html(html, 2048, &lds.disp->ic,
 #if defined(LWS_WITH_OTA)
@@ -657,16 +687,20 @@ update_show(void)
 #else
 			      NULL,
 #endif
-			      update_pc);
+			      update_pc,
+			      !!lws_display_anim_interval(lds.disp,
+							  UPDATE_SHOW_US));
 	if (len < 0) {
 		lwsl_err("%s: update page too big\n", __func__);
 		free(html);
 		return;
 	}
 
+	page_show("update.html", html, len, lhp_update_ids);
+
+shown:
 	update_pc_shown = update_pc;
 	update_shown_us = lws_now_usecs();
-	page_show("update.html", html, len);
 }
 
 /* the placeholder application: the next page of the carousel */
@@ -778,7 +812,7 @@ app_last_shown(lws_sorted_usec_list_t *sul)
 	/* all of it, the frame too */
 	sui_drop();
 	carousel_phase = CAROUSEL_BLANKING;
-	if (page_show("blank.html", html, (int)sizeof(blank) - 1)) {
+	if (page_show("blank.html", html, (int)sizeof(blank) - 1, NULL)) {
 		carousel_phase = CAROUSEL_SHOWING_LAST;
 		lws_sul_schedule(cx, 0, &sul_app, app_last_shown,
 				 LWS_US_PER_SEC);
@@ -803,21 +837,22 @@ ui_kick_cb(lws_sorted_usec_list_t *sul)
 
 	if (st == LWS_SYSTATE_AWAITING_MODAL_UPDATING ||
 	    st == LWS_SYSTATE_MODAL_UPDATING) {
+		lws_usec_t every = lws_display_anim_interval(lds.disp,
+							     UPDATE_SHOW_US);
+
 		/* the update display takes over, whatever else is going on */
 		sui_drop();
-		if (lds.disp->bistable && update_pc_shown == update_pc)
+		if (!every && update_pc_shown == update_pc)
+			/* there's no spinner to move on */
 			return;
 
 		/*
-		 * The first is shown at once, then no more often than
-		 * UPDATE_SHOW_US, with the spinner moved on and the progress
-		 * by then
+		 * The first is shown at once, then no more often than the
+		 * spinner is moved on, with the progress by then
 		 */
 		if (update_pc_shown >= 0) {
 			lws_usec_t due = update_shown_us +
-					 (lds.disp->bistable ?
-						UPDATE_SHOW_BISTABLE_US :
-						UPDATE_SHOW_US),
+					 (every ? every : UPDATE_SHOW_STILL_US),
 				   now = lws_now_usecs();
 
 			if (now < due) {

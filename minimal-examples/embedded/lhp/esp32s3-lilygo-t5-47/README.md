@@ -85,6 +85,13 @@ however few rows change.  The waveforms in `main/devices.c` give pixels
 about the drive LilyGo's own code does: an update is 5 passes of 20us drive,
 about 60ms, and the clear is 32 passes of 50us drive, about 0.9s.
 
+Since an update only drives the pixels that change, and is that quick, the
+display says it can show animation, `.anim_hz`, so the update page shows its
+spinner, moved on twice a second.  The panel can't be sent a band of its
+lines, so each time, the page is drawn whole again as it was laid out, and
+the update drives only the pixels of the spinner and the progress bar that
+changed.
+
 On the watch routing, what to look at on the scope is:
 
  - the row period (rising XSTL to rising XSTL) should be about 22us, with

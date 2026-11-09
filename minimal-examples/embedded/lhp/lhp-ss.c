@@ -42,8 +42,20 @@ static char redraw;
 static char framed;
 /* how many lines the title strip is, and how many of them were drawn */
 static int frame_top, frame_y;
+/*
+ * A band of the page's lines being drawn again, eg, what changed on it: they
+ * are all drawn here first, then sent to the display together, so they
+ * appear on it at once, not as fast as they can be drawn
+ */
+static uint8_t *band;
+static int band_y, band_h;
 
 /*
+ * The display updates are always sent whole, or as a band of lines, so no ids
+ * are given to the blit: some EPD drivers take the first as the part of the
+ * panel to update, but the page's ids are only elements it changes in place,
+ * see redraw_damage().
+ *
  * Where the time of a display update went, logged when it ends: what isn't
  * spent drawing lines or sending them to the display was spent waiting, eg,
  * for an image's data, or to be scheduled again
@@ -57,6 +69,23 @@ static struct {
 
 static void
 render(lws_sorted_usec_list_t *sul);
+
+/*
+ * Whatever the render was drawing its lines into is finished with: one line,
+ * or while a band is drawn, the band's lines, which rs->line is one of
+ */
+
+static void
+line_free(lws_display_render_state_t *rs)
+{
+	if (band) {
+		free(band);
+		band = NULL;
+	} else
+		free(rs->line);
+
+	rs->line = NULL;
+}
 
 static void
 relayout_browse(lws_sorted_usec_list_t *sul)
@@ -83,7 +112,7 @@ relayout_browse(lws_sorted_usec_list_t *sul)
 
 	memset(&box, 0, sizeof(box));
 	box.w = rs->lds->disp->ic.wh_px[0];
-	rs->lds->disp->blit(rs->lds, NULL, &box, &rs->ids);
+	rs->lds->disp->blit(rs->lds, NULL, &box, NULL);
 	show_demo_phase(LWS_LHPCD_PHASE_IDLE);
 }
 
@@ -109,8 +138,7 @@ relayout(lws_display_render_state_t *rs)
 
 	lws_lhp_ss_cancel(rs);
 
-	free(rs->line);
-	rs->line = NULL;
+	line_free(rs);
 	redraw = 0;
 
 	/* browsing it again resets the pan: it's put back when it renders */
@@ -186,10 +214,8 @@ render(lws_sorted_usec_list_t *sul)
 
 		if (!redraw) {
 			/*
-			 * We must finalize the ids list with the accurate dlo
-			 * box info before starting the render, since some EPD
-			 * need to keep copies of the pixel data for that
-			 * region in order to overwrite it later.
+			 * The ids' boxes are where their elements were laid
+			 * out, eg, for changing them in place later
 			 */
 
 			lws_display_get_ids_boxes(rs);
@@ -247,7 +273,7 @@ render(lws_sorted_usec_list_t *sul)
 		box.w = dic->wh_px[0];
 		box.h = dic->wh_px[1];
 
-		rs->lds->disp->blit(rs->lds, (uint8_t *)rs, &box, &rs->ids);
+		rs->lds->disp->blit(rs->lds, (uint8_t *)rs, &box, NULL);
 
 		show_demo_phase(LWS_LHPCD_PHASE_RENDERING);
 
@@ -287,7 +313,7 @@ render(lws_sorted_usec_list_t *sul)
 
 		box.y.whole = frame_y++;
 		rs->lds->disp->blit(rs->lds, (uint8_t *)rs->line, &box,
-				    &rs->ids);
+				    NULL);
 	}
 
 	/* then the page */
@@ -328,7 +354,7 @@ render(lws_sorted_usec_list_t *sul)
 		 * convert to the panel's packed format and deal with diffusion
 		 */
 
-		rs->lds->disp->blit(rs->lds, (uint8_t *)rs->line, &box, &rs->ids);
+		rs->lds->disp->blit(rs->lds, (uint8_t *)rs->line, &box, NULL);
 		upd.blit += lws_now_usecs() - t1;
 
 		rs->curr++;
@@ -342,10 +368,9 @@ render(lws_sorted_usec_list_t *sul)
 		    (int)(upd.blit / LWS_US_PER_MS), upd.wakes);
 	/* zero-height blit indicates update finished */
 	box.h.whole = 0;
-	rs->lds->disp->blit(rs->lds, (uint8_t *)rs->line, &box, &rs->ids);
+	rs->lds->disp->blit(rs->lds, (uint8_t *)rs->line, &box, NULL);
 
-	free(rs->line);
-	rs->line = NULL;
+	line_free(rs);
 	redraw = 0;
 
 	/*
@@ -359,10 +384,95 @@ render(lws_sorted_usec_list_t *sul)
 	show_demo_phase(LWS_LHPCD_PHASE_IDLE);
 }
 
+/*
+ * The band of lines is drawn into the band buffer, then sent to the display
+ * as a band of its lines
+ */
+
+static void
+render_band(lws_sorted_usec_list_t *sul)
+{
+	lws_display_render_state_t *rs = lws_container_of(sul,
+					lws_display_render_state_t, sul);
+	const lws_surface_info_t *dic = &rs->lds->disp->ic;
+	size_t lb = (size_t)dic->wh_px[0].whole * (dic->greyscale ? 1 : 3);
+	lws_stateful_ret_t r;
+	lws_usec_t t0, t1;
+	int budget = 10, y;
+	lws_box_t box;
+
+	upd.wakes++;
+
+	while (rs->curr != band_y + band_h) {
+
+		if (!budget--) {
+			lws_sul_schedule(rs->lds->ctx, 0, &rs->sul,
+					 render_band, 1);
+			return;
+		}
+
+		rs->line = band + (size_t)(rs->curr - band_y) * lb;
+
+		t0 = lws_now_usecs();
+		r = lws_display_list_render_line(rs);
+		upd.lines += lws_now_usecs() - t0;
+		if ((r & LWS_SRET_FATAL) && rs->relayout) {
+			/* it's laid out again, and drawn whole */
+			relayout(rs);
+			return;
+		}
+		if (r & (LWS_SRET_YIELD | LWS_SRET_WANT_INPUT)) {
+			/* the same line again, when what it waits for comes */
+			lws_sul_schedule(rs->lds->ctx, 0, &rs->sul, render_band,
+					 r & LWS_SRET_YIELD ? 1 : LWS_US_PER_MS);
+			return;
+		}
+		if (r)
+			lwsl_warn("%s: line %d: 0x%x\n", __func__,
+				  (int)rs->curr, (unsigned int)r);
+
+		rs->curr++;
+	}
+
+	/* it's all drawn: send it to the display, as a band of its lines */
+
+	t1 = lws_now_usecs();
+
+	memset(&box, 0, sizeof(box));
+	box.w = dic->wh_px[0];
+	box.y.whole = band_y + frame_top;
+	box.h.whole = band_h;
+	rs->lds->disp->blit(rs->lds, (uint8_t *)rs, &box, NULL);
+
+	box.h.whole = 1;
+	for (y = 0; y < band_h; y++) {
+		box.y.whole = band_y + frame_top + y;
+		rs->lds->disp->blit(rs->lds, band + (size_t)y * lb, &box,
+				    NULL);
+	}
+
+	box.h.whole = 0;
+	rs->lds->disp->blit(rs->lds, band, &box, NULL);
+	upd.blit = lws_now_usecs() - t1;
+
+	lwsl_notice("%s: %d lines in %dms: drawing %dms, blitting %dms, "
+		    "%d wakes\n", __func__, band_h,
+		    (int)((lws_now_usecs() - upd.start) / LWS_US_PER_MS),
+		    (int)(upd.lines / LWS_US_PER_MS),
+		    (int)(upd.blit / LWS_US_PER_MS), upd.wakes);
+
+	line_free(rs);
+	redraw = 0;
+
+	show_demo_phase(LWS_LHPCD_PHASE_IDLE);
+}
+
 int
 init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
-	    const char *url, int frame)
+	    const char *url, int frame, const char * const *ids)
 {
+	int n;
+
         show_demo_phase(LWS_LHPCD_PHASE_FETCHING);
 
 	/*
@@ -372,8 +482,7 @@ init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
 	 * render on it: stop all of that before the display list goes.
 	 */
 	lws_lhp_ss_cancel(rs);
-	free(rs->line);
-	rs->line = NULL;
+	line_free(rs);
 
 	/*
 	 * Whatever was displayed is about to be overwritten.  With a touch
@@ -382,9 +491,19 @@ init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
 	lws_sul_cancel(&sul_relayout);
 	lws_display_list_destroy(cx, &rs->displaylist);
 	lws_display_render_free_ids(rs);
-	rs->retained = !!tcs;
 	relayout_pan_x = relayout_pan_y = 0;
 	redraw = 0;
+
+	/*
+	 * Elements the caller changes in place once it's laid out are found
+	 * by their ids: the display list is kept for that too
+	 */
+	for (n = 0; ids && ids[n]; n++)
+		if (!lws_display_render_add_id(rs, ids[n], NULL)) {
+			lwsl_err("%s: OOM\n", __func__);
+			return 1;
+		}
+	rs->retained = tcs || n;
 
 	/*
 	 * Lay it out in faces from the server where we can, and if the render
@@ -448,3 +567,63 @@ redraw_page(lws_display_render_state_t *rs)
 	return 0;
 }
 
+/*
+ * Bring the page on the display up to date after it was changed in place, eg,
+ * with lws_display_render_set_text(), and move on what is animated on it.
+ * Only what changed is drawn again, if the display can be sent a band of its
+ * lines, otherwise all of the page, as it was laid out.  The display list was
+ * kept for that, see init_browse().  Returns 0 if it was started: the display
+ * is busy until it's finished, -1 if nothing changed, or 1 if it can't be
+ * done, eg, the page wasn't kept
+ */
+
+int
+redraw_damage(lws_display_render_state_t *rs)
+{
+	const lws_surface_info_t *dic = &rs->lds->disp->ic;
+	lws_box_t b;
+
+	if (rs->html != 2 || !rs->retained || rs->line || redraw ||
+	    rs->lds->display_busy ||
+	    !lws_dll2_get_head(&rs->displaylist.dl))
+		return 1;
+
+	/* animated images are drawn as they are now */
+	rs->anim_t = lws_now_usecs();
+
+	if (!lws_display_render_damage(rs, &b))
+		return -1;
+
+	if (!dic->band)
+		/* the display can only be updated whole */
+		return redraw_page(rs);
+
+	/* a band is at least two lines */
+
+	band_y = b.y.whole;
+	band_h = b.h.whole;
+	if (band_h < 2) {
+		band_h = 2;
+		if (band_y + band_h > rs->ic->wh_px[1].whole)
+			band_y = rs->ic->wh_px[1].whole - band_h;
+	}
+
+	band = malloc((size_t)band_h * (size_t)dic->wh_px[0].whole *
+		      (dic->greyscale ? 1 : 3));
+	if (!band)
+		/* all of it is drawn again, a line at a time, instead */
+		return redraw_page(rs);
+
+	memset(rs->st, 0, sizeof(rs->st));
+	rs->sp = 0;
+	rs->curr = (lws_display_scalar)band_y;
+	redraw = 1;
+	memset(&upd, 0, sizeof(upd));
+	upd.start = lws_now_usecs();
+
+	rs->lds->display_busy = 1;
+	show_demo_phase(LWS_LHPCD_PHASE_RENDERING);
+	lws_sul_schedule(rs->lds->ctx, 0, &rs->sul, render_band, 1);
+
+	return 0;
+}

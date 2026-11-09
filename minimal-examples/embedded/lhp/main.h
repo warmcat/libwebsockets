@@ -44,10 +44,16 @@ extern void
 show_demo_phase(int phase);
 extern void
 next_carousel(lws_sorted_usec_list_t *sul);
-/* frame: lay the page out below the strip ui's title strip, see sui */
+/*
+ * frame: lay the page out below the strip ui's title strip, see sui.  ids:
+ * NULL, or a NULL-terminated list of the ids of elements that are changed in
+ * place once it's laid out, see redraw_damage()
+ */
 extern int
 init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
-	    const char *url, int frame);
+	    const char *url, int frame, const char * const *ids);
 extern int
 redraw_page(lws_display_render_state_t *rs);
+extern int
+redraw_damage(lws_display_render_state_t *rs);
 

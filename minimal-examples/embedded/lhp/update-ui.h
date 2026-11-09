@@ -17,7 +17,12 @@
  *
  * The spinner is an animated svg, contrib/assets/update/update-1-spinner.svg:
  * it's drawn as it is at the render state's .anim_t, so each time the page is
- * drawn, it has moved on.
+ * drawn, it has moved on.  It's left out on a display that can't show
+ * animation, eg, an EPD taking seconds to update.
+ *
+ * Once it's laid out on a retained display list, with lhp_update_ids, the
+ * progress can be changed in place with lhp_update_progress(), so only the
+ * bar and the spinner need drawing again, not the whole page laid out again.
  *
  * Nothing here is platform-specific: the caller says what display it is for,
  * and shows the html however it shows pages.
@@ -66,11 +71,30 @@ lhp_update_deinit(struct lws_context *cx);
  * \param ic: the display it's for
  * \param variant: what is being updated, eg, lws_ota_variant_name(), or NULL
  * \param pc: how much of the update has arrived, in percent
+ * \param spinner: nonzero to show the spinner, if there's room for it
  *
  * Returns the length of the html, or -1 if it didn't fit in buf.
  */
 int
 lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
-		const char *variant, int pc);
+		const char *variant, int pc, int spinner);
+
+/* the ids to lay the update page out with, for lhp_update_progress() */
+extern const char * const lhp_update_ids[];
+
+/*
+ * lhp_update_progress() - change the progress the update page shows, in place
+ *
+ * \param rs: the render state the page is laid out on, retained, with
+ *	      lhp_update_ids
+ * \param pc: how much of the update has arrived, in percent
+ *
+ * The bar's fill and the percentage are changed as lhp_update_html() would
+ * have made them, without laying the page out again: lws_display_render_damage()
+ * then says what to draw again.  Returns 0, or nonzero if they couldn't be
+ * changed, when the page should be made again with lhp_update_html().
+ */
+int
+lhp_update_progress(lws_display_render_state_t *rs, int pc);
 
 #endif

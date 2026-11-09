@@ -375,6 +375,12 @@ static const lws_display_epd_direct_t disp = {
 		.name			= "ED047TC1 960x540 direct",
 		.latency_wake_ms	= 0,
 		.latency_update_ms	= 600,
+		/*
+		 * An update only drives the pixels that change, in about
+		 * 60ms, and the next can start before it ends: something
+		 * animated, eg, the update spinner, can be moved on often
+		 */
+		.anim_hz		= 18,
 	},
 	.panel				= &lws_epd_direct_panel_ed047tc1,
 	.wf_bw				= &wf_bw,
