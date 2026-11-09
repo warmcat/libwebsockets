@@ -439,6 +439,35 @@ if (requirements)
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
 		endif()
 
+		# a retained page changed in place, an element's text and
+		# another's width, with its animated svg moved on, comes out
+		# as the page laid out with them like that would, when only
+		# the lines lws_display_render_damage() gives are drawn again:
+		# those of the svg and of the bar the changes are in
+		if (LWS_WITH_SVG)
+		add_test(NAME api-test-lhp-dlo-in-place-render
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/in-place.html
+				-DHTML_B=${CMAKE_CURRENT_SOURCE_DIR}/in-place-twin.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/in-place
+				-DW=200 -DH=160
+				"-DFLAGS_A=--retained;--anim-t;100;--change;pd=45%,pf=45%,f:w=72,t=700;--expect-damage;32,124"
+				"-DFLAGS_B=--anim-t;700"
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+		endif()
+
+		# ... and a page with nothing animated, drawn again later with
+		# nothing changed, has nothing to draw again
+		add_test(NAME api-test-lhp-dlo-in-place-none
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/rounded-clip.html
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/in-place-none
+				-DW=240 -DH=210
+				"-DFLAGS_A=--retained;--change;t=500;--expect-damage;none"
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-render-compare.cmake)
+
 		# a list moved up inside an overflow: hidden window shows just
 		# what is in the window, as the same rows laid out there would,
 		# including text laid out below the surface before the move

@@ -1260,94 +1260,6 @@ ui_layout(struct lws_dlo_ui *ui)
 	return 0;
 }
 
-/* the dlo the id is tagged on, in the laid out display list, or NULL */
-
-static lws_dlo_t *
-ui_dlo_by_id(lws_displaylist_t *dl, const lws_display_id_t *id)
-{
-	lws_dll2_t *st[LWS_DLO_STACK_DEPTH];
-	int sp = 0;
-
-	if (!id)
-		return NULL;
-
-	st[0] = lws_dll2_get_head(&dl->dl);
-
-	while (sp >= 0) {
-		lws_dll2_t *d = st[sp];
-		lws_dlo_t *dlo;
-
-		if (!d) {
-			sp--;
-			continue;
-		}
-
-		dlo = lws_container_of(d, lws_dlo_t, list);
-		st[sp] = lws_dll2_get_next(d);
-
-		if (dlo->id == id)
-			return dlo;
-
-		if (lws_dll2_get_head(&dlo->children) &&
-		    sp + 1 < (int)LWS_ARRAY_SIZE(st))
-			st[++sp] = lws_dll2_get_head(&dlo->children);
-	}
-
-	return NULL;
-}
-
-/* where a dlo's top left is on the display, as laid out */
-
-static int
-ui_dlo_origin(lws_displaylist_t *dl, const lws_dlo_t *target, int *x, int *y)
-{
-	lws_display_render_stack_t st[LWS_DLO_STACK_DEPTH];
-	lws_dll2_t *d = lws_dll2_get_head(&dl->dl);
-	int sp = 0;
-
-	if (!d)
-		return 1;
-
-	memset(&st, 0, sizeof(st));
-	st[0].dlo = lws_container_of(d, lws_dlo_t, list);
-
-	while (sp || st[0].dlo) {
-		lws_dlo_t *dlo = st[sp].dlo;
-		lws_box_t co;
-
-		if (!dlo) {
-			if (!sp)
-				break;
-			sp--;
-			continue;
-		}
-
-		lws_fx_add(&co.x, &st[sp].co.x, &dlo->box.x);
-		lws_fx_add(&co.y, &st[sp].co.y, &dlo->box.y);
-		co.w = dlo->box.w;
-		co.h = dlo->box.h;
-
-		if (dlo == target) {
-			*x = co.x.whole;
-			*y = co.y.whole;
-			return 0;
-		}
-
-		d = lws_dll2_get_next(&dlo->list);
-		st[sp].dlo = d ? lws_container_of(d, lws_dlo_t, list) : NULL;
-
-		if (!lws_dll2_is_empty(&dlo->children) &&
-		    sp + 1 < (int)LWS_ARRAY_SIZE(st)) {
-			st[++sp].dlo = lws_container_of(
-				lws_dll2_get_head(&dlo->children),
-				lws_dlo_t, list);
-			st[sp].co = co;
-		}
-	}
-
-	return 1;
-}
-
 /*
  * Each link of the panel, in document order, where it is in the panel's
  * content.  A link laid out in pieces, eg, text that wrapped, is one link,
@@ -1414,7 +1326,7 @@ ui_panel_laid_out(struct lws_dlo_ui *ui)
 
 	ui->pc_h = ui->pc->box.h.whole;
 	lws_fx_set(ui->pc->box.y, 0, 0);
-	if (ui_dlo_origin(&ui->rs.displaylist, ui->pc, &x, &y)) {
+	if (lws_display_dlo_origin(&ui->rs.displaylist, ui->pc, &x, &y)) {
 		ui->pc = NULL;
 		return;
 	}
@@ -1661,9 +1573,9 @@ ui_render(lws_sorted_usec_list_t *sul)
 			lwsl_warn("%s: layout incomplete\n", __func__);
 
 		/* before the ids are decoupled from the dlos */
-		ui->kb = ui_dlo_by_id(&rs->displaylist,
+		ui->kb = lws_display_dlo_by_id(&rs->displaylist,
 				      lws_display_render_get_id(rs, "kb"));
-		ui->pc = ui_dlo_by_id(&rs->displaylist,
+		ui->pc = lws_display_dlo_by_id(&rs->displaylist,
 				      lws_display_render_get_id(rs, "pc"));
 		lws_display_get_ids_boxes(rs);
 		ui_panel_laid_out(ui);

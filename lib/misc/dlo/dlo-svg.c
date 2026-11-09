@@ -180,6 +180,20 @@ dlo_svg_parse(lws_dlo_svg_t *dlo_svg)
 	return LWS_SRET_OK;
 }
 
+/*
+ * What the svg holds is given back once the raster has passed it, unless it's
+ * animated on a retained display list: then it's drawn again each time the
+ * animation moves on, from the same scene, rather than fetched and parsed
+ * again each time
+ */
+
+static void
+dlo_svg_passed(struct lws_display_render_state *rs, lws_dlo_svg_t *dlo_svg)
+{
+	if (!rs->retained || !dlo_svg->dlo.flag_animated)
+		lws_display_dlo_svg_release(dlo_svg);
+}
+
 lws_stateful_ret_t
 lws_display_render_svg(struct lws_display_render_state *rs)
 {
@@ -201,7 +215,7 @@ lws_display_render_svg(struct lws_display_render_state *rs)
 
 	if (rs->curr >= end) {
 		/* the raster is past it, it has nothing more to do */
-		lws_display_dlo_svg_release(dlo_svg);
+		dlo_svg_passed(rs, dlo_svg);
 
 		return LWS_SRET_OK;
 	}
@@ -266,6 +280,9 @@ lws_display_render_svg(struct lws_display_render_state *rs)
 		/* nothing to render, and nothing more coming */
 		goto done;
 
+	/* drawn at another time, it may look different */
+	dlo->flag_animated = !!lws_svg_get_animated(dlo_svg->svg);
+
 	ri.w = e - s;
 	ri.h = end - top;
 	ri.aa = 1;	/* area-antialiased coverage through the line alpha */
@@ -282,7 +299,7 @@ lws_display_render_svg(struct lws_display_render_state *rs)
 done:
 	if (!r && rs->curr + 1 >= end)
 		/* that was its last line */
-		lws_display_dlo_svg_release(dlo_svg);
+		dlo_svg_passed(rs, dlo_svg);
 
 	return r;
 }

@@ -279,6 +279,29 @@ lws_display_dlo_text_refit(lws_dlo_text_t *text)
 	return 0;
 }
 
+/*
+ * How far across a line its items are moved, for its alignment, when room is
+ * the width of the line left over after them.  Only a whole pixel or more left
+ * over moves them.
+ */
+
+void
+lws_display_dlo_text_align_shift(uint8_t align, const lws_fx_t *room,
+				 lws_fx_t *shift)
+{
+	static const lws_fx_t two = { 2, 0 };
+
+	lws_fx_set((*shift), 0, 0);
+
+	if (room->whole <= 0)
+		return;
+
+	if (align == LWS_DLO_TEXT_ALIGN_CENTER)
+		lws_fx_div(shift, room, &two);
+	else if (align == LWS_DLO_TEXT_ALIGN_RIGHT)
+		*shift = *room;
+}
+
 void
 lws_display_dlo_text_measure(lws_dlo_text_t *text, const char *utf8,
 			     size_t text_len, lws_fx_t *total,

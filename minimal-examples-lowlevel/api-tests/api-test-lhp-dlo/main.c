@@ -34,6 +34,9 @@ enum {
 		LWS_SW_LAYOUT_H,
 		LWS_SW_PAN,
 		LWS_SW_PAN_HEAP_MAX,
+		LWS_SW_ANIM_T,
+		LWS_SW_CHANGE,
+		LWS_SW_EXPECT_DAMAGE,
 		LWS_SW_HELP,
 };
 
@@ -62,6 +65,9 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_LAYOUT_H] = { "--layout-h",    "Lay the page out this tall in px, taller than --h, so it can be panned down (rs.layout_h)" },
 	[LWS_SW_PAN]	= { "--pan",           "x,y[:x,y...]: render the display list panned to x,y with lws_display_render_pan(), kept to what is laid out.  With --retained, more are rendered one after the other from the same display list, as a touch display redraws a page dragged around, and the last goes in the bmp" },
 	[LWS_SW_PAN_HEAP_MAX] = { "--pan-heap-max", "With --retained and more than one --pan, fail if the heap in use after the last pan is more than this many bytes over what it was after the first" },
+	[LWS_SW_ANIM_T] = { "--anim-t",       "Draw animated images, eg, svg with SMIL animation, as they are this many ms into their animations (rs.anim_t)" },
+	[LWS_SW_CHANGE]	= { "--change",        "With --retained, after the page is drawn, change it in place and draw again over the bmp only the lines lws_display_render_damage() says changed.  Changes are separated by ',': id=text sets the text of the element with that id, id:w=px its width, and t=ms moves animations on to that time" },
+	[LWS_SW_EXPECT_DAMAGE] = { "--expect-damage", "With --change, fail unless the lines lws_display_render_damage() gives are y0,y1 (y1 one past the last), or none" },
 	[LWS_SW_HELP]	= { "--help",          "Show this help information" },
 };
 
@@ -218,6 +224,14 @@ static lws_lhp_filter_t page_filter;
 static char page_filtered;
 static lws_sorted_usec_list_t sul_relayout;
 static int relayout_tries;
+/* --change: what to change once the page is drawn, and if it was */
+static const char *change;
+static char changed;
+static const char *expect_damage;
+/* the lines to draw: all of them, or those of the damage */
+static int render_first, render_end;
+/* when the render's first line began, for how long it took */
+static lws_usec_t render_start;
 
 /*
  * How often, and how many times, we try to browse the page again for a
@@ -629,6 +643,138 @@ relayout(lws_display_render_state_t *rs)
 	relayout_browse(&sul_relayout);
 }
 
+/*
+ * --change: each of the changes in it, applied to the page as it was drawn,
+ * or with reg, only the ids it changes registered, before the layout
+ */
+
+static int
+change_apply(lws_display_render_state_t *rs, int reg)
+{
+	const char *p = change;
+	char item[64], *v;
+	lws_fx_t w;
+	size_t n;
+
+	while (p && *p) {
+		n = strcspn(p, ",");
+		if (n >= sizeof(item)) {
+			lwsl_err("%s: change too long\n", __func__);
+			return 1;
+		}
+		memcpy(item, p, n);
+		item[n] = '\0';
+		p += n + (p[n] == ',');
+
+		v = strchr(item, '=');
+		if (!v) {
+			lwsl_err("%s: %s isn't x=y\n", __func__, item);
+			return 1;
+		}
+		*v++ = '\0';
+
+		if (!strcmp(item, "t")) {
+			if (!reg)
+				rs->anim_t = (lws_usec_t)atoi(v) *
+					     LWS_US_PER_MS;
+			continue;
+		}
+
+		n = strlen(item);
+		if (n > 2 && !strcmp(item + n - 2, ":w")) {
+			item[n - 2] = '\0';
+			if (reg) {
+				if (!lws_display_render_add_id(rs, item, NULL))
+					return 1;
+				continue;
+			}
+			lws_fx_set(w, atoi(v), 0);
+			if (lws_display_render_set_width(rs, item, &w)) {
+				lwsl_err("%s: can't set the width of %s\n",
+					 __func__, item);
+				return 1;
+			}
+			continue;
+		}
+
+		if (reg) {
+			if (!lws_display_render_add_id(rs, item, NULL))
+				return 1;
+			continue;
+		}
+		if (lws_display_render_set_text(rs, item, v)) {
+			lwsl_err("%s: can't set the text of %s\n", __func__,
+				 item);
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/*
+ * --change: the page was drawn, change it in place and draw over the bmp again
+ * only what the damage says changed.  Returns 0 if that was started, else
+ * nonzero, and if it failed, result is set
+ */
+
+static int
+change_start(lws_display_render_state_t *rs, size_t lbuflen)
+{
+	char ed[32];
+	lws_box_t b;
+	int d;
+
+	changed = 1;
+
+	if (change_apply(rs, 0)) {
+		result = 1;
+		return 1;
+	}
+
+	d = lws_display_render_damage(rs, &b);
+	if (d)
+		lws_snprintf(ed, sizeof(ed), "%d,%d", (int)b.y.whole,
+			     (int)(b.y.whole + b.h.whole));
+	else
+		lws_strncpy(ed, "none", sizeof(ed));
+	lwsl_user("%s: damage %s\n", __func__, ed);
+
+	if (expect_damage && strcmp(expect_damage, ed)) {
+		lwsl_err("%s: damage %s, expected %s\n", __func__, ed,
+			 expect_damage);
+		result = 1;
+		return 1;
+	}
+
+	if (!d)
+		return 1;
+
+	if (fdout == 1 || lseek(fdout, (off_t)(54 + (size_t)b.y.whole * lbuflen),
+				SEEK_SET) < 0) {
+		lwsl_err("%s: unable to seek in the bmp\n", __func__);
+		result = 1;
+		return 1;
+	}
+
+	rs->line = malloc(lbuflen);
+	if (!rs->line) {
+		result = 1;
+		return 1;
+	}
+	memset(rs->line, 0xff, lbuflen);
+
+	/* the retained display list is scanned again from the band's top */
+
+	memset(rs->st, 0, sizeof(rs->st));
+	rs->sp = 0;
+	rs->curr = (lws_display_scalar)b.y.whole;
+	render_first = b.y.whole;
+	render_end = b.y.whole + b.h.whole;
+
+	return 0;
+}
+
 static void
 render(lws_sorted_usec_list_t *sul)
 {
@@ -693,11 +839,16 @@ render(lws_sorted_usec_list_t *sul)
 
 		memset(rs->line, 0xff, lbuflen);
 		rs->curr = 0;
+		render_first = 0;
+		render_end = rs->ic->wh_px[1].whole;
 
 		if (fdout != 1)
 			write_bmp_header(fdout, rs->ic->wh_px[0].whole,
 					 rs->ic->wh_px[1].whole);
 	}
+
+	if (!render_start)
+		render_start = lws_now_usecs();
 
 	/*
 	 * Render every line of the surface, not only down to the lowest DLO:
@@ -705,7 +856,7 @@ render(lws_sorted_usec_list_t *sul)
 	 * is the page background
 	 */
 
-	while (rs->curr != rs->ic->wh_px[1].whole) {
+	while (rs->curr != render_end) {
 
 		/*
 		 * --reclaim-lines: sound the bat signal ourselves every few
@@ -806,6 +957,16 @@ render(lws_sorted_usec_list_t *sul)
 
 	free(rs->line);
 	rs->line = NULL;
+
+	lwsl_user("%s: drew %d lines in %dus\n", __func__,
+		  render_end - render_first,
+		  (int)(lws_now_usecs() - render_start));
+	render_start = 0;
+
+	if (change && !changed && !change_start(rs, lbuflen)) {
+		lws_sul_schedule(cx, 0, &rs->sul, render, 1);
+		return;
+	}
 
 	if (pan_count) {
 		/*
@@ -1179,6 +1340,22 @@ main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv,
 				    switches[LWS_SW_PAN_HEAP_MAX].sw)))
 		pan_heap_max = atoi(p);
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_ANIM_T].sw)))
+		drs.anim_t = (lws_usec_t)atoi(p) * LWS_US_PER_MS;
+
+	expect_damage = lws_cmdline_option(argc, argv,
+					   switches[LWS_SW_EXPECT_DAMAGE].sw);
+	change = lws_cmdline_option(argc, argv, switches[LWS_SW_CHANGE].sw);
+	if (change && (!drs.retained || pan_count)) {
+		lwsl_err("--change needs --retained, and no --pan\n");
+		return 1;
+	}
+	/* the elements it changes are found by their ids */
+	if (change && change_apply(&drs, 1)) {
+		lwsl_err("--change: unable to register its ids\n");
+		return 1;
+	}
 
 	/*
 	 * If the render can't have a face from the server some text was laid

@@ -396,6 +396,10 @@ int
 lws_display_dlo_text_refit(lws_dlo_text_t *text);
 
 void
+lws_display_dlo_text_align_shift(uint8_t align, const lws_fx_t *room,
+				 lws_fx_t *shift);
+
+void
 lws_display_dlo_png_reclaimable(lws_dlo_png_t *dlo_png);
 
 void

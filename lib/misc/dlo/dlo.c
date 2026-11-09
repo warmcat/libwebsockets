@@ -1013,7 +1013,13 @@ lws_display_get_ids_boxes(lws_display_render_state_t *rs)
 
 				id->box = co;
 			}
-			dlo->id = NULL; /* decouple us */
+			if (!rs->retained)
+				/*
+				 * A streaming render destroys the dlos as it
+				 * passes them: only a retained display list's
+				 * can be found by their ids afterwards
+				 */
+				dlo->id = NULL;
 		}
 
 
@@ -1050,6 +1056,351 @@ lws_display_get_ids_boxes(lws_display_render_state_t *rs)
 	lws_display_render_dump_ids(&rs->ids);
 
 	return LWS_SRET_OK;
+}
+
+/* the dlo whose children this one is one of, or NULL at the top level */
+
+static lws_dlo_t *
+dl_parent(lws_displaylist_t *dl, const lws_dlo_t *dlo)
+{
+	lws_dll2_owner_t *o = lws_dll2_owner(&dlo->list);
+
+	if (!o || o == &dl->dl)
+		return NULL;
+
+	return lws_container_of(o, lws_dlo_t, children);
+}
+
+/*
+ * The dlo after this one in document order, with its children before its
+ * next sibling, however deep, or NULL after the last
+ */
+
+static lws_dlo_t *
+dl_next(lws_displaylist_t *dl, lws_dlo_t *dlo)
+{
+	lws_dll2_t *d = lws_dll2_get_head(&dlo->children);
+
+	if (d)
+		return lws_container_of(d, lws_dlo_t, list);
+
+	while (1) {
+		d = lws_dll2_get_next(&dlo->list);
+		if (d)
+			return lws_container_of(d, lws_dlo_t, list);
+
+		dlo = dl_parent(dl, dlo);
+		if (!dlo)
+			return NULL;
+	}
+}
+
+static lws_dlo_t *
+dl_first(lws_displaylist_t *dl)
+{
+	lws_dll2_t *d = lws_dll2_get_head(&dl->dl);
+
+	return d ? lws_container_of(d, lws_dlo_t, list) : NULL;
+}
+
+lws_dlo_t *
+lws_display_dlo_by_id(lws_displaylist_t *dl, const lws_display_id_t *id)
+{
+	lws_dlo_t *dlo;
+
+	if (!id)
+		return NULL;
+
+	for (dlo = dl_first(dl); dlo; dlo = dl_next(dl, dlo))
+		if (dlo->id == id)
+			return dlo;
+
+	return NULL;
+}
+
+int
+lws_display_dlo_origin(lws_displaylist_t *dl, const lws_dlo_t *target,
+		       int *x, int *y)
+{
+	const lws_dlo_t *dlo = target;
+	lws_fx_t ox, oy;
+
+	if (!dlo || !lws_dll2_owner(&dlo->list))
+		return 1;
+
+	/* our box is in our parent's, and so on up to the display list */
+
+	ox = dlo->box.x;
+	oy = dlo->box.y;
+
+	while ((dlo = dl_parent(dl, dlo))) {
+		lws_fx_add(&ox, &ox, &dlo->box.x);
+		lws_fx_add(&oy, &oy, &dlo->box.y);
+	}
+
+	*x = ox.whole;
+	*y = oy.whole;
+
+	return 0;
+}
+
+/* add a box of the layout, from x0, y0 up to x1, y1, to the damage */
+
+static void
+damage_add(int32_t *dmg, int32_t x0, int32_t y0, int32_t x1, int32_t y1)
+{
+	if (x1 <= x0 || y1 <= y0)
+		return;
+
+	if (dmg[2] <= dmg[0]) {
+		dmg[0] = x0;
+		dmg[1] = y0;
+		dmg[2] = x1;
+		dmg[3] = y1;
+		return;
+	}
+
+	if (x0 < dmg[0])
+		dmg[0] = x0;
+	if (y0 < dmg[1])
+		dmg[1] = y0;
+	if (x1 > dmg[2])
+		dmg[2] = x1;
+	if (y1 > dmg[3])
+		dmg[3] = y1;
+}
+
+/* what a dlo covers is damaged: its parent's top left is at px, py */
+
+static void
+damage_dlo(lws_display_render_state_t *rs, const lws_dlo_t *dlo, int px,
+	   int py)
+{
+	lws_fx_t r, b;
+
+	lws_fx_add(&r, &dlo->box.x, &dlo->box.w);
+	lws_fx_add(&b, &dlo->box.y, &dlo->box.h);
+
+	damage_add(rs->damage, px + dlo->box.x.whole, py + dlo->box.y.whole,
+		   px + lws_fx_roundup(&r), py + lws_fx_roundup(&b));
+}
+
+/*
+ * The element with the id, on a retained display list, and where its parent's
+ * top left is in the layout, which its own box is relative to
+ */
+
+static lws_dlo_t *
+render_id_dlo(lws_display_render_state_t *rs, const char *id, int *px,
+	      int *py)
+{
+	lws_dlo_t *dlo;
+	int x, y;
+
+	if (!rs->retained)
+		return NULL;
+
+	dlo = lws_display_dlo_by_id(&rs->displaylist,
+				    lws_display_render_get_id(rs, id));
+	if (!dlo || lws_display_dlo_origin(&rs->displaylist, dlo, &x, &y))
+		return NULL;
+
+	*px = x - dlo->box.x.whole;
+	*py = y - dlo->box.y.whole;
+
+	return dlo;
+}
+
+int
+lws_display_render_set_width(lws_display_render_state_t *rs, const char *id,
+			     const lws_fx_t *w)
+{
+	lws_dlo_t *dlo;
+	int px, py;
+
+	dlo = render_id_dlo(rs, id, &px, &py);
+	if (!dlo)
+		return 1;
+
+	damage_dlo(rs, dlo, px, py);
+	dlo->box.w = *w;
+	if (dlo->render == lws_display_render_rect)
+		/* where its right side and corners are is worked out again */
+		lws_container_of(dlo, lws_dlo_rect_t, dlo)->init = 0;
+	damage_dlo(rs, dlo, px, py);
+
+	return 0;
+}
+
+int
+lws_display_render_set_text(lws_display_render_state_t *rs, const char *id,
+			    const char *utf8)
+{
+	lws_fx_t total, word, room, shift;
+	size_t len = strlen(utf8);
+	lws_dlo_text_t *text;
+	lws_dlo_t *el, *c;
+	int px, py, ex, ey, r;
+
+	el = render_id_dlo(rs, id, &px, &py);
+	if (!el)
+		return 1;
+
+	/* what is in it must be a single run of text */
+
+	c = lws_dll2_get_head(&el->children) ?
+		lws_container_of(lws_dll2_get_head(&el->children),
+				 lws_dlo_t, list) : NULL;
+	if (!c || lws_dll2_get_next(&c->list) ||
+	    c->_destroy != lws_display_dlo_text_destroy ||
+	    !lws_dll2_is_empty(&c->children))
+		return 1;
+
+	text = lws_container_of(c, lws_dlo_text_t, dlo);
+
+	/* the new text must all fit on the line, from where the run began */
+
+	lws_fx_add(&room, &text->line_free, &text->dlo.box.w);
+	lws_display_dlo_text_measure(text, utf8, len, &total, &word);
+	if (lws_fx_comp(&total, &room) > 0)
+		return 1;
+
+	/* the text's box is in the element's */
+	ex = px + el->box.x.whole;
+	ey = py + el->box.y.whole;
+	damage_dlo(rs, &text->dlo, ex, ey);
+
+	/* where the run began, before the line's alignment moved it */
+
+	lws_display_dlo_text_align_shift(text->align, &text->line_free, &shift);
+	lws_fx_sub(&text->dlo.box.x, &text->dlo.box.x, &shift);
+
+	text->dlo.box.w = room;
+	r = lws_display_dlo_text_update(text, text->dlo.dc, text->indent,
+					utf8, len);
+	if (r < 0 || r == 2 || text->text_len != len) {
+		/* no memory for it: the element is left with no text */
+		lws_fx_set(text->dlo.box.w, 0, 0);
+		text->text_len = 0;
+		damage_dlo(rs, el, px, py);
+
+		return 1;
+	}
+
+	/* ... and the line is aligned again, as the layout aligned it */
+
+	text->dlo.box.w = text->bounding_box.w;
+	lws_fx_sub(&text->line_free, &room, &text->dlo.box.w);
+	lws_display_dlo_text_align_shift(text->align, &text->line_free, &shift);
+	lws_fx_add(&text->dlo.box.x, &text->dlo.box.x, &shift);
+
+	damage_dlo(rs, &text->dlo, ex, ey);
+
+	return 0;
+}
+
+int
+lws_display_render_damage(lws_display_render_state_t *rs, lws_box_t *box)
+{
+	struct {
+		lws_dlo_t	*dlo;
+		lws_fx_t	x, y;	/* its parent's origin */
+		int32_t		clip[4]; /* what its parent's clip allows */
+	} st[LWS_DLO_STACK_DEPTH];
+	int32_t dmg[4], sw = rs->ic->wh_px[0].whole,
+		sh = rs->ic->wh_px[1].whole;
+	int sp = 0;
+
+	memcpy(dmg, rs->damage, sizeof(dmg));
+	memset(rs->damage, 0, sizeof(rs->damage));
+
+	/* what is animated, as far as anything clipping it lets it show */
+
+	memset(st, 0, sizeof(st));
+	st[0].dlo = dl_first(&rs->displaylist);
+	st[0].clip[0] = st[0].clip[1] = INT32_MIN;
+	st[0].clip[2] = st[0].clip[3] = INT32_MAX;
+
+	while (sp >= 0) {
+		lws_dlo_t *dlo = st[sp].dlo;
+		int32_t b[4];
+		lws_dll2_t *d;
+		lws_fx_t x, y, t;
+		int n;
+
+		if (!dlo) {
+			sp--;
+			continue;
+		}
+
+		d = lws_dll2_get_next(&dlo->list);
+		st[sp].dlo = d ? lws_container_of(d, lws_dlo_t, list) : NULL;
+
+		lws_fx_add(&x, &st[sp].x, &dlo->box.x);
+		lws_fx_add(&y, &st[sp].y, &dlo->box.y);
+
+		b[0] = x.whole;
+		b[1] = y.whole;
+		b[2] = lws_fx_roundup(lws_fx_add(&t, &x, &dlo->box.w));
+		b[3] = lws_fx_roundup(lws_fx_add(&t, &y, &dlo->box.h));
+
+		if (dlo->flag_animated) {
+			int32_t a[4];
+
+			for (n = 0; n < 2; n++) {
+				a[n] = b[n] > st[sp].clip[n] ? b[n] :
+							       st[sp].clip[n];
+				a[n + 2] = b[n + 2] < st[sp].clip[n + 2] ?
+					   b[n + 2] : st[sp].clip[n + 2];
+			}
+			damage_add(dmg, a[0], a[1], a[2], a[3]);
+		}
+
+		d = lws_dll2_get_head(&dlo->children);
+		if (!d || sp + 1 == (int)LWS_ARRAY_SIZE(st))
+			/* too deep to follow is too deep to be rendered */
+			continue;
+
+		sp++;
+		st[sp].dlo = lws_container_of(d, lws_dlo_t, list);
+		st[sp].x = x;
+		st[sp].y = y;
+		memcpy(st[sp].clip, st[sp - 1].clip, sizeof(st[sp].clip));
+		if (dlo->flag_clip)
+			for (n = 0; n < 2; n++) {
+				if (b[n] > st[sp].clip[n])
+					st[sp].clip[n] = b[n];
+				if (b[n + 2] < st[sp].clip[n + 2])
+					st[sp].clip[n + 2] = b[n + 2];
+			}
+	}
+
+	/* where that is on the surface, panned as it is now */
+
+	dmg[0] -= rs->pan_x;
+	dmg[2] -= rs->pan_x;
+	dmg[1] -= rs->pan_y;
+	dmg[3] -= rs->pan_y;
+
+	if (dmg[0] < 0)
+		dmg[0] = 0;
+	if (dmg[1] < 0)
+		dmg[1] = 0;
+	if (dmg[2] > sw)
+		dmg[2] = sw;
+	if (dmg[3] > sh)
+		dmg[3] = sh;
+
+	if (dmg[2] <= dmg[0] || dmg[3] <= dmg[1])
+		return 0;
+
+	memset(box, 0, sizeof(*box));
+	box->x.whole = dmg[0];
+	box->y.whole = dmg[1];
+	box->w.whole = dmg[2] - dmg[0];
+	box->h.whole = dmg[3] - dmg[1];
+
+	return 1;
 }
 
 static lws_stateful_ret_t
@@ -1410,6 +1761,14 @@ lws_display_id_destroy(struct lws_dll2 *d, void *user)
 void
 lws_display_render_free_ids(lws_display_render_state_t *rs)
 {
+	lws_dlo_t *dlo;
+
+	/* nothing is left pointing at them */
+
+	for (dlo = dl_first(&rs->displaylist); dlo;
+	     dlo = dl_next(&rs->displaylist, dlo))
+		dlo->id = NULL;
+
 	lws_dll2_foreach_safe(&rs->ids, NULL, lws_display_id_destroy);
 }
 

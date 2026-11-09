@@ -181,6 +181,10 @@ typedef struct lws_dlo {
 						 * with: 0, the default, is
 						 * opaque */
 	uint8_t				flag_ext:1; /* ext[] is valid */
+	uint8_t				flag_animated:1; /* it looks different
+						 * at another rs->anim_t, eg, an
+						 * svg with SMIL animation, once
+						 * it has been rendered */
 
 	int32_t				ext[2]; /* the surface lines we and
 						 * our children may draw on, top
@@ -322,6 +326,12 @@ typedef struct lws_dlo_filesystem {
 
 #define LWSDLO_TEXT_FLAG_WRAP					(1 << 0)
 
+enum {
+	LWS_DLO_TEXT_ALIGN_LEFT,
+	LWS_DLO_TEXT_ALIGN_CENTER,
+	LWS_DLO_TEXT_ALIGN_RIGHT,
+};
+
 typedef struct lws_dlo_text {
 	lws_dlo_t			dlo;
 	const lws_display_font_t	*font;
@@ -347,6 +357,14 @@ typedef struct lws_dlo_text {
 	lws_fx_t			indent;
 
 	uint32_t			flags;
+	lws_fx_t			line_free; /* how much of the width
+						* of the line this run is on
+						* was left over, and ... */
+	uint8_t				align; /* ... LWS_DLO_TEXT_ALIGN_*,
+						* how the layout placed the line
+						* in it: so the run can be
+						* placed again the same way if
+						* its text is changed */
 	int16_t				font_y_baseline;
 	int16_t				font_height;
 	int16_t				font_line_height;
@@ -692,6 +710,12 @@ typedef struct lws_display_render_state {
 						* eg, lws_now_usecs().  0 if not
 						* set, so a render is the same
 						* each time */
+	int32_t				damage[4]; /* x0, y0, x1, y1 of
+						* what was changed in place in
+						* the display list since
+						* lws_display_render_damage()
+						* last took it: none if x1 <= x0
+						*/
 
 } lws_display_render_state_t;
 
@@ -835,8 +859,117 @@ LWS_VISIBLE LWS_EXTERN void
 lws_display_render_fill_span(lws_display_render_state_t *rs, int x0, int x1,
 			     const lws_display_colour_t *c);
 
+/**
+ * lws_display_get_ids_boxes() - where the elements with the ids ended up
+ *
+ * \param rs: the render state, whose display list is laid out
+ *
+ * Sets the .box of each of rs->ids that the layout found an element for to
+ * where that element is in the layout, and .lowest_id_y to the lowest line
+ * any element is on.
+ *
+ * If the display list is retained (.retained), the ids stay tagged on the
+ * elements' dlos afterwards, so they can be found with
+ * lws_display_dlo_by_id() and changed in place, eg, with
+ * lws_display_render_set_text().  Otherwise they are let go of then.
+ */
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lws_display_get_ids_boxes(lws_display_render_state_t *rs);
+
+/**
+ * lws_display_dlo_by_id() - the dlo an id is tagged on
+ *
+ * \param dl: the display list, laid out
+ * \param id: one of the render state's ids, eg, from
+ *	      lws_display_render_get_id()
+ *
+ * Returns the dlo of the element the layout gave the id to, or NULL if there
+ * is none, or it was let go of, see lws_display_get_ids_boxes().
+ */
+LWS_VISIBLE LWS_EXTERN lws_dlo_t *
+lws_display_dlo_by_id(lws_displaylist_t *dl, const lws_display_id_t *id);
+
+/**
+ * lws_display_dlo_origin() - where a dlo is in the layout
+ *
+ * \param dl: the display list, laid out
+ * \param target: a dlo on it
+ * \param x: set to the x of its top left, in the layout
+ * \param y: set to the y of its top left, in the layout
+ *
+ * The layout is the display list as it would be drawn unpanned, see
+ * lws_display_render_pan().  Returns 0, or nonzero if the dlo isn't on the
+ * display list.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_display_dlo_origin(lws_displaylist_t *dl, const lws_dlo_t *target,
+		       int *x, int *y);
+
+/**
+ * lws_display_render_set_width() - change how wide an element is, in place
+ *
+ * \param rs: the render state, whose display list is retained and laid out
+ * \param id: the id of the element, one of rs->ids
+ * \param w: its new width, in px
+ *
+ * Only the element's own box changes: nothing is laid out again, so nothing
+ * else moves, eg, what is in it stays where it is, as do its siblings.  It
+ * suits, eg, the fill of a progress bar.
+ *
+ * What the element's box covered before and covers after is added to the
+ * damage, see lws_display_render_damage().
+ *
+ * Returns 0, or nonzero if there is no element with that id.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_display_render_set_width(lws_display_render_state_t *rs, const char *id,
+			     const lws_fx_t *w);
+
+/**
+ * lws_display_render_set_text() - change the text of an element, in place
+ *
+ * \param rs: the render state, whose display list is retained and laid out
+ * \param id: the id of the element, one of rs->ids
+ * \param utf8: its new text
+ *
+ * The element's content must be a single run of text, on one line, eg, a
+ * label or a figure.  The new text is set in the same face and colour, and
+ * placed on the line as the layout placed the old, eg, centred if the css
+ * said text-align: center.  Nothing else is laid out again, so the new text
+ * must fit in the element.
+ *
+ * What the old text covered and the new text covers is added to the damage,
+ * see lws_display_render_damage().
+ *
+ * Returns 0, or nonzero if there is no element with that id, its content
+ * isn't a single run of text, or the new text doesn't fit in it.  Then the
+ * element is unchanged.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_display_render_set_text(lws_display_render_state_t *rs, const char *id,
+			    const char *utf8);
+
+/**
+ * lws_display_render_damage() - what of the surface to draw again
+ *
+ * \param rs: the render state, whose display list is retained and was drawn
+ * \param box: set to the part of the surface to draw again
+ *
+ * The part of the surface, panned as it is now, showing what was changed in
+ * place since the last call, eg, by lws_display_render_set_text(), and what
+ * is animated and looks different at another .anim_t, eg, an svg with SMIL
+ * animation.  What was changed in place is forgotten.
+ *
+ * Animated content is only known once it has been drawn, so this is for a
+ * display list that has been drawn once already.  Drawing the lines of the
+ * box again, eg, with .curr set to the first of them, brings the surface up
+ * to date.  Displays that can only be updated whole are brought up to date
+ * by drawing all of it again from the retained display list.
+ *
+ * Returns 0 if there's nothing to draw again, else nonzero.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_display_render_damage(lws_display_render_state_t *rs, lws_box_t *box);
 
 /*
  * rect

@@ -1157,7 +1157,8 @@ lhp_line_reset(lhp_pstack_t *c)
 static void
 lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 {
-	lws_fx_t lh, shift, t, ah, lead, t2, above;
+	lws_fx_t lh, shift, t, ah, lead, t2, above, room;
+	uint8_t align = LWS_DLO_TEXT_ALIGN_LEFT;
 	const lcsp_atr_t *a;
 	lws_dll2_t *d;
 
@@ -1200,19 +1201,17 @@ lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 		}
 	}
 
-	lws_fx_set(shift, 0, 0);
+	lws_fx_sub(&room, &c->cw, &c->curx);
 	if (!c->shrink && !c->in_shrink) {
 		a = lws_css_get_prop_atr_ps(ctx, c, LCSP_PROP_TEXT_ALIGN);
 		if (a && a->unit == LCSP_UNIT_NONE) {
-			lws_fx_sub(&t, &c->cw, &c->curx);
-			if (t.whole > 0) {
-				if (a->propval == LCSP_PROPVAL_CENTER)
-					lws_fx_div(&shift, &t, &fx_2);
-				else if (a->propval == LCSP_PROPVAL_RIGHT)
-					shift = t;
-			}
+			if (a->propval == LCSP_PROPVAL_CENTER)
+				align = LWS_DLO_TEXT_ALIGN_CENTER;
+			else if (a->propval == LCSP_PROPVAL_RIGHT)
+				align = LWS_DLO_TEXT_ALIGN_RIGHT;
 		}
 	}
+	lws_display_dlo_text_align_shift(align, &room, &shift);
 
 	d = c->line_first ? &c->line_first->list : NULL;
 	while (d) {
@@ -1274,6 +1273,10 @@ lhp_line_end(lhp_ctx_t *ctx, lhp_pstack_t *c)
 		if (dlo->_destroy == lws_display_dlo_text_destroy) {
 			lws_dlo_text_t *txt = lws_container_of(dlo,
 							lws_dlo_text_t, dlo);
+
+			/* how it's placed across the line, if it changes */
+			txt->line_free = room;
+			txt->align = align;
 
 			/* text sits on the line's baseline, plus half the
 			 * leading from line-height */
