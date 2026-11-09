@@ -78,6 +78,14 @@ code or message, is not supported yet.
 
 ### Which protocol gets the session
 
+**Upgrading from v5.0 or earlier:** since v5.1, a protocol must opt in to
+WebTransport with the `"webtransport"` pvo option shown below.  A server
+written before then, without it, has every WebTransport `CONNECT` refused with
+a 404 before any of its callbacks (including
+`LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION`) are called, which a browser reports
+as the connection being refused.  The first time it happens on a vhost, lws
+logs a warning naming the protocol.
+
 The `wt` role drives its protocol with `LWS_CALLBACK_RECEIVE` and
 `LWS_CALLBACK_CLOSED`, the same reasons a ws server protocol gets, but a
 session is not a ws connection: there is no `LWS_CALLBACK_ESTABLISHED` and no
