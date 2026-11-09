@@ -35,7 +35,7 @@
 /* the name the update spinner is registered with in the dlo filesystem */
 #define LHP_UPDATE_ICON		"update-spinner.svg"
 /* ... and its size in px, it's drawn smaller if it doesn't fit */
-#define LHP_UPDATE_ICON_PX	96
+#define LHP_UPDATE_ICON_PX	48
 
 /* the bar must be this tall for the percentage to go in it, not below it */
 #define LHP_UPDATE_BAR_TEXT_MIN_PX	14

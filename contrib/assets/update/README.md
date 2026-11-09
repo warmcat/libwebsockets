@@ -9,19 +9,20 @@ examples' update display.
 
 ## Design
 
-The spinner is 96px square, `viewBox="0 0 96 96"`, in the lhp examples'
+The spinner is 48px square, `viewBox="0 0 48 48"`, in the lhp examples'
 green and the boot status icons' orange, and is animated with the SMIL
 subset the lws SVG renderer supports (see the "Animation" section of
-`READMEs/README.svg-renderer.md`).  Every part repeats on a period of its
-own, so however often it is drawn, it looks alive, eg, on an EPD redrawn
-every few seconds:
+`READMEs/README.svg-renderer.md`).
 
- - an outer ring of dots, fading in turn as a chase, the ring turning slowly
- - a comet going around between the dots and the arcs, turned to point the
-   way it goes (`animateMotion rotate="auto"`)
- - two arcs turning opposite ways, the inner one eased with `keySplines`
- - a pulsing core
- - two moons on a tilted elliptical orbit around the core
+It's kept calm on purpose.  An embedded display may only be redrawn a couple
+of times a second, and slowly enough that the redraw can be seen, so many
+parts changing, or parts changing a lot between redraws, look like flashing
+rather than movement.  It has only two moving parts, each moving on only a
+little in 0.5s:
+
+ - an arc of a little over a quarter turn, going round a faint track once in
+   6s, 30 degrees each 0.5s
+ - a dot going round inside it the other way once in 12s, 15 degrees each 0.5s
 
 The animations come before what is drawn in the element they animate, as the
 lws renderer needs.  Browsers show it the same.
