@@ -4,6 +4,16 @@ Changelog
 Development
 ===========
 
+ - API: a WebTransport server protocol must now opt in to being given
+   sessions, with a "webtransport" option in its pvo on the vhost (in lwsws
+   JSON, "my-wt-protocol": { "webtransport": "1" } under "ws-protocols").
+   Before, a WT CONNECT could be bound to any protocol the peer named, or the
+   vhost default, including ws protocols that crash when driven without
+   LWS_CALLBACK_ESTABLISHED.  A server without the option has every WT
+   CONNECT refused with a 404 before its callbacks see it, and browsers
+   report it as a refused connection: add the option to your WT protocol's
+   pvo.  See READMEs/README.webtransport.md.
+
  - ABI: LWS_PRE, the headroom that has to be valid before any buffer passed
    to lws_write(), grew from 16 to 32 bytes on 64-bit builds (28 with 4-byte
    pointers): the largest ws frame header (10) plus the client-side mask (4)
