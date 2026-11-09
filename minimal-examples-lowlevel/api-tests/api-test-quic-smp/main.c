@@ -119,8 +119,10 @@ enum qsmp_mode {
  */
 struct qsmp_conn {
 	struct lws		*wsi;	/* NULL once destroyed */
+	lws_usec_t		asked_us;
 	int			mode;
 	int			done;	/* completed or failed */
+	int			closed;	/* heard CLOSED before it was established */
 };
 
 struct qsmp_svc {
@@ -394,9 +396,13 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		if (!c->done)
 			lwsl_warn("%s: tsi %d conn %d, mode %d: %s went before "
-				  "it finished, %sestablished\n", __func__,
+				  "it finished, %sestablished, %dms after it "
+				  "was asked for, %sCLOSED\n", __func__,
 				  tsi, sl, c->mode, lws_wsi_tag(wsi),
-				  pss && pss->established ? "" : "not ");
+				  pss && pss->established ? "" : "not ",
+				  (int)((lws_now_usecs() - c->asked_us) /
+								LWS_US_PER_MS),
+				  c->closed ? "after a " : "no ");
 		c->wsi = NULL;
 		break;
 
@@ -477,6 +483,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		 * qpack streams close on this protocol too, when it closes
 		 * after its kept-warm time
 		 */
+		if (c && !c->done && (!pss || !pss->established))
+			/* said to the warning when the wsi goes */
+			c->closed = 1;
 		if (!pss || !pss->established || pss->done)
 			break;
 		lwsl_err("%s: mode %d: closed before completing\n", __func__,
@@ -518,6 +527,7 @@ qsmp_connect(int tsi, enum qsmp_mode mode)
 		return;
 	c = &s->conn[s->nconn];
 	c->mode = (int)mode;
+	c->asked_us = lws_now_usecs();
 
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
