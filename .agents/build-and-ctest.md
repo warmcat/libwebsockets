@@ -172,6 +172,15 @@
    minimal-http-client.c does), or no default vhost is created (G-687).
  - Use `cmake .. --fresh` so a reused tree aligns with your options.  Stale
    example makefiles survive a reconfigure otherwise.
+ - **`LWS_WITH_ASAN=1` trees also build with `-Wsign-conversion`**, which
+   plain trees (`-Wconversion` only) don't: code clean under -Werror in a
+   normal tree can still fail an ASan one (eg, `m[i] >> n` on a uint8_t
+   promotes to int).
+ - **`lib/tls/CMakeLists.txt` makes `SOURCES` before its OpenSSL api
+   probes run**, so a source can't be listed conditionally on an
+   `LWS_HAVE_*` probe result: on a `--fresh` configure it is not set yet.
+   List the file unconditionally and guard its body on the probe's
+   `lws_config.h` define (as `tls/openssl/lws-genkem.c` does).
 
 ## Running ctest
 
