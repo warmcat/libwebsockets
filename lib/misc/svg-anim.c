@@ -58,7 +58,7 @@ lit(const char *p, const char *end, const char *s)
  */
 
 static int
-clock_parse(const char *s, const char *end, lws_usec_t *us, char *indef)
+clock_parse(const char *s, const char *end, lws_usec_t *us, uint8_t *indef)
 {
 	const char *p = s, *q;
 	int64_t v, mul = LWS_US_PER_SEC, whole, frac;
@@ -293,7 +293,7 @@ svg_anim_attr(lws_svg_t *ctx)
 	const char *n = ctx->aname, *v = ctx->vbuf,
 		   *end = ctx->vbuf + ctx->vlen;
 	lws_usec_t us;
-	char indef;
+	uint8_t indef;
 	int i;
 
 	if (!ap)

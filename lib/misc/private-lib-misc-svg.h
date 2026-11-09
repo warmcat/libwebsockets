@@ -473,10 +473,10 @@ typedef struct {
 	char			attr[16]; /* attributeName */
 	uint8_t			xtype;
 	uint8_t			calc;
-	char			calc_set, sum, freeze, mauto;
-	char			rdur_set, rdur_indef;
-	char			dur_indef;
-	char			unusable; /* begin we can't do, href, ... */
+	uint8_t			calc_set, sum, freeze, mauto;
+	uint8_t			rdur_set, rdur_indef;
+	uint8_t			dur_indef;
+	uint8_t			unusable; /* begin we can't do, href, ... */
 } svg_apend_t;
 
 /* rasterization scratch */
