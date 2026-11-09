@@ -173,6 +173,11 @@ _thread_spam(void *d)
 	}
 
 	completed[m] = 1;
+	/*
+	 * main's loop may already have woken for our last message and gone
+	 * back to waiting: wake it to see we completed
+	 */
+	lws_cancel_service(context);
 
 bail:
 #if defined(WIN32)
@@ -199,11 +204,23 @@ bail:
 
 static int startup_rx, startup_expired;
 
+typedef struct startup_deadline {
+	lws_sorted_usec_list_t	sul;
+	struct lws_context	*cx;
+} startup_deadline_t;
+
+/*
+ * Both callbacks change what startup_service()'s loop is waiting for, from
+ * inside lws_service(), which may then go on to wait for the next event: they
+ * must wake it, so it returns and the loop sees the change
+ */
+
 static int
 smd_cb_startup(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 	       void *buf, size_t len)
 {
 	startup_rx++;
+	lws_cancel_service((struct lws_context *)opaque);
 
 	return 0;
 }
@@ -221,7 +238,10 @@ startup_wait(void)
 static void
 startup_deadline_cb(lws_sorted_usec_list_t *sul)
 {
+	startup_deadline_t *sd = lws_container_of(sul, startup_deadline_t, sul);
+
 	startup_expired = 1;
+	lws_cancel_service(sd->cx);
 }
 
 /*
@@ -233,17 +253,18 @@ startup_deadline_cb(lws_sorted_usec_list_t *sul)
 static int
 startup_service(struct lws_context *cx, int n)
 {
-	lws_sorted_usec_list_t sul;
+	startup_deadline_t sd;
 
-	memset(&sul, 0, sizeof(sul));
+	memset(&sd, 0, sizeof(sd));
+	sd.cx = cx;
 	startup_expired = 0;
-	lws_sul_schedule(cx, 0, &sul, startup_deadline_cb, LWS_US_PER_SEC);
+	lws_sul_schedule(cx, 0, &sd.sul, startup_deadline_cb, LWS_US_PER_SEC);
 
 	while (startup_rx < n && !startup_expired)
 		if (lws_service(cx, 0) < 0)
 			break;
 
-	lws_sul_cancel(&sul);
+	lws_sul_cancel(&sd.sul);
 
 	return startup_rx >= n;
 }
@@ -266,7 +287,7 @@ startup_leg(int argc, const char **argv)
 		return 1;
 	}
 
-	if (!lws_smd_register(cx, NULL, 0, LWSSMDCL_INTERACTION,
+	if (!lws_smd_register(cx, cx, 0, LWSSMDCL_INTERACTION,
 			      smd_cb_startup)) {
 		lwsl_err("%s: smd register failed\n", __func__);
 		goto bail;
