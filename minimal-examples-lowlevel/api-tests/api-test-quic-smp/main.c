@@ -55,6 +55,12 @@
  * come on the service thread that asked for the connection, and every
  * server callback on the thread of its connection.
  *
+ * A request whose wsi goes before it finished says so at once.  Built with
+ * LWS_WITH_QUIC_TRACE, lws itself dumps a client connection that goes before
+ * its handshake completed, or with a request it never had the whole answer
+ * to, with when each packet went and came and when its PTOs fired.  At the
+ * deadline, the connections of requests still going are dumped too.
+ *
  * With LWS_MAX_SMP 1 there is only one service thread, and it only checks
  * the fetches complete.  Under ASan, the SMP builds also check nothing is
  * used after it was freed.
@@ -628,9 +634,6 @@ sul_deadline_cb(lws_sorted_usec_list_t *sul)
 
 	lwsl_err("%s: timed out\n", __func__);
 
-	/* lws_quic_dump() says it at notice level */
-	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE, NULL);
-
 	pthread_mutex_lock(&lock);
 	dumps_left = threads;
 	pthread_mutex_unlock(&lock);
@@ -669,7 +672,8 @@ main(int argc, const char **argv)
 	void *retval;
 
 	lws_context_info_defaults(&info, NULL);
-	info.default_loglevel	= LLL_USER | LLL_ERR | LLL_WARN;
+	/* lws_quic_dump(), and lws' own dumps with QUIC_TRACE, are notices */
+	info.default_loglevel	= LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))

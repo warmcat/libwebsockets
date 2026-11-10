@@ -195,7 +195,7 @@
                         "platforms":    "none, freertos-espidf/xl6-esp32/gcc"
                 },
 		"mbedtls4": {
-			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DCMAKE_PREFIX_PATH=/opt/mbedtls -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DCMAKE_PREFIX_PATH=/opt/mbedtls -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_QUIC_TRACE=1",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"gnutls": {
