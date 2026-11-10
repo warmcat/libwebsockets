@@ -1446,6 +1446,49 @@ lws_quic_loss_time_us(const struct lws_quic_netconn *qn)
 	return rtt < LWS_QUIC_GRANULARITY_US ? LWS_QUIC_GRANULARITY_US : rtt;
 }
 
+/*
+ * Persistent congestion (RFC 9002 7.6.2) is lost ack-eliciting packets sent
+ * over more than the period, with none acked between them, all sent after the
+ * path's first RTT sample.  The ack of any packet between them says the path
+ * carried something meanwhile.
+ *
+ * Loss detection meets the frames in flight in PN order, a packet's frames
+ * together, so it can follow the runs of lost packets as it goes: one ends at
+ * a packet still in flight, or at one acked, which left a gap in the numbers
+ * of the level's ack-eliciting packets (ae_seq).  Packets only of ACKs, not in flight,
+ * leave none.  Lost packets that are no sign of congestion, eg, PMTUD probes,
+ * neither end a run nor count in its period.
+ */
+struct lws_quic_pc_run {
+	lws_usec_t		period;
+	lws_usec_t		since;	/* the run's first counted, or 0 */
+	uint32_t		ae_seq;	/* the run's last packet */
+	uint8_t			in_run;
+	uint8_t			found;
+};
+
+static void
+lws_quic_pc_lost(const struct lws_quic_netconn *qn, struct lws_quic_pc_run *r,
+		 const struct lws_quic_tx_frame *f, int congestion)
+{
+	/* uint32_t, since ae_seq wraps */
+	if (r->in_run && f->ae_seq != r->ae_seq &&
+	    f->ae_seq != (uint32_t)(r->ae_seq + 1))
+		r->since = 0; /* one between them was acked */
+
+	r->in_run	= 1;
+	r->ae_seq	= f->ae_seq;
+
+	if (!congestion || !qn->rtt_sample_us ||
+	    f->sent_time_us <= qn->rtt_sample_us)
+		return;
+
+	if (!r->since)
+		r->since = f->sent_time_us;
+	else if (f->sent_time_us - r->since > r->period)
+		r->found = 1;
+}
+
 void
 lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
 {
@@ -1455,13 +1498,24 @@ lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
         size_t total_bytes_lost = 0, bytes_off_path = 0;
         lws_usec_t now = lws_wsi_now(nwsi);
         lws_usec_t loss_time = lws_quic_loss_time_us(qn);
-        lws_usec_t oldest_lost = 0, newest_lost = 0;
 	uint64_t last_lost_pn = LWS_QUIC_PMTUD_PROBE_NONE;
+	struct lws_quic_pc_run pc;
+
+	memset(&pc, 0, sizeof(pc));
+	/* RFC 9002 7.6.1, the PTO's, which takes 25ms for max_ack_delay */
+	pc.period = 3 * (qn->smoothed_rtt +
+			 (qn->rttvar * 4 > LWS_QUIC_GRANULARITY_US ?
+				qn->rttvar * 4 : LWS_QUIC_GRANULARITY_US) +
+			 25000);
 
 	int check_levels[] = { level, level == LWS_QUIC_LEVEL_APP ? LWS_QUIC_LEVEL_EARLY : -1 };
 	for (int i = 0; i < 2; i++) {
 		int curlvl = check_levels[i];
 		if (curlvl == -1) continue;
+
+		/* a run is of packets in one list */
+		pc.in_run = 0;
+		pc.since = 0;
 
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->in_flight[curlvl].head) {
 			struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
@@ -1476,57 +1530,59 @@ lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
 			if (f->sent_in_pn >= largest_acked)
 				break;
 
-			if (f->sent_in_pn + 3 <= largest_acked ||
-			    now > f->sent_time_us + loss_time) {
+			if (!(f->sent_in_pn + 3 <= largest_acked ||
+			      now > f->sent_time_us + loss_time)) {
+				/* still in flight, so no run goes past it */
+				pc.in_run = 0;
+				pc.since = 0;
+				continue;
+			}
 
-				if (lws_quic_pmtud_probe_lost(qn, f)) {
-					/* not congestion, see RFC 9000 14.4 */
-					bytes_off_path += f->wire_len;
-					lws_dll2_remove(&f->list);
-					lws_free(f);
-					continue;
-				}
-
-				if (lws_quic_frame_probes_another_path(qn, f)) {
-					/* the probe sends it again */
-					bytes_off_path += f->wire_len;
-					lws_dll2_remove(&f->list);
-					lws_free(f);
-					continue;
-				}
-
-				/* Mark as lost */
-				total_bytes_lost += f->wire_len;
-				lwsl_wsi_info(nwsi, "QUIC LOSS: Packet %llu lost, frame %d", (unsigned long long)f->sent_in_pn, f->type);
-				lws_quic_pmtud_lost_packet(qn, f, &last_lost_pn);
-				
-				if (!oldest_lost || f->sent_time_us < oldest_lost)
-					oldest_lost = f->sent_time_us;
-				if (!newest_lost || f->sent_time_us > newest_lost)
-					newest_lost = f->sent_time_us;
-
+			if (lws_quic_pmtud_probe_lost(qn, f)) {
+				/* not congestion, see RFC 9000 14.4 */
+				lws_quic_pc_lost(qn, &pc, f, 0);
+				bytes_off_path += f->wire_len;
 				lws_dll2_remove(&f->list);
+				lws_free(f);
+				continue;
+			}
 
-				int pending_lvl = curlvl;
-				if (curlvl == LWS_QUIC_LEVEL_EARLY)
-					pending_lvl = LWS_QUIC_LEVEL_APP;
+			if (lws_quic_frame_probes_another_path(qn, f)) {
+				/* the probe sends it again */
+				lws_quic_pc_lost(qn, &pc, f, 0);
+				bytes_off_path += f->wire_len;
+				lws_dll2_remove(&f->list);
+				lws_free(f);
+				continue;
+			}
 
-				if (lws_quic_frame_not_retransmitted(f)) {
-					/*
-					 * The lost bytes still count for cc,
-					 * but the frame itself is freed
-					 */
-					lws_free(f);
-				} else {
-					f->wire_len = 0;
+			/* Mark as lost */
+			total_bytes_lost += f->wire_len;
+			lwsl_wsi_info(nwsi, "QUIC LOSS: Packet %llu lost, frame %d", (unsigned long long)f->sent_in_pn, f->type);
+			lws_quic_pmtud_lost_packet(qn, f, &last_lost_pn);
+			lws_quic_pc_lost(qn, &pc, f, 1);
 
-					if (pending_lvl == LWS_QUIC_LEVEL_APP)
-						lws_quic_dbg_1rtt_account(qn, f,
-							  curlvl == LWS_QUIC_LEVEL_EARLY ?
-								"loss-requeue-early"
-							      : "loss-requeue");
-					lws_dll2_add_tail(&f->list, &qn->pending_tx[pending_lvl]);
-				}
+			lws_dll2_remove(&f->list);
+
+			int pending_lvl = curlvl;
+			if (curlvl == LWS_QUIC_LEVEL_EARLY)
+				pending_lvl = LWS_QUIC_LEVEL_APP;
+
+			if (lws_quic_frame_not_retransmitted(f)) {
+				/*
+				 * The lost bytes still count for cc,
+				 * but the frame itself is freed
+				 */
+				lws_free(f);
+			} else {
+				f->wire_len = 0;
+
+				if (pending_lvl == LWS_QUIC_LEVEL_APP)
+					lws_quic_dbg_1rtt_account(qn, f,
+						  curlvl == LWS_QUIC_LEVEL_EARLY ?
+							"loss-requeue-early"
+						      : "loss-requeue");
+				lws_dll2_add_tail(&f->list, &qn->pending_tx[pending_lvl]);
 			}
 		} lws_end_foreach_dll_safe(d, d1);
 	}
@@ -1534,14 +1590,11 @@ lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
         if (total_bytes_lost && qn->cc_ops && qn->cc_ops->on_loss) {
                 qn->cc_ops->on_loss(nwsi, total_bytes_lost);
 
-                if (newest_lost > oldest_lost) {
-                        lws_usec_t pto = qn->smoothed_rtt + (qn->rttvar * 4 > 1000 ? qn->rttvar * 4 : 1000) + 25000;
-                        lws_usec_t pc_period = pto * 3;
-                        if ((newest_lost - oldest_lost) >= pc_period) {
-                                if (qn->cc_ops->on_persistent_congestion)
-                                        qn->cc_ops->on_persistent_congestion(nwsi);
-                        }
-                }
+		if (pc.found) {
+			lws_quic_fi_stat(qn, persistent_congestion, 1);
+			if (qn->cc_ops->on_persistent_congestion)
+				qn->cc_ops->on_persistent_congestion(nwsi);
+		}
         }
 
         /* not congestion on our path, but no longer in flight either */
@@ -1746,6 +1799,9 @@ lws_quic_ack_end(struct lws *nwsi, struct lws_quic_ack_walk *aw)
 				adjusted_rtt = rtt - (lws_usec_t)aw->ack_delay;
 			}
 			qn->latest_rtt = rtt;
+			/* the path's first sample, see lws_quic_pc_lost() */
+			if (!qn->rtt_sample_us)
+				qn->rtt_sample_us = aw->now;
 			if (!qn->smoothed_rtt) {
 				qn->smoothed_rtt = rtt;
 				qn->rttvar = rtt / 2;
@@ -3890,6 +3946,7 @@ tp_ok:
 
 					/* Reset RTT estimator */
 					nwsi->quic.qn->smoothed_rtt = 0;
+					nwsi->quic.qn->rtt_sample_us = 0;
 					nwsi->quic.qn->rttvar = 0;
 					nwsi->quic.qn->latest_rtt = 0;
 
@@ -5465,16 +5522,28 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		(void)has_crypto;
 #endif
 
-		/* PMTUD: tag in-flight frames with this packet's wire length so we can track MTU losses */
-		lws_start_foreach_dll_back(struct lws_dll2 *, d,
-					   lws_dll2_get_tail(&qn->in_flight[level])) {
-			struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
+		/*
+		 * Tag the frames in flight with this packet's wire length, so
+		 * PMTUD can track losses by size, and its number among the
+		 * ack-eliciting packets, those with frames in flight, so loss
+		 * detection can tell which lost ones had none acked between
+		 */
+		{
+			uint32_t ae = qn->ae_seq_tx[level] + 1;
 
-			if (f->sent_in_pn != my_pn)
-				break;
+			lws_start_foreach_dll_back(struct lws_dll2 *, d,
+					lws_dll2_get_tail(&qn->in_flight[level])) {
+				struct lws_quic_tx_frame *f = lws_container_of(d,
+						struct lws_quic_tx_frame, list);
 
-			f->packet_size = (uint16_t)send_len;
-		} lws_end_foreach_dll_back(d);
+				if (f->sent_in_pn != my_pn)
+					break;
+
+				f->packet_size	= (uint16_t)send_len;
+				f->ae_seq	= ae;
+				qn->ae_seq_tx[level] = ae;
+			} lws_end_foreach_dll_back(d);
+		}
 
 
 		/* which peer the packet goes to: sansIO's decision */
@@ -5536,10 +5605,13 @@ lws_quic_packet_sent(struct lws *wsi, const struct lws_quic_tx_pkt *tp, int n)
 			 * The OS will wake us up with POLLOUT when the socket drains.
 			 */
 			struct lws_dll2 *d = qn->in_flight[tp->level].tail;
+			int had_frames = 0;
+
 			while (d) {
 				struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
 				if (f->sent_in_pn == tp->pn) {
 					struct lws_dll2 *prev = lws_dll2_get_prev(d);
+					had_frames = 1;
 					lws_dll2_remove(d);
 					/* before its pn goes */
 					lws_quic_pmtud_probe_unsent(qn, f);
@@ -5554,8 +5626,10 @@ lws_quic_packet_sent(struct lws *wsi, const struct lws_quic_tx_pkt *tp, int n)
 				}
 			}
 			
-			/* Revert PN */
+			/* Revert PN, and its number among the ack-eliciting */
 			qn->keys[tp->level]->pn_tx--;
+			if (had_frames)
+				qn->ae_seq_tx[tp->level]--;
 
 			/*
 			 * The ACK in it wasn't sent either.  It's no frame to go
@@ -7121,7 +7195,7 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 				"in flight peak %u, excess max %llu, path "
 				"responses peak %u, cc bypassed %llu, held max "
 				"%lluus, ack delay tx max %lluus, ack delay rx "
-				"max %lluus",
+				"max %lluus, persistent congestion %llu",
 				qn->is_server ? "server" : "client",
 				(unsigned long long)qn->fi_stats.ack_frames,
 				(unsigned long long)qn->fi_stats.ack_ignored,
@@ -7134,7 +7208,8 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 				(unsigned long long)qn->fi_stats.cc_bypassed,
 				(unsigned long long)qn->fi_stats.early_held_max,
 				(unsigned long long)qn->fi_stats.ack_delay_tx_max,
-				(unsigned long long)qn->fi_stats.ack_delay_rx_max);
+				(unsigned long long)qn->fi_stats.ack_delay_rx_max,
+				(unsigned long long)qn->fi_stats.persistent_congestion);
 #endif
 
 	lws_dll2_remove(&qn->pt_list);

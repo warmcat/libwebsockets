@@ -370,6 +370,13 @@ struct lws_quic_tx_frame {
 	lws_usec_t		first_sent_us;
 	size_t			wire_len;
 	uint16_t		packet_size;
+	/*
+	 * In flight, its packet's number among the ack-eliciting packets sent
+	 * at its level, with no gaps for packets of only ACKs, which are not in
+	 * flight: so lost packets with numbers next to each other had none
+	 * acked between
+	 */
+	uint32_t		ae_seq;
 	lws_sockaddr46		dest_sa46;
 	uint8_t			has_dest;
 	/* a PING that is a PMTUD probe, see lws_quic_pmtud_kick() */
@@ -717,6 +724,17 @@ struct lws_quic_netconn {
 	lws_usec_t		rttvar;
 	lws_usec_t		min_rtt;
 	lws_usec_t		latest_rtt;
+	/*
+	 * when the path's first RTT sample came: persistent congestion is only
+	 * of packets sent after it (RFC 9002 7.6.2), see lws_quic_pc_lost()
+	 */
+	lws_usec_t		rtt_sample_us;
+	/*
+	 * each level's last ack-eliciting packet's number among them, see
+	 * ae_seq: per level, as loss detection follows runs of lost packets
+	 * in each level's in_flight list
+	 */
+	uint32_t		ae_seq_tx[LWS_QUIC_LEVEL_COUNT];
 
 	uint64_t		bytes_received;
 	uint64_t		bytes_sent;
@@ -903,6 +921,8 @@ struct lws_quic_netconn {
 		uint64_t	early_held_max;
 		uint64_t	ack_delay_tx_max;
 		uint64_t	ack_delay_rx_max;
+		/* the times loss detection found persistent congestion */
+		uint64_t	persistent_congestion;
 	} fi_stats;
 	/* quic_ack_ranges: the next ACK we send is a full one */
 	uint8_t			fi_ack_lag;

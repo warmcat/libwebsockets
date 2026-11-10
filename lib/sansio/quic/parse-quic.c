@@ -1859,6 +1859,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						nwsi->quic.qn->smoothed_rtt = 0;
 						nwsi->quic.qn->rttvar = 0;
 						nwsi->quic.qn->latest_rtt = 0;
+						nwsi->quic.qn->rtt_sample_us = 0;
 						lws_quic_pmtud_reset(nwsi->quic.qn);
 					}
 
