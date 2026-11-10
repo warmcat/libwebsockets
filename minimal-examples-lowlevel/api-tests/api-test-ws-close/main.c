@@ -55,7 +55,10 @@
  *
  * Every leg must finish its close promptly and without the service loop
  * spinning meanwhile: a close handshake that only ends at its timeout, or
- * a service loop that goes around without waiting, fails the leg.
+ * a service loop that goes around without waiting, fails the leg. *
+ * --cert and --key give the server another certificate and key than the
+ * RSA pair in this directory.  ctest also runs it with a P-256 pair, so
+ * every tls backend's server is tried with an EC key over h1, h2 and h3.
  */
 
 #include <libwebsockets.h>
@@ -1078,7 +1081,8 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	char proxy_host[64], socks[128], socks_auth[128];
 	unsigned int proxy_port = 0;
-	const char *p;
+	const char *p, *cert = "localhost-100y.cert",
+		   *key = "localhost-100y.key";
 	int n = 0;
 
 	lws_context_info_defaults(&info, NULL);
@@ -1090,6 +1094,10 @@ int main(int argc, const char **argv)
 		port_tcp = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server_ads = p;
+	if ((p = lws_cmdline_option(argc, argv, "--cert")))
+		cert = p;
+	if ((p = lws_cmdline_option(argc, argv, "--key")))
+		key = p;
 
 	signal(SIGINT, sigint_handler);
 
@@ -1116,8 +1124,8 @@ int main(int argc, const char **argv)
 	info.alpn = "h2,http/1.1";
 #endif
 	info.protocols = protocols_srv;
-	info.ssl_cert_filepath = "localhost-100y.cert";
-	info.ssl_private_key_filepath = "localhost-100y.key";
+	info.ssl_cert_filepath = cert;
+	info.ssl_private_key_filepath = key;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	/* only a client that asks for it gets pmd */
 	info.extensions = extensions;

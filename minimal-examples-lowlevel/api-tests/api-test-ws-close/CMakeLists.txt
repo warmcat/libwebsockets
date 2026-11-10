@@ -37,6 +37,21 @@ if (requirements)
 			     TIMEOUT 60)
 
 	#
+	# the same with api-test-quic-smp's P-256 pair: the server's key is EC,
+	# which on Schannel takes a different path to the credential than RSA
+	#
+	lws_get_free_port(PORT_WS_CLOSE_P256)
+	set(WSC_P256 ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-quic-smp)
+	add_test(NAME api-test-ws-close-p256 COMMAND lws-api-test-ws-close
+		 --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_WS_CLOSE_P256}
+		 --cert ${WSC_P256}/localhost-p256-100y.cert
+		 --key ${WSC_P256}/localhost-p256-100y.key)
+	set_tests_properties(api-test-ws-close-p256
+			     PROPERTIES
+			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close
+			     TIMEOUT 60)
+
+	#
 	# proxied legs: the same through an http CONNECT proxy and socks5
 	# (no auth, and username/password), served by proxy-fixture.py
 	#
