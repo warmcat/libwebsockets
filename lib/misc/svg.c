@@ -1575,7 +1575,7 @@ parse_points(lws_svg_t *ctx, char closed)
 void
 svg_heap_note(lws_svg_t *ctx, size_t transient)
 {
-	ctx->heap_now = lwsac_total_alloc(ctx->ac) +
+	ctx->heap_now = (size_t)lwsac_total_alloc(ctx->ac) +
 			ctx->wpts_size * sizeof(*ctx->wpts) +
 			ctx->wsubs_size * sizeof(*ctx->wsubs) +
 			ctx->vsize + ctx->apend_heap;
