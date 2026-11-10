@@ -167,3 +167,19 @@ thread in one of its own callbacks instead (api-test-async-dns-smp
    get permission to debug processes") unless it is in `_developer`.
  - A test's log at info is mostly swallowed by the log spew limiter: give it
    `--log-spew-tail 65536` as well as `-d`.
+
+## A QUIC interop runner (qir) failure
+
+ - The qir logs of a failed case hold the sim's pcaps and the client's
+   `keys.log`, so the whole exchange decrypts:
+   `tshark -r trace_node_left.pcap -o tls.keylog_file:client/keys.log -Y quic -V`.
+   Follow one connection by its client port, then read its ACK frames
+   (Largest, ranges, ACK Delay) and the server's PNs against them: loss
+   and congestion bugs show there, not in lws' own logs.
+ - To replay a pattern locally, put a UDP relay between client and server
+   (`lws_create_adopt_udp`, as api-test-quic-lost-probes and
+   api-test-peer-stack-quic do) that drops datagrams by size or order, and
+   check the server's `quic_stats` line (needs
+   `LWS_WITH_SYS_FAULT_INJECTION`), eg `persistent congestion`, `pto fresh`.
+   Fixed FI patterns can't reproduce a geometry that depends on which
+   datagram is a probe; the relay can.
