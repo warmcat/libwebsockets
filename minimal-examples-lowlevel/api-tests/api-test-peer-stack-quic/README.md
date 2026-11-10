@@ -26,6 +26,15 @@ An h3 server and client run in one process.
    from hearsay and is raised by its own validation, it does not keep the
    CRYPTO the handshake proved about the old path.
 
+ - **slow probe**: the same rebinding, but the NAT lets only the client's
+   first datagram from its new port through at once, and holds what follows
+   for 900ms, past the server's first probe PTO.  That datagram is small, so
+   the server's PATH_CHALLENGE spends all of the 3x allowance it gives the
+   unvalidated address (RFC 9000 9.3.1), and no resend fits.  The probe must
+   still stand until its deadline (8.2.4): the held PATH_RESPONSE, when it
+   goes, has to move the connection within 450ms, sooner than a probe given
+   up at its first PTO could try the address again.
+
  - **split**: the NAT sends the client's first Initial from one port, and
    every later long header packet, its Handshake packets among them, from
    another, whose answers it drops, as a client with two sockets or a NAT
