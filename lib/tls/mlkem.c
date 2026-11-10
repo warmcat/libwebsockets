@@ -152,7 +152,7 @@ caddq(int16_t a)
 
 /* FIPS 203 Compress_d, for x in [0, q): round(x * 2^d / q) mod 2^d */
 static uint16_t
-compress(uint16_t x, unsigned int d)
+mlkem_compress(uint16_t x, unsigned int d)
 {
 	/*
 	 * 161271 / 2^29 approximates 1 / q closely enough to be exact here,
@@ -169,7 +169,7 @@ compress(uint16_t x, unsigned int d)
 
 /* FIPS 203 Decompress_d: round(y * q / 2^d) */
 static int16_t
-decompress(uint16_t y, unsigned int d)
+mlkem_decompress(uint16_t y, unsigned int d)
 {
 	return (int16_t)(((uint32_t)y * MLKEM_Q + (1u << (d - 1))) >> d);
 }
@@ -367,7 +367,7 @@ poly_compress(uint8_t *out, const mlkem_poly *a, unsigned int d,
 	unsigned int i;
 
 	for (i = 0; i < MLKEM_N; i++)
-		tmp[i] = compress(caddq(a->c[i]), d);
+		tmp[i] = mlkem_compress(caddq(a->c[i]), d);
 
 	pack_bits(out, tmp, d);
 }
@@ -380,7 +380,7 @@ poly_decompress(mlkem_poly *r, const uint8_t *in, unsigned int d,
 
 	unpack_bits(tmp, in, d);
 	for (i = 0; i < MLKEM_N; i++)
-		r->c[i] = decompress(tmp[i], d);
+		r->c[i] = mlkem_decompress(tmp[i], d);
 }
 
 /* each bit of the 32-byte m becomes 0 or (q + 1) / 2 */
@@ -674,7 +674,7 @@ pke_decrypt(struct mlkem_ws *ws, const struct mlkem_params *p,
 	/* m = ByteEncode_1(Compress_1(w)) */
 
 	for (i = 0; i < MLKEM_N; i++)
-		ws->tmp[i] = compress(caddq(ws->acc.c[i]), 1);
+		ws->tmp[i] = mlkem_compress(caddq(ws->acc.c[i]), 1);
 	pack_bits(m, ws->tmp, 1);
 }
 
