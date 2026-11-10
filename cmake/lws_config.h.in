@@ -161,6 +161,7 @@
 #cmakedefine LWS_ROLE_WS
 #cmakedefine LWS_ROLE_MQTT
 #cmakedefine LWS_ROLE_QUIC
+#cmakedefine LWS_WITH_QUIC_TRACE
 #cmakedefine LWS_WITH_QUIC_DEBUG_SET_KEYS
 #cmakedefine LWS_WITH_FUZZERS
 #cmakedefine LWS_ROLE_WT

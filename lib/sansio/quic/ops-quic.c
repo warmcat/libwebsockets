@@ -899,6 +899,10 @@ static void
 lws_quic_sul_schedule(struct lws_quic_netconn *qn, lws_sorted_usec_list_t *sul,
 		      sul_cb_t cb, lws_usec_t us)
 {
+#if defined(LWS_WITH_QUIC_TRACE)
+	if (sul == &qn->pto_sul)
+		qn->trace.pto_due = lws_wsi_now(qn->nwsi) + us;
+#endif
 	lws_sul_schedule(qn->nwsi->a.context, qn->nwsi->tsi, sul, cb, us);
 }
 
@@ -983,8 +987,10 @@ lws_quic_prefaddr_sul_cb(lws_sorted_usec_list_t *sul)
 	if (lws_io_path(nwsi, LWS_IOPATH_NEW_SOCKET,
 			&qn->prefaddr_original_sa46))
 		lwsl_wsi_err(nwsi, "prefaddr: revert socket failed");
-	else
+	else {
 		qn->path_sa46 = qn->prefaddr_original_sa46;
+		lws_quic_trace_path(qn, &qn->path_sa46);
+	}
 
 	lws_callback_on_writable(nwsi);
 }
@@ -1040,6 +1046,7 @@ lws_quic_client_probe_preferred_address(struct lws *nwsi,
 	if (lws_io_path(nwsi, LWS_IOPATH_NEW_SOCKET, pref_sa46))
 		return 1;
 	qn->path_sa46 = *pref_sa46;
+	lws_quic_trace_path(qn, &qn->path_sa46);
 
 	if (pref_cid && pref_cid->len)
 		qn->rem_cid = *pref_cid;
@@ -1288,6 +1295,15 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 	if (qn && qn->nwsi) {
 		lws_quic_sul_assert_thread(qn);
 		qn->pto_count++;
+#if defined(LWS_WITH_QUIC_TRACE)
+		{
+			lws_usec_t late = lws_wsi_now(qn->nwsi) -
+							qn->trace.pto_due;
+
+			lws_quic_trace(qn, LQTE_PTO, 0, qn->pto_count,
+				       late < 0 ? 0 : (size_t)(late / 1000));
+		}
+#endif
 		/*
 		 * Pre-handshake_done, leave the death of a silent peer to the
 		 * handshake's own deadline, the wsi connect timeout on a client
@@ -2035,6 +2051,149 @@ lws_quic_dump_stream(struct lws_quic_netconn *qn, struct lws *w,
 			     qs->stream_id, now, 1);
 }
 
+#if defined(LWS_WITH_QUIC_TRACE)
+void
+lws_quic_trace_add(struct lws_quic_netconn *qn, enum lws_quic_trace_ev ev,
+		   int level, uint64_t val, size_t len)
+{
+	struct lws_quic_trace *t = &qn->trace;
+	struct lws_quic_trace_ent *e;
+	lws_usec_t now;
+
+	if (!qn->nwsi)
+		return;
+
+	now = lws_wsi_now(qn->nwsi);
+	if (!t->count)
+		t->start = now;
+
+	e = &t->ent[t->count++ % LWS_QUIC_TRACE_ENTS];
+	e->us = now - t->start > (lws_usec_t)UINT32_MAX ? UINT32_MAX :
+						(uint32_t)(now - t->start);
+	e->val = val > UINT32_MAX ? UINT32_MAX : (uint32_t)val;
+	e->len = len > UINT16_MAX ? UINT16_MAX : (uint16_t)len;
+	e->ev = (uint8_t)ev;
+	e->level = (uint8_t)level;
+
+	if (ev == LQTE_TX || ev == LQTE_TX_ACK_ONLY)
+		t->sent = 1;
+	/* whatever happened to the request, the connection is worth a look */
+	if (ev == LQTE_UNANSWERED || ev == LQTE_RETRY)
+		t->dump = 1;
+}
+
+/*
+ * A client's request stream closing before the end of its answer came,
+ * other than at our own end, marks its connection to be dumped when it goes.
+ * The wsi state is already the close's by now: it's the stream that knows.
+ */
+void
+lws_quic_trace_unanswered(struct lws *wsi, enum lws_close_status reason)
+{
+#if defined(LWS_WITH_CLIENT)
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+
+	if (nwsi && nwsi != wsi && nwsi->quic.qn &&
+	    wsi->client_mux_substream && wsi->quic.qs &&
+	    !wsi->quic.qs->is_unidirectional &&
+	    !wsi->quic.qs->fin_received &&
+	    reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY &&
+	    !wsi->a.context->being_destroyed)
+		lws_quic_trace(nwsi->quic.qn, LQTE_UNANSWERED, 0,
+			       wsi->quic.qs->stream_id,
+			       (size_t)wsi->quic.qs->rx_offset);
+#else
+	(void)wsi;
+	(void)reason;
+#endif
+}
+
+static void
+lws_quic_trace_dump(struct lws *nwsi, const struct lws_quic_netconn *qn)
+{
+	static const char * const evn[] = {
+		"tx", "tx ack only", "tx held", "rx", "rx dup", "PTO",
+		"handshake done", "path", "closing", "peer closed",
+		"request closed before its answer ended, stream",
+		"request sent again, was stream"
+	};
+	static const char * const lvn[] = { "init", "0rtt", "hs", "app" };
+	const struct lws_quic_trace *t = &qn->trace;
+	uint32_t n = t->count > LWS_QUIC_TRACE_ENTS ?
+				t->count - LWS_QUIC_TRACE_ENTS : 0;
+
+	lwsl_wsi_notice(nwsi, "  trace, %s, the last %u of %u:",
+			qn->is_server ? "server" : "client",
+			(unsigned int)(t->count - n), (unsigned int)t->count);
+
+	for (; n < t->count; n++) {
+		const struct lws_quic_trace_ent *e =
+				&t->ent[n % LWS_QUIC_TRACE_ENTS];
+		const char *ev = e->ev < LWS_ARRAY_SIZE(evn) ? evn[e->ev] : "?";
+		const char *lv = e->level < LWS_ARRAY_SIZE(lvn) ?
+							lvn[e->level] : "?";
+
+		switch (e->ev) {
+		case LQTE_TX:
+		case LQTE_TX_ACK_ONLY:
+		case LQTE_RX:
+			lwsl_wsi_notice(nwsi, "  %6u.%03ums %s %s pn %u, %u bytes",
+					(unsigned int)(e->us / 1000),
+					(unsigned int)(e->us % 1000), ev, lv,
+					(unsigned int)e->val,
+					(unsigned int)e->len);
+			break;
+		case LQTE_TX_HELD:
+		case LQTE_RX_DUP:
+			lwsl_wsi_notice(nwsi, "  %6u.%03ums %s %s pn %u",
+					(unsigned int)(e->us / 1000),
+					(unsigned int)(e->us % 1000), ev, lv,
+					(unsigned int)e->val);
+			break;
+		case LQTE_PTO:
+			lwsl_wsi_notice(nwsi, "  %6u.%03ums %s %u, %ums after it "
+					"was due", (unsigned int)(e->us / 1000),
+					(unsigned int)(e->us % 1000), ev,
+					(unsigned int)e->val,
+					(unsigned int)e->len);
+			break;
+		case LQTE_PATH:
+			lwsl_wsi_notice(nwsi, "  %6u.%03ums path to ipv%u port %u",
+					(unsigned int)(e->us / 1000),
+					(unsigned int)(e->us % 1000),
+					(unsigned int)e->level,
+					(unsigned int)e->val);
+			break;
+		case LQTE_UNANSWERED:
+			lwsl_wsi_notice(nwsi, "  %6u.%03ums %s %u, after %u "
+					"bytes of it", (unsigned int)(e->us / 1000),
+					(unsigned int)(e->us % 1000), ev,
+					(unsigned int)e->val,
+					(unsigned int)e->len);
+			break;
+		case LQTE_RETRY:
+			lwsl_wsi_notice(nwsi, "  %6u.%03ums %s %u",
+					(unsigned int)(e->us / 1000),
+					(unsigned int)(e->us % 1000), ev,
+					(unsigned int)e->val);
+			break;
+		case LQTE_CLOSING:
+		case LQTE_PEER_CLOSE:
+			lwsl_wsi_notice(nwsi, "  %6u.%03ums %s, error 0x%x",
+					(unsigned int)(e->us / 1000),
+					(unsigned int)(e->us % 1000), ev,
+					(unsigned int)e->val);
+			break;
+		default:
+			lwsl_wsi_notice(nwsi, "  %6u.%03ums %s",
+					(unsigned int)(e->us / 1000),
+					(unsigned int)(e->us % 1000), ev);
+			break;
+		}
+	}
+}
+#endif
+
 void
 lws_quic_dump_stalled(struct lws *wsi)
 {
@@ -2110,6 +2269,9 @@ lws_quic_dump(struct lws *wsi)
 	if (qn->cc_ops && qn->cc_ops->can_send)
 		lwsl_wsi_notice(nwsi, "  cc can send a packet: %d",
 				qn->cc_ops->can_send(nwsi, qn->current_mtu));
+#if defined(LWS_WITH_QUIC_TRACE)
+	lws_quic_trace_dump(nwsi, qn);
+#endif
 
 	if (wsi->quic.qs) {
 		lws_quic_dump_stream(qn, wsi, now);
@@ -3708,6 +3870,8 @@ tp_ok:
 				uint64_t diff = highest - full_pn;
 				if (diff >= 64 || (nwsi->quic.qn->rx_pn_bitmask[pn_space] & (1ULL << diff))) {
 					lwsl_wsi_notice(wsi, "QUIC RX: Dropping duplicated or very old packet %llu", (unsigned long long)full_pn);
+					lws_quic_trace(nwsi->quic.qn, LQTE_RX_DUP,
+						       level, full_pn, 0);
 					goto next_packet;
 				}
 				nwsi->quic.qn->rx_pn_bitmask[pn_space] |= (1ULL << diff);
@@ -3746,6 +3910,8 @@ tp_ok:
 				nwsi->quic.qn->rx_pn_bitmask[pn_space] |= 1ULL;
 				nwsi->quic.qn->highest_rx_pn[pn_space] = full_pn;
 			}
+			lws_quic_trace(nwsi->quic.qn, LQTE_RX, level, full_pn,
+				       packet_size);
 			
 			/*
 			 * Connection Migration: Execute pending migration now that
@@ -3886,6 +4052,8 @@ tp_ok:
 						lwsl_wsi_warn(nwsi, "QUIC: failed to re-connect client socket");
 
 					nwsi->quic.qn->path_sa46 = migration_sa46;
+					lws_quic_trace_path(nwsi->quic.qn,
+							    &migration_sa46);
 
 					/* Reset Congestion Control State (RFC 9000 9.3.3) */
 					if (nwsi->quic.qn->cc_ops && nwsi->quic.qn->cc_ops->init)
@@ -4439,6 +4607,7 @@ lws_quic_enter_closing_state(struct lws *wsi, uint64_t err_code, uint64_t frame_
 
 	qn->is_closing = 1;
 	qn->conn_close_err = err_code;
+	lws_quic_trace(qn, LQTE_CLOSING, 0, err_code, 0);
 #if defined(LWS_WITH_CLIENT)
 	/*
 	 * It lives on for the CONNECTION_CLOSE to go, but takes no new
@@ -5428,6 +5597,7 @@ lws_quic_packet_sent(struct lws *wsi, const struct lws_quic_tx_pkt *tp, int n)
 			
 			/* Revert PN */
 			qn->keys[tp->level]->pn_tx--;
+			lws_quic_trace(qn, LQTE_TX_HELD, tp->level, tp->pn, 0);
 
 			/*
 			 * The ACK in it wasn't sent either.  It's no frame to go
@@ -5506,6 +5676,9 @@ lws_quic_packet_sent(struct lws *wsi, const struct lws_quic_tx_pkt *tp, int n)
 				break;
 		} lws_end_foreach_dll(d);
 	}
+
+	lws_quic_trace(qn, ack_eliciting ? LQTE_TX : LQTE_TX_ACK_ONLY,
+		       tp->level, tp->pn, (size_t)n);
 
 	if (ack_eliciting) {
 		lws_quic_idle_restart(qn, 1);
@@ -7151,6 +7324,23 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 	lws_footprint_unregister(&qn->fp);
 #endif
 
+#if defined(LWS_WITH_QUIC_TRACE)
+	/*
+	 * A client connection going before its handshake completed, or with a
+	 * request it never got the answer to, is what there is otherwise least
+	 * to go on about: say what it saw.  A netconn that never sent anything
+	 * is a request's own, given up as it joined a connection already up.
+	 */
+	if (qn->nwsi && !qn->is_server && qn->trace.sent &&
+	    (!qn->handshake_done || qn->trace.dump)) {
+		lwsl_wsi_notice(qn->nwsi, "QUIC: client connection going %s",
+				!qn->handshake_done ?
+					"before its handshake completed" :
+					"with a request unanswered");
+		lws_quic_trace_dump(qn->nwsi, qn);
+	}
+#endif
+
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	if (qn->nwsi && qn->fi_stats.ack_frames &&
 	    lws_fi(&qn->nwsi->fic, "quic_stats"))
@@ -7282,6 +7472,8 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 
 	if (wsi->mux.parent_wsi) {
 		struct lws *nwsi = wsi->mux.parent_wsi;
+
+		lws_quic_trace_unanswered(wsi, reason);
 		lws_wsi_mux_sibling_disconnect(wsi);
 		if (nwsi->quic.qn)
 			lws_quic_server_idle_check(nwsi);
@@ -8034,6 +8226,7 @@ rops_client_transport_up_quic(struct lws *wsi, const lws_sockaddr46 *peer)
 		qn->path_sa46 = *peer;
 		qn->initial_sa46 = *peer;
 		qn->pto_count = 0;
+		lws_quic_trace_path(qn, peer);
 		lws_quic_sul_schedule(qn, &qn->pto_sul, lws_quic_pto_cb, 1);
 
 		return LWS_HPI_RET_HANDLED;
@@ -8043,6 +8236,7 @@ rops_client_transport_up_quic(struct lws *wsi, const lws_sockaddr46 *peer)
 		qn->path_sa46 = *peer;
 		/* ...and where our Initial goes */
 		qn->initial_sa46 = *peer;
+		lws_quic_trace_path(qn, peer);
 	}
 
 	/* quic drives its own tls handshake, inside its packets */
