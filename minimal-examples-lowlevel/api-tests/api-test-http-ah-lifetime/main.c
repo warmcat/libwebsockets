@@ -776,10 +776,12 @@ callback_raw(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/* pipeline-depth */
 		if (!raw.conn) {
-			if (n == AHL_DEPTH) {
+			if (n == AHL_DEPTH && raw.sent == AHL_DEPTH) {
 				/*
 				 * Nothing is left queued: the depth starts
-				 * again, so one more is answered
+				 * again, so one more is answered.  Only once:
+				 * the rx with the start of its answer still
+				 * counts AHL_DEPTH
 				 */
 				if (raw_send_small(wsi, 1))
 					return -1;
