@@ -269,7 +269,8 @@ enum lws_quic_frame_type {
  * fields, the frame's data and LWS_QUIC_FIT_SLACK (the AEAD tag and room to
  * spare) fit the datagram.  The smallest datagram that carries a lone
  * PATH_CHALLENGE follows from them and the packet's own header; below that,
- * a path probe is abandoned rather than left spinning in pending_tx.
+ * what a path probe has queued is dropped rather than left spinning in
+ * pending_tx, and the probe waits for an answer to what it already sent.
  */
 #define LWS_QUIC_FRAME_HDR_MAX		(1u + 8u + 8u)
 #define LWS_QUIC_FIT_SLACK		32u

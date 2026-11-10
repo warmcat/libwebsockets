@@ -779,6 +779,27 @@ lws_quic_datagram_max(const struct lws_quic_netconn *qn)
 }
 
 /*
+ * Drop what is queued to go to the address being probed, when its
+ * anti-amplification allowance has no room for it.  The probe itself stays,
+ * still able to take an answer to the challenge already sent.
+ */
+static void
+lws_quic_path_probe_drop_queued(struct lws_quic_netconn *qn)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   qn->pending_tx[LWS_QUIC_LEVEL_APP].head) {
+		struct lws_quic_tx_frame *f = lws_container_of(d,
+					struct lws_quic_tx_frame, list);
+
+		if (f->has_dest &&
+		    lws_quic_sa46_same_path(&f->dest_sa46, &qn->probing_sa46)) {
+			lws_dll2_remove(&f->list);
+			lws_free(f);
+		}
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+/*
  * Stop probing the address in probing_sa46.  failed says why the probe failed,
  * or is NULL when it's only superseded by a probe of another address
  */
@@ -4699,11 +4720,17 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		 * When that destination is a peer address we have not validated
 		 * yet, what we send there must stay within 3x the bytes we
 		 * received from it (9.3.1 / 21.1.1.1), so clamp this packet's
-		 * size to the remaining allowance and abandon the probe once
-		 * even the smallest packet no longer fits.  Frames addressed to
-		 * a path that is neither the committed one nor the one being
-		 * probed are stale (the probe was abandoned or superseded) and
-		 * are dropped rather than sent to an address we never validated.
+		 * size to the remaining allowance.  Once even the smallest
+		 * packet no longer fits, what is queued for that address is
+		 * dropped, but the probe stands: its challenge is already out
+		 * there, and an answer to it is good until probe_deadline
+		 * (8.2.4).  The PTO resends get through again if more arrives
+		 * from that address and raises the allowance.
+		 *
+		 * Frames addressed to a path that is neither the committed one
+		 * nor the one being probed are stale (the probe was abandoned
+		 * or superseded) and are dropped rather than sent to an address
+		 * we never validated.
 		 */
 		uint64_t probe_budget = 0;
 		int to_probe_path = 0, has_path_challenge = 0;
@@ -4726,9 +4753,15 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 
 					if (qn->probe_bytes_sent + probe_min >
 								allowance) {
-						lws_quic_path_probe_abandon(wsi,
-							"anti-amplification "
-							"limit reached");
+						lwsl_wsi_info(wsi, "QUIC: probe's "
+							"allowance is spent (sent "
+							"%llu, rx %llu), awaiting "
+							"its answer",
+							(unsigned long long)
+							qn->probe_bytes_sent,
+							(unsigned long long)
+							qn->probe_bytes_received);
+						lws_quic_path_probe_drop_queued(qn);
 					} else {
 						probe_budget = allowance - qn->probe_bytes_sent;
 						to_probe_path = 1;
