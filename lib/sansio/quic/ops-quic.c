@@ -4448,6 +4448,66 @@ lws_quic_enter_closing_state(struct lws *wsi, uint64_t err_code, uint64_t frame_
 	lws_callback_on_writable(nwsi);
 }
 
+/*
+ * The ACK ranges (RFC 9000 19.3.1) of a PN space's receive window: bit n of
+ * bm is the PN n below the largest we got, and the ACK reports from bit from,
+ * its Largest Acknowledged, down.
+ *
+ * Every range the window has goes, not only the first.  The peer frees what an
+ * ACK reports, and finds lost what was sent before the largest it reports and
+ * isn't in it (RFC 9002 6.1).  An ACK in a packet of its own isn't acked, nor
+ * sent again if it's lost (RFC 9000 13.3): only the ACKs after it can report
+ * the PNs it did.  If they report only the run of PNs down from the largest,
+ * one gap below it ends what the peer hears of the PNs it had, and it finds
+ * packets lost that we got.  Lost packets spanning a few PTOs with none acked
+ * between are persistent congestion (RFC 9002 7.6), so with loss both ways the
+ * peer cut its window to the minimum for what we had all along.
+ *
+ * A gap or a range in the window is under 64 PNs, so each fits in a one byte
+ * varint, and the window has no more than 31 ranges after the first.  Ranges
+ * past max_ranges are left out, as an ACK may (RFC 9000 13.2.3), so the ACK
+ * can fit what the datagram may carry.
+ */
+struct lws_quic_ack_window {
+	uint8_t			gap[32];	/* PNs not got, less one */
+	uint8_t			len[32];	/* PNs got, less one */
+	unsigned int		count;		/* ranges after the first */
+	uint64_t		first;		/* First ACK Range */
+	/* the Largest Acknowledged, less the lowest PN reported */
+	uint64_t		span;
+};
+
+static void
+lws_quic_ack_window(uint64_t bm, unsigned int from, size_t max_ranges,
+		    struct lws_quic_ack_window *w)
+{
+	unsigned int b = from + 1, run;
+
+	if (max_ranges > LWS_ARRAY_SIZE(w->gap))
+		max_ranges = LWS_ARRAY_SIZE(w->gap);
+
+	while (b < 64 && ((bm >> b) & 1))
+		b++;
+
+	w->count	= 0;
+	w->first	= b - from - 1;
+	w->span		= w->first;
+
+	while (b < 64 && w->count < max_ranges) {
+		for (run = 0; b < 64 && !((bm >> b) & 1); run++)
+			b++;
+		if (b == 64)
+			break;
+		/* there is a PN not got before each range after the first */
+		w->gap[w->count] = (uint8_t)(run - 1);
+
+		for (run = 0; b < 64 && ((bm >> b) & 1); run++)
+			b++;
+		w->len[w->count++] = (uint8_t)(run - 1);
+		w->span = b - 1 - from;
+	}
+}
+
 /* one produced packet: what the send and the accounting after it need */
 /*
  * sansIO tx of the connection's next packet (README.sans-io-split.md, "A
@@ -4860,11 +4920,20 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 				}
 			}
 #endif
-                        uint64_t bm = qn->rx_pn_bitmask[pn_space] >> (ack_bit + 1);
-                        while (ack_bit + first_ack_range < 63 && (bm & 1)) {
-                                first_ack_range++;
-                                bm >>= 1;
-                        }
+			struct lws_quic_ack_window win;
+			/*
+			 * The ACK goes first, but an anti-amplification or a
+			 * probe allowance may leave the datagram less room
+			 * than the buffer: its fixed fields, the ECN counts,
+			 * and the AEAD tag, then two bytes each range
+			 */
+			size_t ack_at = (size_t)(p - buf) + 4 * 8 + 3 * 8 + 16;
+
+			lws_quic_ack_window(qn->rx_pn_bitmask[pn_space], ack_bit,
+					    ack_at < dgram_cap ?
+						(dgram_cap - ack_at) / 2 : 0,
+					    &win);
+			first_ack_range = win.first;
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 			if (fi_ack && ack_largest > 66) {
 				fi_top = ack_largest - 66;
@@ -4875,13 +4944,22 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 #endif
                         p += lws_quic_write_varint(p, max - (size_t)(p - buf), ack_largest); /* Largest Acknowledged */
                         p += lws_quic_write_varint(p, max - (size_t)(p - buf), ack_delay_enc); /* ACK Delay */
-                        p += lws_quic_write_varint(p, max - (size_t)(p - buf), fi_ranges); /* ACK Range Count */
+                        p += lws_quic_write_varint(p, max - (size_t)(p - buf), win.count + fi_ranges); /* ACK Range Count */
                         p += lws_quic_write_varint(p, max - (size_t)(p - buf), first_ack_range); /* First ACK Range */
+			for (unsigned int r = 0; r < win.count; r++) {
+				p += lws_quic_write_varint(p, max - (size_t)(p - buf),
+							   win.gap[r]);
+				p += lws_quic_write_varint(p, max - (size_t)(p - buf),
+							   win.len[r]);
+			}
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 			for (uint64_t r = 0; r < fi_ranges; r++) {
-				/* gap: the PNs skipped, less one */
+				/*
+				 * gap: the PNs skipped, less one, below the
+				 * lowest PN the window's ranges reported
+				 */
 				p += lws_quic_write_varint(p, max - (size_t)(p - buf),
-					r ? 0 : ack_largest - first_ack_range -
+					r ? 0 : ack_largest - win.span -
 							fi_top - 2);
 				p += lws_quic_write_varint(p, max - (size_t)(p - buf), 0);
 			}
