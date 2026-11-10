@@ -1564,11 +1564,13 @@ lws_quic_ack_begin(struct lws *nwsi, struct lws_quic_ack_walk *aw, int level,
 	aw->level	= level;
 	aw->now		= lws_wsi_now(nwsi);
 	/*
-	 * The parser clamps ack_delay to the peer's max_ack_delay; this is
-	 * only a last line of defense so the lws_usec_t arithmetic below can
-	 * never see a negative value.
+	 * The parser saturates ack_delay, and once the handshake is
+	 * confirmed clamps it to the peer's max_ack_delay; this is only a
+	 * last line of defense so the lws_usec_t arithmetic below can never
+	 * see a negative value.
 	 */
-	aw->ack_delay	= ack_delay > 0x7fffffff ? 0x7fffffff : ack_delay;
+	aw->ack_delay	= ack_delay > LWS_QUIC_ACK_DELAY_MAX_US ?
+				LWS_QUIC_ACK_DELAY_MAX_US : ack_delay;
 
 	/* 0-RTT frames are acked in the app PN space too */
 	aw->cur[0] = lws_dll2_get_tail(&qn->in_flight[level]);
@@ -2497,7 +2499,8 @@ lws_quic_rx_early_pkts(struct lws *wsi, struct lws_quic_netconn *qn);
  */
 static int
 lws_quic_hold_early_pkt(struct lws_quic_netconn *qn, const uint8_t *pkt,
-			size_t len, const lws_sockaddr46 *peer, uint8_t ecn)
+			size_t len, const lws_sockaddr46 *peer, uint8_t ecn,
+			lws_usec_t rx_us)
 {
 	struct lws_quic_early_pkt *ep;
 
@@ -2511,6 +2514,7 @@ lws_quic_hold_early_pkt(struct lws_quic_netconn *qn, const uint8_t *pkt,
 	memset(&ep->list, 0, sizeof(ep->list));
 	ep->peer	= *peer;
 	ep->len		= len;
+	ep->rx_us	= rx_us;
 	ep->ecn		= ecn;
 	memcpy(&ep[1], pkt, len);
 	lws_dll2_add_tail(&ep->list, &qn->early_pkts);
@@ -2549,10 +2553,14 @@ lws_quic_rx_is_stateless_reset(const struct lws_quic_netconn *qn,
 				    LWS_QUIC_SR_TOKEN_LEN);
 }
 
+/*
+ * rx_us is when the datagram arrived: now, or for a 1-RTT packet a server held
+ * until its handshake completed, when it was held
+ */
 static lws_handling_result_t
-rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
-		   const lws_sockaddr46 *peer, uint8_t ecn,
-		   const lws_peer_entry_t *via)
+lws_quic_rx_dgram(struct lws *wsi, uint8_t *buf, size_t len,
+		  const lws_sockaddr46 *peer, uint8_t ecn,
+		  const lws_peer_entry_t *via, lws_usec_t rx_us)
 {
 	lws_sockaddr46 sa46 = *peer;
 	int n = (int)len, orig_n = n;
@@ -3425,7 +3433,8 @@ tp_ok:
 			LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)))) {
 			if (level == LWS_QUIC_LEVEL_APP &&
 			    !lws_quic_hold_early_pkt(nwsi->quic.qn, p,
-						     packet_size, peer, ecn))
+						     packet_size, peer, ecn,
+						     rx_us))
 				lwsl_wsi_info(wsi, "QUIC RX: 1-RTT before the "
 						   "handshake completed, holding "
 						   "%zu bytes", packet_size);
@@ -4113,6 +4122,19 @@ tp_ok:
 					}
 
 					/*
+					 * The ACK Delay we report counts from
+					 * when the first packet it owes came,
+					 * which for one held until our
+					 * handshake completed, is when it was
+					 * held: RFC 9000 13.2.5, the wait for
+					 * keys is ours to report, or the peer
+					 * takes it for path RTT
+					 */
+					if (!qn->rx_ack_eliciting_since_us)
+						qn->rx_ack_eliciting_since_us =
+									rx_us;
+
+					/*
 					 * App-space ACK: apply the 2nd-packet rule,
 					 * else defer to the delayed-ACK timer.
 					 */
@@ -4159,8 +4181,6 @@ tp_ok:
 							delay = cap;
 #endif
 
-						qn->rx_ack_eliciting_since_us =
-							lws_wsi_now(nwsi);
 						qn->ack_delay_armed = 1;
 						lws_quic_sul_schedule(qn,
 							&qn->ack_delay_sul,
@@ -4231,13 +4251,25 @@ lws_quic_rx_early_pkts(struct lws *wsi, struct lws_quic_netconn *qn)
 		if (r == LWS_HPI_RET_HANDLED) {
 			lwsl_wsi_info(wsi, "QUIC RX: processing held 1-RTT "
 					   "packet, %zu bytes", ep->len);
-			r = rops_rx_dgram_quic(wsi, (uint8_t *)&ep[1], ep->len,
-					       &ep->peer, ep->ecn, NULL);
+			lws_quic_fi_stat_max(qn, early_held_max,
+					     lws_wsi_now(wsi) - ep->rx_us);
+			r = lws_quic_rx_dgram(wsi, (uint8_t *)&ep[1], ep->len,
+					      &ep->peer, ep->ecn, NULL,
+					      ep->rx_us);
 		}
 		lws_free(ep);
 	}
 
 	return r;
+}
+
+static lws_handling_result_t
+rops_rx_dgram_quic(struct lws *wsi, uint8_t *buf, size_t len,
+		   const lws_sockaddr46 *peer, uint8_t ecn,
+		   const lws_peer_entry_t *via)
+{
+	return lws_quic_rx_dgram(wsi, buf, len, peer, ecn, via,
+				 lws_wsi_now(wsi));
 }
 
 /* a quic socket's datagrams are read one at a time, to rx_dgram */
@@ -4793,7 +4825,7 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		 * we never validated.
 		 */
 		uint64_t probe_budget = 0;
-		int to_probe_path = 0, has_path_challenge = 0;
+		int to_probe_path = 0, has_path_challenge = 0, has_crypto = 0;
 
 		if (level == LWS_QUIC_LEVEL_APP && qn->is_server) {
 			if (!ack_only && qn->probing_sa46_valid &&
@@ -4883,8 +4915,11 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 			    qn->rx_ack_eliciting_since_us) {
 				lws_usec_t held = lws_wsi_now(wsi) -
 					qn->rx_ack_eliciting_since_us;
-				if (held > 0)
+				if (held > 0) {
 					ack_delay_enc = (uint64_t)(held >> 3);
+					lws_quic_fi_stat_max(qn,
+						ack_delay_tx_max, held);
+				}
 			}
 
                         if (qn->ecn_rx_ect0 || qn->ecn_rx_ect1 || qn->ecn_rx_ce) {
@@ -5123,6 +5158,7 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 			if (type == LWS_QUIC_FT_PING) {
 				/* PING has no payload or additional headers */
 			} else if (type == LWS_QUIC_FT_CRYPTO) {
+				has_crypto = 1;
 				p += lws_quic_write_varint(p, max - (size_t)(p - buf), f->offset);
 				p += lws_quic_write_varint(p, max - (size_t)(p - buf), send_len);
 			} else if ((type & 0xf8) == LWS_QUIC_FT_STREAM) {
@@ -5414,6 +5450,20 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		/* 4. Transmit UDP Datagram */
 
 		size_t send_len = (size_t)(p - buf) + 16;
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		/*
+		 * quic_corrupt_finished: a client's Handshake packet with its
+		 * Finished in it is damaged on the way, so the server can't
+		 * open it, and holds the 1-RTT packets that come after it
+		 * until the client's PTO sends the Finished again
+		 */
+		if (level == LWS_QUIC_LEVEL_HANDSHAKE && !qn->is_server &&
+		    has_crypto && lws_fi(&wsi->fic, "quic_corrupt_finished"))
+			buf[send_len - 1] ^= 0x5a; /* in the AEAD tag */
+#else
+		(void)has_crypto;
+#endif
 
 		/* PMTUD: tag in-flight frames with this packet's wire length so we can track MTU losses */
 		lws_start_foreach_dll_back(struct lws_dll2 *, d,
@@ -7069,7 +7119,9 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 		lwsl_wsi_notice(qn->nwsi, "QUIC FI stats: %s, ack frames %llu, "
 				"ignored %llu, ranges %llu, acked %llu, visits %llu, "
 				"in flight peak %u, excess max %llu, path "
-				"responses peak %u, cc bypassed %llu",
+				"responses peak %u, cc bypassed %llu, held max "
+				"%lluus, ack delay tx max %lluus, ack delay rx "
+				"max %lluus",
 				qn->is_server ? "server" : "client",
 				(unsigned long long)qn->fi_stats.ack_frames,
 				(unsigned long long)qn->fi_stats.ack_ignored,
@@ -7079,7 +7131,10 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 				(unsigned int)qn->fi_stats.in_flight_peak,
 				(unsigned long long)qn->fi_stats.excess_max,
 				(unsigned int)qn->fi_stats.path_responses_peak,
-				(unsigned long long)qn->fi_stats.cc_bypassed);
+				(unsigned long long)qn->fi_stats.cc_bypassed,
+				(unsigned long long)qn->fi_stats.early_held_max,
+				(unsigned long long)qn->fi_stats.ack_delay_tx_max,
+				(unsigned long long)qn->fi_stats.ack_delay_rx_max);
 #endif
 
 	lws_dll2_remove(&qn->pt_list);

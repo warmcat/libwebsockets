@@ -70,8 +70,12 @@ extern const struct lws_role_ops role_ops_quic;
 /* counts what fault injection quic_stats logs, see fi_stats */
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 #define lws_quic_fi_stat(_qn, _m, _n)	((_qn)->fi_stats._m += (_n))
+#define lws_quic_fi_stat_max(_qn, _m, _v) do { \
+		if ((uint64_t)(_v) > (_qn)->fi_stats._m) \
+			(_qn)->fi_stats._m = (uint64_t)(_v); } while (0)
 #else
 #define lws_quic_fi_stat(_qn, _m, _n)
+#define lws_quic_fi_stat_max(_qn, _m, _v) do { } while (0)
 #endif
 
 
@@ -520,8 +524,10 @@ struct lws_quic_reply {
 /*
  * A 1-RTT packet that reached a server before its handshake completed, kept
  * still protected until it does (RFC 9001 5.7 allows a server to hold them,
- * RFC 9001 4.1.4 to buffer what arrives early).  The datagram's peer and ECN
- * go with it, for when it is processed.  A connection holds at most
+ * RFC 9001 4.1.4 to buffer what arrives early).  The datagram's peer, ECN and
+ * arrival time go with it, for when it is processed: the ACK Delay of its ACK
+ * counts the wait from when it came (RFC 9000 13.2.5), or the client takes
+ * the wait for its RTT.  A connection holds at most
  * LWS_QUIC_EARLY_PKTS_MAX; any more are dropped as before, for the client's
  * loss recovery to send again.
  */
@@ -529,11 +535,15 @@ struct lws_quic_early_pkt {
 	lws_dll2_t		list;
 	lws_sockaddr46		peer;
 	size_t			len;
+	lws_usec_t		rx_us;
 	uint8_t			ecn;
 	/* the packet follows */
 };
 
 #define LWS_QUIC_EARLY_PKTS_MAX 4
+
+/* the most ACK Delay, in us, taken from a peer: fits lws_usec_t arithmetic */
+#define LWS_QUIC_ACK_DELAY_MAX_US ((uint64_t)0x7fffffff)
 
 struct lws_quic_netconn {
 	struct lws		*nwsi; /* the parent UDP network wsi */
@@ -885,6 +895,14 @@ struct lws_quic_netconn {
 		uint32_t	path_responses_peak;
 		/* packets with frames sent while congestion control held */
 		uint64_t	cc_bypassed;
+		/*
+		 * the longest a 1-RTT packet that came before the handshake
+		 * completed was held, the most ACK Delay we sent, and the
+		 * most we took from the peer's ACKs, all in us
+		 */
+		uint64_t	early_held_max;
+		uint64_t	ack_delay_tx_max;
+		uint64_t	ack_delay_rx_max;
 	} fi_stats;
 	/* quic_ack_ranges: the next ACK we send is a full one */
 	uint8_t			fi_ack_lag;

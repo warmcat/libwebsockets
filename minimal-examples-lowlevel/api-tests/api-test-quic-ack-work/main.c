@@ -57,6 +57,26 @@
  * more in flight.  Now a packet's last challenge is answered, replacing an
  * answer still waiting to go.  Again nothing may have gone past congestion
  * control.
+ *
+ * With --lost-finished, the faults are instead
+ *
+ *  - wsi/quic_corrupt_finished, the first three times: the client's
+ *    Handshake packet with its Finished in it is damaged on the way, so the
+ *    server can't open it, and holds the client's 1-RTT packets that came
+ *    after it until the client's PTO sends the Finished again
+ *
+ *  - wsi/quic_stats as above, which also logs how long the server held them,
+ *    and the most ACK Delay each end sent and took
+ *
+ * and the transfer must complete with the server having held a packet for
+ * at least QAW_HELD_MIN_US, an ACK of it having reported that wait in its
+ * ACK Delay (RFC 9000 13.2.5), and the client having taken all of it,
+ * though it is far past the 25ms max_ack_delay, since its handshake was not
+ * confirmed yet (RFC 9002 5.3).  Either way short, the client took the wait
+ * for path RTT, and with its PTO backed off by as much, a request lost then
+ * went again only after the server gave up on the connection: in the interop
+ * runner's handshakecorruption case, the client then made a 51st connection
+ * for its 50 files.
  */
 
 #include <libwebsockets.h>
@@ -75,6 +95,14 @@
  * than one packet's worth of challenges
  */
 #define QAW_PATH_RESPONSES_MAX	12
+/*
+ * the client's PTO sends its Finished again after ~25ms, then ~50ms, then
+ * ~100ms: the third corruption has the server holding the 1-RTT packets for
+ * ~175ms, so this is far more than a delayed ACK on loopback, and far less
+ * than the wait
+ */
+#define QAW_HELD_MIN_US		(50 * LWS_US_PER_MS)
+#define QAW_CORRUPT_FINISHED	3
 
 struct qaw_stats {
 	uint64_t		ack_frames;
@@ -86,6 +114,9 @@ struct qaw_stats {
 	uint64_t		excess_max;
 	uint64_t		path_responses_peak;
 	uint64_t		cc_bypassed;
+	uint64_t		held_max;
+	uint64_t		ack_delay_tx_max;
+	uint64_t		ack_delay_rx_max;
 };
 
 static struct lws_context *context;
@@ -149,6 +180,9 @@ emit_cb(int level, const char *line)
 	st->excess_max		= stat_get(p, "excess max ", &bad);
 	st->path_responses_peak	= stat_get(p, "responses peak ", &bad);
 	st->cc_bypassed		= stat_get(p, "cc bypassed ", &bad);
+	st->held_max		= stat_get(p, "held max ", &bad);
+	st->ack_delay_tx_max	= stat_get(p, "ack delay tx max ", &bad);
+	st->ack_delay_rx_max	= stat_get(p, "ack delay rx max ", &bad);
 
 	if (bad)
 		stats_bad = 1;
@@ -220,6 +254,39 @@ challenges_check(const char *what, const struct qaw_stats *st)
 	if (st->cc_bypassed) {
 		lwsl_err("FAIL: %s: sent frames beyond congestion control\n",
 			 what);
+		return 1;
+	}
+
+	return 0;
+}
+
+/*
+ * --lost-finished: did the server report the wait of the 1-RTT packets it
+ * held in its ACK Delay, and the client take it, see the top
+ */
+static int
+held_check(void)
+{
+	lwsl_user("server held 1-RTT packets up to %lluus and sent ACK Delay "
+		  "up to %lluus, client took ACK Delay up to %lluus\n",
+		  (unsigned long long)st_srv.held_max,
+		  (unsigned long long)st_srv.ack_delay_tx_max,
+		  (unsigned long long)st_cli.ack_delay_rx_max);
+
+	if (st_srv.held_max < QAW_HELD_MIN_US) {
+		lwsl_err("FAIL: the server held nothing for %uus\n",
+			 (unsigned int)QAW_HELD_MIN_US);
+		return 1;
+	}
+
+	if (st_srv.ack_delay_tx_max < st_srv.held_max) {
+		lwsl_err("FAIL: the server's ACK Delay left out the wait\n");
+		return 1;
+	}
+
+	/* it goes in units of 8us, ack_delay_exponent 3 */
+	if (st_cli.ack_delay_rx_max + 8 <= st_srv.held_max) {
+		lwsl_err("FAIL: the client cut the server's ACK Delay\n");
 		return 1;
 	}
 
@@ -349,15 +416,29 @@ sigint_handler(int sig)
 	lws_default_loop_exit(context);
 }
 
-/* the faults this test runs with, on every wsi of both ends */
-static const char * const faults_ack[] = {
-	"wsi/quic_ack_ranges",
-	"wsi/quic_ack_late",
-	"wsi/quic_stats",
-}, * const faults_pc[] = {
-	"wsi/quic_path_challenge_flood",
-	"wsi/quic_ack_late",
-	"wsi/quic_stats",
+/*
+ * the faults each mode runs with, on every wsi of both ends: the first
+ * count calls of each fault inject it, or every one with count 0
+ */
+struct qaw_fault {
+	const char		*name;
+	uint64_t		count;
+};
+
+static const struct qaw_fault faults_ack[] = {
+	{ "wsi/quic_ack_ranges", 0 },
+	{ "wsi/quic_ack_late", 0 },
+	{ "wsi/quic_stats", 0 },
+	{ NULL, 0 }
+}, faults_pc[] = {
+	{ "wsi/quic_path_challenge_flood", 0 },
+	{ "wsi/quic_ack_late", 0 },
+	{ "wsi/quic_stats", 0 },
+	{ NULL, 0 }
+}, faults_lf[] = {
+	{ "wsi/quic_corrupt_finished", QAW_CORRUPT_FINISHED },
+	{ "wsi/quic_stats", 0 },
+	{ NULL, 0 }
 };
 
 int
@@ -365,10 +446,10 @@ main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
+	const struct qaw_fault *faults = faults_ack;
 	const char *p, *cert, *key;
 	struct lws_vhost *vh_cli;
-	int result = 1, port = 7711, pc;
-	size_t n;
+	int result = 1, port = 7711, pc, lf;
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
@@ -391,13 +472,22 @@ main(int argc, const char **argv)
 	lwsl_user("LWS API selftest: QUIC ACK processing work\n");
 
 	pc = !!lws_cmdline_option(argc, argv, "--path-challenges");
-	for (n = 0; n < (pc ? LWS_ARRAY_SIZE(faults_pc) :
-			      LWS_ARRAY_SIZE(faults_ack)); n++) {
+	lf = !!lws_cmdline_option(argc, argv, "--lost-finished");
+	if (pc)
+		faults = faults_pc;
+	if (lf)
+		faults = faults_lf;
+
+	for (; faults->name; faults++) {
 		lws_fi_t fi;
 
 		memset(&fi, 0, sizeof(fi));
-		fi.name = pc ? faults_pc[n] : faults_ack[n];
+		fi.name = faults->name;
 		fi.type = LWSFI_ALWAYS;
+		if (faults->count) {
+			fi.type = LWSFI_DETERMINISTIC;
+			fi.count = faults->count;
+		}
 		if (lws_fi_add(&info.fic, &fi)) {
 			lwsl_err("OOM adding faults\n");
 			return 1;
@@ -485,7 +575,9 @@ bail:
 				 seen_srv, seen_cli,
 				 stats_bad ? ", unreadable" : "");
 			result = 1;
-		} else
+		} else if (lf)
+			result = held_check();
+		else
 			result = pc ? challenges_check("server", &st_srv) |
 				      challenges_check("client", &st_cli) :
 				      stats_check("server", &st_srv, 1) |
