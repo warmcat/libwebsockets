@@ -1553,12 +1553,12 @@ ui_scan_end(struct lws_dlo_ui *ui)
 		lws_dlo_ui_kick(ui);
 }
 
+/* the next step of the layout or scan, from the sul or directly */
+
 static void
-ui_render(lws_sorted_usec_list_t *sul)
+ui_render_step(struct lws_dlo_ui *ui)
 {
-	lws_display_render_state_t *rs = lws_container_of(sul,
-					lws_display_render_state_t, sul);
-	struct lws_dlo_ui *ui = lws_container_of(rs, struct lws_dlo_ui, rs);
+	lws_display_render_state_t *rs = &ui->rs;
 	int budget = UI_SCAN_BUDGET;
 	lws_stateful_ret_t r;
 	lws_box_t box;
@@ -1640,6 +1640,12 @@ ui_render(lws_sorted_usec_list_t *sul)
 	ui_scan_end(ui);
 }
 
+static void
+ui_render(lws_sorted_usec_list_t *sul)
+{
+	ui_render_step(lws_container_of(sul, struct lws_dlo_ui, rs.sul));
+}
+
 /*
  * The frame page: its title strip is laid out again whenever it changed and
  * the caller isn't partway through drawing it, even while the caller is
@@ -1679,7 +1685,7 @@ ui_frame_kick(struct lws_dlo_ui *ui)
 			ui->dirty = 0;
 			return;
 		}
-		ui_render(&ui->rs.sul);
+		ui_render_step(ui);
 		return;
 	}
 
@@ -1725,7 +1731,7 @@ ui_kick_cb(lws_sorted_usec_list_t *sul)
 	}
 
 	if (ui->phase == UI_SCAN)
-		ui_render(&ui->rs.sul);
+		ui_render_step(ui);
 }
 
 void

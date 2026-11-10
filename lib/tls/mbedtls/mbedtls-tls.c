@@ -201,11 +201,14 @@ fp_mbedtls_dump(lws_footprint_t *fp)
 			      lws_dll2_get_head(&fp_live)) {
 		fp_mbed_hdr_t *h = lws_container_of(d, fp_mbed_hdr_t, list);
 
-		for (n = 0; n < ng; n++)
 #if defined(LWS_PLAT_CALLERS)
+		for (n = 0; n < ng; n++)
 			if (!memcmp(g[n].pcs, h->pcs, sizeof(h->pcs)))
-#endif
 				break;
+#else
+		/* with no callers to tell them apart, there is one group */
+		n = 0;
+#endif
 
 		if (n == ng) {
 			if (ng == LWS_ARRAY_SIZE(g)) {

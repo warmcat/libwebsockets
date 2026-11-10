@@ -1759,7 +1759,7 @@ lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 	 */
 
 	lws_snprintf(path, sizeof(path), "%s/lws", parent);
-	if (mkdir(path, 0775) && errno != EEXIST) {
+	if (mkdir(path, 0755) && errno != EEXIST) {
 		/*
 		 * No cgroup to move into, eg, the cgroup fs is read-only to
 		 * us: we stay where we are, and children get threaded cgroups

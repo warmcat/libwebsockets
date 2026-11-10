@@ -4338,7 +4338,7 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 		const char *s = p, *e;
 		char norm[128];
 		lcsp_names_t *na;
-		size_t n = 0, pl;
+		size_t n = 0, pl, ml;
 		lhp_sc_t sc;
 		int inb = 0;
 		uint8_t pk;
@@ -4418,10 +4418,11 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 		 */
 
 		pl = lhp_pseudo_elem_suffix(norm, n, &pk);
+		ml = n > pl ? n - pl : 0;
 		memset(&sc, 0, sizeof(sc));
 		sc.text = norm;
-		if (n > pl)
-			lhp_sc_complex(&sc, norm, norm + n - pl);
+		if (ml)
+			lhp_sc_complex(&sc, norm, norm + ml);
 		if (sc.len > 0xffff)
 			/* can't happen, see lhp_sc_t */
 			continue;
@@ -4437,14 +4438,14 @@ lhp_css_add_names(lhp_ctx_t *ctx, const char *buf, size_t len)
 		sc.b = (uint8_t *)&na[1] + n + 1;
 		sc.alloc = sc.len;
 		sc.len = 0;
-		if (n > pl)
-			lhp_sc_complex(&sc, norm, norm + n - pl);
+		if (ml)
+			lhp_sc_complex(&sc, norm, norm + ml);
 		/* the compile is css work for the document like the parse */
 		ctx->cascade_ops += sc.work;
 
 		na->specificity = lhp_sel_specificity(norm, norm + n) |
 				  lhp_css_layer_bits(ctx);
-		lhp_sel_key(norm, norm + n - pl, na);
+		lhp_sel_key(norm, norm + ml, na);
 		if (ctx->u.f.filter_css)
 			/*
 			 * Filter css is a user-agent level overlay: it is

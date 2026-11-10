@@ -919,7 +919,10 @@ lws_epd_direct_esp32_init(const lws_epd_direct_bus_ops_t *bus)
 }
 
 void
-lws_epd_direct_esp32_deinit(const lws_epd_direct_bus_ops_t *bus) { }
+lws_epd_direct_esp32_deinit(const lws_epd_direct_bus_ops_t *bus)
+{
+	/* init refused the bus on this chip: nothing to do */
+}
 
 int
 lws_epd_direct_esp32_power(const lws_epd_direct_bus_ops_t *bus, int on)
@@ -935,23 +938,41 @@ lws_epd_direct_esp32_alloc_dma(const lws_epd_direct_bus_ops_t *bus,
 }
 
 void
-lws_epd_direct_esp32_free_dma(const lws_epd_direct_bus_ops_t *bus, void **p) { }
+lws_epd_direct_esp32_free_dma(const lws_epd_direct_bus_ops_t *bus, void **p)
+{
+	/* init refused the bus on this chip: nothing to do */
+}
 
 void
-lws_epd_direct_esp32_frame_start(const lws_epd_direct_bus_ops_t *bus) { }
+lws_epd_direct_esp32_frame_start(const lws_epd_direct_bus_ops_t *bus)
+{
+	/* init refused the bus on this chip: nothing to do */
+}
 
 void
 lws_epd_direct_esp32_row_load(const lws_epd_direct_bus_ops_t *bus,
-			      const uint8_t *data, size_t len) { }
+			      const uint8_t *data, size_t len)
+{
+	/* init refused the bus on this chip: nothing to do */
+}
 
 void
 lws_epd_direct_esp32_row_drive(const lws_epd_direct_bus_ops_t *bus,
-			       uint32_t drive_ns) { }
+			       uint32_t drive_ns)
+{
+	/* init refused the bus on this chip: nothing to do */
+}
 
 void
-lws_epd_direct_esp32_row_skip(const lws_epd_direct_bus_ops_t *bus) { }
+lws_epd_direct_esp32_row_skip(const lws_epd_direct_bus_ops_t *bus)
+{
+	/* init refused the bus on this chip: nothing to do */
+}
 
 void
-lws_epd_direct_esp32_frame_end(const lws_epd_direct_bus_ops_t *bus) { }
+lws_epd_direct_esp32_frame_end(const lws_epd_direct_bus_ops_t *bus)
+{
+	/* init refused the bus on this chip: nothing to do */
+}
 
 #endif
