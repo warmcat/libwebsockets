@@ -23,7 +23,12 @@ require_lws_config(LWS_WITH_IPV4 1 requirements)
 if (requirements AND NOT WIN32)
 	add_executable(${SAMP} ${SRCS})
 
-	set(QSMP_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
+	#
+	# A P-256 key: the server makes a handshake signature for every
+	# connection, all on one service thread, and an RSA-4096 one takes
+	# over a second on a slow core with some tls libraries
+	#
+	set(QSMP_CERTS ${CMAKE_CURRENT_SOURCE_DIR})
 	lws_get_free_port(PORT_QSMP)
 	lws_get_free_port(PORT_QSMP_DUAL)
 
@@ -31,8 +36,8 @@ if (requirements AND NOT WIN32)
 		 COMMAND lws-api-test-quic-smp
 			 -p ${PORT_QSMP}
 			 --port-dual ${PORT_QSMP_DUAL}
-			 --cert ${QSMP_CERTS}/localhost-100y.cert
-			 --key ${QSMP_CERTS}/localhost-100y.key)
+			 --cert ${QSMP_CERTS}/localhost-p256-100y.cert
+			 --key ${QSMP_CERTS}/localhost-p256-100y.key)
 	set_tests_properties(api-test-quic-smp PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 			     TIMEOUT 60)
