@@ -709,10 +709,11 @@ svg_anim_open(lws_svg_t *ctx)
 	svg_heap_note(ctx, sizeof(*w));
 
 	nv = anim_values(ctx, w, kind);
-	if (nv < 0)
-		goto bail;
 	if (!nv)
 		nv = (int)ap->nmpts;
+	if (nv < 1)
+		/* an error, or no values to animate between */
+		goto bail;
 
 	/* keyTimes and keySplines must agree with the values */
 
