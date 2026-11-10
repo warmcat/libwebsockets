@@ -23,6 +23,14 @@
  *    hearsay and is raised by its validation, it keeps nothing of what the
  *    handshake proved about the old one;
  *
+ *  - slow probe: the same, but the NAT holds what the client sends from its
+ *    new port after the first datagram, past the server's first PTO.  That
+ *    datagram is small, so the server's PATH_CHALLENGE spends the 3x
+ *    allowance it gives (RFC 9000 9.3.1) and no resend fits.  The probe must
+ *    still stand, and take the late PATH_RESPONSE to that challenge, which
+ *    comes before its deadline (8.2.4): a probe given up early holds the
+ *    address off, so it couldn't be validated that soon;
+ *
  *  - split: the NAT sends the client's first Initial from one port, and
  *    every later long header packet, its Handshake packets among them, from
  *    another, whose answers it drops.  The Handshake keys prove the address
@@ -64,9 +72,33 @@
 #define PQ_SLOW_1	"first half|"
 #define PQ_SLOW_2	"second half"
 
+/*
+ * The slow probe phase: how long the NAT holds the client's datagrams from
+ * its new port, after the first.  It is past the server's first probe PTO
+ * (500ms here, where the rtt is tiny) and short of the probe's deadline,
+ * three PTOs.  Once they go, the server must have moved to the new path
+ * within PQ_PROBE_SOON_US: before the 1s holdoff a probe given up at the
+ * first PTO would have to wait out before probing the address again.
+ */
+#define PQ_PROBE_HOLD_US	(900 * LWS_US_PER_MS)
+#define PQ_PROBE_SOON_US	(450 * LWS_US_PER_MS)
+
+/*
+ * The largest first datagram from the new port that leaves the server no room
+ * for a resend of its challenge.  The challenge is padded to the 3x allowance
+ * that datagram earned, but no further than one datagram can go, at least
+ * 1200 bytes (RFC 9000 14.1).  So up to a third of that, the first challenge
+ * spends the whole allowance.  The client's ack of the first half is far
+ * smaller, but a slow box may send something bigger first, eg, coalesced
+ * with more: then resends fit, and the phase checks only that the server kept
+ * within the allowance.
+ */
+#define PQ_PROBE_SMALL_MAX	(1200 / 3)
+
 enum {
 	PQ_PHASE_LEVELS,
 	PQ_PHASE_MIGRATE,
+	PQ_PHASE_SLOW_PROBE,
 	PQ_PHASE_SPLIT,
 
 	/* the budget part, in a context of its own */
@@ -81,6 +113,7 @@ enum {
 static const char * const phase_names[] = {
 	"levels: hearsay while dialling, crypto once the handshake is done",
 	"migration: a new path is only routable once validated",
+	"slow probe: a probe whose allowance is spent waits for its answer",
 	"split: Handshake packets from another port prove the Initial's path",
 	"hold: a validated client's request is held",
 	"host: a client is refused only once validated, at its host's limit",
@@ -119,12 +152,32 @@ static char alog_host[LWS_PEER_DESC_LEN]; /* the levels phase's host field */
  * the client.  Moving nat_cur is a NAT rebinding, as the server sees it.
  * [0] and [1] are the migration phase's ports, before and after; [2] is the
  * split phase's, and [3] the one it sends the client's long header packets
- * after the first from, answers to which go nowhere.
+ * after the first from, answers to which go nowhere; [4] and [5] are the
+ * slow probe phase's, before and after.  nat_first and nat_rebound are the
+ * current phase's before and after.  nat_client is the phase's client, the
+ * only one it passes on.
  */
-static struct lws *nat_in, *nat_out[4];
+static struct lws *nat_in, *nat_out[6];
 static lws_sockaddr46 nat_client;
-static unsigned int nat_out_port[4];
-static int nat_cur, nat_long_headers;
+static unsigned int nat_out_port[6];
+static int nat_cur, nat_first, nat_rebound, nat_long_headers;
+
+/*
+ * The slow probe phase's held datagrams, from the client's new port, the
+ * size of the one let through before them, and how many datagrams and bytes
+ * the server sent there while they were held
+ */
+struct nat_held {
+	lws_dll2_t	list;
+	size_t		len;
+	/* the datagram follows */
+};
+static lws_dll2_owner_t nat_held_owner;
+static lws_sorted_usec_list_t sul_nat_release, sul_probe_check;
+static struct lws *srv_slow;		/* the server's slow request */
+static lws_usec_t nat_released;
+static size_t nat_rebound_first_len, nat_probe_bytes;
+static int nat_holding, nat_rebound_tx, nat_probe_dgrams, probe_checked;
 
 static void
 pq_next(lws_sorted_usec_list_t *sul);
@@ -301,12 +354,15 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_HTTP:
 		pss->wsi = wsi;
 		if (in && !strcmp((const char *)in, "/slow")) {
-			if (phase != PQ_PHASE_MIGRATE)
+			if (phase != PQ_PHASE_MIGRATE &&
+			    phase != PQ_PHASE_SLOW_PROBE)
 				return 1;
 			/* the handshake was done on the NAT's first port */
 			one_socket_entry(wsi, LWS_PEER_CRED_CRYPTO,
-					 nat_out_port[0], "server, first path");
+					 nat_out_port[nat_first],
+					 "server, first path");
 			pss->slow = 1;
+			srv_slow = wsi;
 			return pq_srv_answer(wsi, "/slow");
 		}
 		if (in && !strcmp((const char *)in, "/split")) {
@@ -370,6 +426,10 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!pss->due)
 			break;
 
+		/* the slow probe phase checks the new path first */
+		if (phase == PQ_PHASE_SLOW_PROBE && !probe_checked)
+			break;
+
 		/*
 		 * The second half goes once the connection has moved to the
 		 * client's new path, which it does when it validated it
@@ -378,14 +438,15 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lws_peer_entry_t e;
 
 			if (lws_peer_effective(wsi, &e) ||
-			    port_of(&e.sa46) != nat_out_port[1]) {
+			    port_of(&e.sa46) != nat_out_port[nat_rebound]) {
 				pss->due = 0;
 				lws_sul_schedule(cx, 0, &pss->sul, pq_slow_due,
 						 100 * LWS_US_PER_MS);
 				break;
 			}
 		}
-		one_socket_entry(wsi, LWS_PEER_CRED_ROUTABLE, nat_out_port[1],
+		one_socket_entry(wsi, LWS_PEER_CRED_ROUTABLE,
+				 nat_out_port[nat_rebound],
 				 "server, migrated path");
 
 		s = PQ_SLOW_2;
@@ -399,6 +460,8 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_CLOSED_HTTP:
 		if (pss)
 			lws_sul_cancel(&pss->sul);
+		if (wsi == srv_slow)
+			srv_slow = NULL;
 #if defined(LWS_WITH_PEER_LIMITS)
 		if (wsi == hold_wsi)
 			hold_wsi = NULL;
@@ -424,6 +487,110 @@ nat_sendto(struct lws *wsi, const void *buf, size_t len, lws_sockaddr46 *to)
 }
 
 static int
+nat_srv(lws_sockaddr46 *srv)
+{
+	memset(srv, 0, sizeof(*srv));
+	if (lws_sa46_parse_numeric_address("127.0.0.1", srv))
+		return 1;
+	sa46_sockport(srv, htons((uint16_t)port_srv));
+
+	return 0;
+}
+
+static void
+nat_held_drop(void)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&nat_held_owner)) {
+		struct nat_held *h = lws_container_of(d, struct nat_held, list);
+
+		lws_dll2_remove(&h->list);
+		free(h);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+/* has the server moved the slow request onto the client's new port yet? */
+static int
+srv_on_rebound_port(void)
+{
+	lws_peer_entry_t e;
+
+	return srv_slow && !lws_peer_effective(srv_slow, &e) &&
+	       port_of(&e.sa46) == nat_out_port[nat_rebound];
+}
+
+/*
+ * Polled from the release until the server is on the new path, or
+ * PQ_PROBE_SOON_US has gone by.  The server's slow request waits for it, so
+ * it is still there to ask.
+ */
+static void
+pq_probe_check(lws_sorted_usec_list_t *sul)
+{
+	int moved = srv_on_rebound_port();
+
+	if (!moved && srv_slow &&
+	    lws_now_usecs() - nat_released < PQ_PROBE_SOON_US) {
+		lws_sul_schedule(cx, 0, sul, pq_probe_check,
+				 10 * LWS_US_PER_MS);
+		return;
+	}
+
+	check(moved, "server: the late answer to its challenge validated "
+		     "the new path");
+	probe_checked = 1;
+	if (srv_slow)
+		lws_callback_on_writable(srv_slow);
+}
+
+/*
+ * The slow probe phase's hold is over: the client's held datagrams, its
+ * PATH_RESPONSE among them, go to the server in the order they came
+ */
+static void
+pq_nat_release(lws_sorted_usec_list_t *sul)
+{
+	lws_sockaddr46 srv;
+
+	(void)sul;
+
+	nat_holding = 0;
+
+	lwsl_user("  the server sent %d datagrams, %u bytes, to the new port "
+		  "on the strength of %u bytes from it\n", nat_probe_dgrams,
+		  (unsigned int)nat_probe_bytes,
+		  (unsigned int)nat_rebound_first_len);
+
+	/* RFC 9000 9.3.1: never more than 3x what the address sent */
+	check(nat_probe_dgrams >= 1 &&
+	      nat_probe_bytes <= 3 * nat_rebound_first_len,
+	      "server: the probe kept within its allowance");
+
+	/* or the probe wasn't held up by its allowance, as meant */
+	if (nat_rebound_first_len <= PQ_PROBE_SMALL_MAX)
+		check(nat_probe_dgrams == 1, "server: the probe spent its "
+					     "allowance on its first challenge");
+	else
+		lwsl_user("  the first datagram had room for resends: the "
+			  "probe's wait for its answer is not tested\n");
+	check(!srv_on_rebound_port(), "server: the new path waited for its "
+				      "answer");
+
+	if (!nat_srv(&srv))
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&nat_held_owner)) {
+			struct nat_held *h = lws_container_of(d,
+						struct nat_held, list);
+
+			nat_sendto(nat_out[nat_rebound], &h[1], h->len, &srv);
+		} lws_end_foreach_dll(d);
+	nat_held_drop();
+
+	nat_released = lws_now_usecs();
+	lws_sul_schedule(cx, 0, &sul_probe_check, pq_probe_check, 1);
+}
+
+static int
 callback_nat(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	     void *in, size_t len)
 {
@@ -433,13 +600,55 @@ callback_nat(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		return 0;
 
 	if (wsi == nat_in) {
+		const lws_sockaddr46 *from = &lws_get_udp(wsi)->sa46;
 		struct lws *out = nat_out[nat_cur];
 
-		nat_client = lws_get_udp(wsi)->sa46;
-		memset(&srv, 0, sizeof(srv));
-		if (lws_sa46_parse_numeric_address("127.0.0.1", &srv))
+		/*
+		 * The NAT serves the phase's own client: an earlier phase's
+		 * connection, still up, would otherwise follow its rebinding.
+		 * The phase's client is whoever sends the first long header
+		 * packet, its first Initial: the earlier connections are past
+		 * their handshakes and send only short headers, eg, acks or
+		 * their close, which can come before the new client's first
+		 * Initial and must not be taken for it.
+		 */
+		if (!nat_client.sa4.sin_family) {
+			if (!len || (*(const uint8_t *)in & 0xc0) != 0xc0)
+				return 0;
+		} else
+			if (lws_sa46_compare_ads(from, &nat_client) ||
+			    port_of(from) != port_of(&nat_client))
+				return 0;
+		nat_client = *from;
+		if (nat_srv(&srv))
 			return 0;
-		sa46_sockport(&srv, htons((uint16_t)port_srv));
+
+		/*
+		 * In the slow probe phase, the first datagram from the new
+		 * port goes at once, and starts the server's probe; what
+		 * follows it, the answer to the probe among it, is held
+		 */
+		if (phase == PQ_PHASE_SLOW_PROBE && nat_cur == nat_rebound) {
+			if (!nat_rebound_tx++) {
+				nat_rebound_first_len = len;
+				nat_holding = 1;
+				lws_sul_schedule(cx, 0, &sul_nat_release,
+						 pq_nat_release,
+						 PQ_PROBE_HOLD_US);
+			} else if (nat_holding) {
+				struct nat_held *h = malloc(sizeof(*h) +
+							    len);
+
+				if (!h)
+					return 0;
+				memset(&h->list, 0, sizeof(h->list));
+				h->len = len;
+				memcpy(&h[1], in, len);
+				lws_dll2_add_tail(&h->list, &nat_held_owner);
+
+				return 0;
+			}
+		}
 		/*
 		 * In the split phase, the client's long header packets after
 		 * its first Initial, its Handshake packets among them, leave
@@ -453,8 +662,14 @@ callback_nat(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	}
 
 	/* a rebinding NAT has forgotten the old mapping */
-	if (wsi == nat_out[nat_cur])
+	if (wsi == nat_out[nat_cur]) {
+		if (nat_holding) {
+			/* before its answer, only its probe can come here */
+			nat_probe_dgrams++;
+			nat_probe_bytes += len;
+		}
 		nat_sendto(nat_in, in, len, &nat_client);
+	}
 
 	(void)user;
 
@@ -515,8 +730,9 @@ pq_client_done(int ph, int ok, const char *why)
 		return;
 	}
 
-	check_str(body[ph], ph == PQ_PHASE_MIGRATE ? PQ_SLOW_1 PQ_SLOW_2 :
-						    "ok",
+	check_str(body[ph], ph == PQ_PHASE_MIGRATE ||
+			    ph == PQ_PHASE_SLOW_PROBE ? PQ_SLOW_1 PQ_SLOW_2 :
+							"ok",
 		  "client: the whole answer arrived");
 	pq_phase_end(NULL);
 }
@@ -560,10 +776,11 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		return 0;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
-		if (ph == PQ_PHASE_MIGRATE && !nat_cur) {
+		if ((ph == PQ_PHASE_MIGRATE || ph == PQ_PHASE_SLOW_PROBE) &&
+		    nat_cur == nat_first) {
 			/* the first half is here: the NAT rebinds */
 			lwsl_user("  NAT rebinding to a new port\n");
-			nat_cur = 1;
+			nat_cur = nat_rebound;
 		}
 		if (body_len[ph] + len < sizeof(body[ph])) {
 			memcpy(body[ph] + body_len[ph], in, len);
@@ -739,10 +956,22 @@ pq_next(lws_sorted_usec_list_t *sul)
 		r = pq_get(port_srv, "/");
 		break;
 	case PQ_PHASE_MIGRATE:
+		nat_first	= 0;
+		nat_rebound	= 1;
+		nat_cur		= nat_first;
+		memset(&nat_client, 0, sizeof(nat_client));
+		r = pq_get(port_nat, "/slow");
+		break;
+	case PQ_PHASE_SLOW_PROBE:
+		nat_first	= 4;
+		nat_rebound	= 5;
+		nat_cur		= nat_first;
+		memset(&nat_client, 0, sizeof(nat_client));
 		r = pq_get(port_nat, "/slow");
 		break;
 	case PQ_PHASE_SPLIT:
 		nat_cur = 2;
+		memset(&nat_client, 0, sizeof(nat_client));
 		r = pq_get(port_nat, "/split");
 		break;
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -926,6 +1155,9 @@ pq_run(const struct lws_context_creation_info *ci, int first, int last)
 	}
 
 	lws_sul_cancel(&sul_phase);
+	lws_sul_cancel(&sul_nat_release);
+	lws_sul_cancel(&sul_probe_check);
+	nat_held_drop();
 #if defined(LWS_WITH_PEER_LIMITS)
 	lws_sul_cancel(&sul_settle);
 	lws_sul_cancel(&sul_kill);
