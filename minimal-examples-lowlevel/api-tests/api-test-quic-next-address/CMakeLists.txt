@@ -23,7 +23,12 @@ require_lws_config(LWS_WITH_IPV6 1 requirements)
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
-	set(QNA_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
+	#
+	# api-test-quic-smp's P-256 key: the time allowed covers the whole
+	# handshake, and an RSA-4096 signature alone can take over a second
+	# on a slow core with some tls libraries
+	#
+	set(QNA_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-quic-smp)
 
 	#
 	# Which of its addresses the client tries first is the platform's
@@ -44,8 +49,8 @@ if (requirements)
 				 -p ${PORT_QNA_${QNA_FAM}}
 				 --bind ${QNA_BIND}
 				 --address localhost
-				 --cert ${QNA_CERTS}/localhost-100y.cert
-				 --key ${QNA_CERTS}/localhost-100y.key)
+				 --cert ${QNA_CERTS}/localhost-p256-100y.cert
+				 --key ${QNA_CERTS}/localhost-p256-100y.key)
 		# 77: the host has no ipv6 loopback to listen on
 		set_tests_properties(api-test-quic-next-address-${QNA_FAM}
 				     PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
