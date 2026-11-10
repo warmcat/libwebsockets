@@ -499,7 +499,8 @@ svg_colour(const char *s, size_t len, uint32_t *rgba)
 		comp[0] = comp[0] < 0 ? 0 : comp[0] > 255 ? 255 : comp[0];
 		comp[1] = comp[1] < 0 ? 0 : comp[1] > 255 ? 255 : comp[1];
 		comp[2] = comp[2] < 0 ? 0 : comp[2] > 255 ? 255 : comp[2];
-		if (is_rgba) {
+		if (nc == 4) {
+			/* css color 4: alpha is optional in either form */
 			comp[3] = comp[3] < 0 ? 0 : comp[3] > 255 ? 255 :
 								comp[3];
 			a = (uint32_t)comp[3];
