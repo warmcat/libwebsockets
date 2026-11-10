@@ -10,7 +10,8 @@ set(SRCS main.c)
 
 #
 # A vhost on any free port listening on IPv4 and IPv6, its second address
-# family's bind finding the port the first chose taken, by fault injection
+# family's bind finding the port the first chose taken, by fault injection;
+# and one serving h3 too, its QUIC listener's udp bind finding it taken
 #
 set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
@@ -23,7 +24,12 @@ require_lws_config(LWS_WITH_SYS_FAULT_INJECTION 1 requirements)
 if (requirements)
 
 	add_executable(${SAMP} ${SRCS})
-	add_test(NAME api-test-listen-any-port COMMAND lws-api-test-listen-any-port)
+	# the QUIC listener's case needs a TLS vhost
+	set(LAP_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
+
+	add_test(NAME api-test-listen-any-port COMMAND lws-api-test-listen-any-port
+		 --cert ${LAP_CERTS}/localhost-100y.cert
+		 --key ${LAP_CERTS}/localhost-100y.key)
 	set_tests_properties(api-test-listen-any-port PROPERTIES TIMEOUT 30)
 
 	if (websockets_shared)

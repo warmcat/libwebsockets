@@ -832,6 +832,9 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 {
 	struct vh_sock_args a;
 	int n, tries = 0;
+#if defined(LWS_ROLE_QUIC)
+	int single_af = 0;
+#endif
 #if defined(LWS_WITH_IPV6)
 	int v6_first;
 #endif
@@ -970,6 +973,9 @@ again:
 	goto check_quic;
 
 single:
+#if defined(LWS_ROLE_QUIC)
+	single_af = 1;
+#endif
 	n = _lws_vhost_init_server_af(&a);
 	if (n)
 		return n;
@@ -1004,9 +1010,12 @@ check_quic:
 			 * there: on any other thread, that is two threads
 			 * driving one connection (G-544).
 			 */
-			int qtsi = -1;
+			int qtsi = -1,
+			    /* as if something has the port in udp */
+			    taken = lws_fi(&vhost->fic, "listen_port_taken_quic"),
+			    qfail = taken;
 #if defined(LWS_WITH_IPV6)
-			if (LWS_IPV6_ENABLED(vhost)) {
+			if (!taken && LWS_IPV6_ENABLED(vhost)) {
 				const char *ads6 = vhost->iface ? vhost->iface : "::";
 				struct lws *q = lws_create_adopt_udp_tsi(vhost, ads6,
 						vhost->listen_port, LWS_CAUDP_BIND,
@@ -1016,22 +1025,44 @@ check_quic:
 				if (q)
 					qtsi = q->tsi;
 				else
-					lwsl_vhost_err(vhost, "Failed to bind QUIC IPv6 UDP listener");
+					qfail = 1;
 			}
 #endif
 #if defined(LWS_WITH_IPV4)
-			if (LWS_IPV4_ENABLED(vhost) &&
+			if (!taken && LWS_IPV4_ENABLED(vhost) &&
 			    (!vhost->iface || !LWS_IPV6_ENABLED(vhost) ||
 			    (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
 				const char *ads4 = vhost->iface ? vhost->iface : "0.0.0.0";
 				if (!lws_create_adopt_udp_tsi(vhost, ads4,
 						vhost->listen_port, LWS_CAUDP_BIND,
 						"quic", dev, NULL, qtsi, NULL,
-						NULL, "quic_listen")) {
-					lwsl_vhost_err(vhost, "Failed to bind QUIC IPv4 UDP listener");
-				}
+						NULL, "quic_listen"))
+					qfail = 1;
 			}
 #endif
+			if (qfail && info && !info->port &&
+			    ++tries < LWS_VHOST_ANY_PORT_TRIES) {
+				/*
+				 * Asked for any free port, the tcp bind chose
+				 * one, but the udp listener must have the same
+				 * number, and something may have it in udp
+				 * already: eg, any udp client socket's
+				 * ephemeral port.  Give up that port and start
+				 * again with another, as for the tcp afs.
+				 */
+				lwsl_vhost_notice(vhost, "port %d not free "
+						  "for QUIC, trying another",
+						  vhost->listen_port);
+				lws_vhost_init_server_unlisten(vhost);
+				vhost->listen_port = 0;
+				if (single_af)
+					goto single;
+				goto again;
+			}
+			if (qfail)
+				lwsl_vhost_err(vhost, "Failed to bind QUIC UDP "
+					       "listener on port %d",
+					       vhost->listen_port);
 		}
 	}
 #endif
