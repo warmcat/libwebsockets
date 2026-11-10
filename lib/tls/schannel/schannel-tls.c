@@ -395,7 +395,9 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
     CertFreeCertificateContext(pCertCtx);
 
     if (status != SEC_E_OK) {
-        lwsl_err("%s: AcquireCredentialsHandle failed 0x%x\n", __func__, (int)status);
+        lwsl_err("%s: AcquireCredentialsHandle failed 0x%x (%s key)\n",
+                 __func__, (int)status,
+                 vhost->tls.ssl_ctx->key_type ? "CNG" : "CAPI");
 
         return 1;
     }
@@ -624,29 +626,12 @@ lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
     if (ctx->key_type == 0) {
         if (ctx->u.key_prov) {
             CryptReleaseContext(ctx->u.key_prov, 0);
-            if (ctx->key_container_name[0]) {
-                 HCRYPTPROV hProv;
-                 if (CryptAcquireContext(&hProv, ctx->key_container_name, MS_ENH_RSA_AES_PROV, PROV_RSA_AES, CRYPT_DELETEKEYSET | CRYPT_SILENT)) {
-                 }
-            }
+            lws_tls_schannel_key_delete(ctx->key_container_name, 0);
         }
     } else {
-        if (ctx->u.key_cng) {
-             NCryptFreeObject(ctx->u.key_cng);
-        }
-        if (ctx->key_container_name[0]) {
-             NCRYPT_PROV_HANDLE hProv = 0;
-             if (NCryptOpenStorageProvider(&hProv, MS_KEY_STORAGE_PROVIDER, 0) == ERROR_SUCCESS) {
-                  NCRYPT_KEY_HANDLE hKey = 0;
-                  WCHAR wName[128];
-                  if (MultiByteToWideChar(CP_UTF8, 0, ctx->key_container_name, -1, wName, 128)) {
-                       if (NCryptOpenKey(hProv, &hKey, wName, 0, 0) == ERROR_SUCCESS) {
-                            NCryptDeleteKey(hKey, 0);
-                       }
-                  }
-                  NCryptFreeObject(hProv);
-             }
-        }
+        if (ctx->u.key_cng)
+            NCryptFreeObject(ctx->u.key_cng);
+        lws_tls_schannel_key_delete(ctx->key_container_name, 1);
     }
 
     lws_tls_schannel_ca_destroy(ctx);

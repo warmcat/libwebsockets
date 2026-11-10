@@ -109,20 +109,10 @@ lws_gendtls_destroy(struct lws_gendtls_ctx *ctx)
     if (ctx->cred_init)
 		FreeCredentialsHandle(&ctx->cred);
 
-	if (ctx->key_container_name[0]) {
-		/* Delete named key */
-		NCRYPT_PROV_HANDLE hProv = 0;
-		if (NCryptOpenStorageProvider(&hProv, MS_KEY_STORAGE_PROVIDER, 0) == ERROR_SUCCESS) {
-			NCRYPT_KEY_HANDLE hKey = 0;
-			WCHAR wName[128];
-			if (MultiByteToWideChar(CP_UTF8, 0, ctx->key_container_name, -1, wName, 128)) {
-				if (NCryptOpenKey(hProv, &hKey, wName, 0, 0) == ERROR_SUCCESS) {
-					NCryptDeleteKey(hKey, 0);
-				}
-			}
-			NCryptFreeObject(hProv);
-		}
-	}
+	/* the ctx doesn't keep which kind of key it imported */
+	lws_tls_schannel_key_delete(ctx->key_container_name, 1);
+	lws_tls_schannel_key_delete(ctx->key_container_name, 0);
+
     if (ctx->key_cng) {
         NCryptFreeObject(ctx->key_cng);
         ctx->key_cng = 0;

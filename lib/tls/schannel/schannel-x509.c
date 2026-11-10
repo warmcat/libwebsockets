@@ -869,6 +869,49 @@ lws_schannel_free_secret(uint8_t **p, size_t len)
 	lws_free_set_NULL(*p);
 }
 
+/*
+ * Delete the persisted key lws_tls_schannel_cert_info_load() imported under
+ * container_name.  It must be opened in the store it was imported into to be
+ * found: an RSA key is in a CAPI machine keyset, an EC one in the CNG user
+ * store.
+ */
+
+void
+lws_tls_schannel_key_delete(const char *container_name, int cng)
+{
+	NCRYPT_PROV_HANDLE hProvCNG = 0;
+	NCRYPT_KEY_HANDLE hKeyCNG = 0;
+	HCRYPTPROV hProv;
+	WCHAR wName[128];
+
+	if (!container_name || !container_name[0] ||
+	    !MultiByteToWideChar(CP_UTF8, 0, container_name, -1, wName,
+				 LWS_ARRAY_SIZE(wName)))
+		return;
+
+	if (!cng) {
+		/* with CRYPT_DELETEKEYSET, there's no context to release */
+		if (!CryptAcquireContextW(&hProv, wName, LWS_MS_ENH_RSA_AES_PROV_W,
+					  PROV_RSA_AES, CRYPT_DELETEKEYSET |
+					  CRYPT_MACHINE_KEYSET | CRYPT_SILENT))
+			lwsl_info("%s: %s: 0x%x\n", __func__, container_name,
+				  (unsigned int)GetLastError());
+		return;
+	}
+
+	if (NCryptOpenStorageProvider(&hProvCNG, MS_KEY_STORAGE_PROVIDER, 0) !=
+								ERROR_SUCCESS)
+		return;
+
+	if (NCryptOpenKey(hProvCNG, &hKeyCNG, wName, 0, NCRYPT_SILENT_FLAG) ==
+								ERROR_SUCCESS &&
+	    NCryptDeleteKey(hKeyCNG, NCRYPT_SILENT_FLAG) != ERROR_SUCCESS)
+		/* on success, the delete freed the handle */
+		NCryptFreeObject(hKeyCNG);
+
+	NCryptFreeObject(hProvCNG);
+}
+
 int
 lws_tls_schannel_cert_info_load(struct lws_context *context,
 		const char *cert, const char *private_key,
@@ -1048,46 +1091,42 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 			goto cleanup;
 		}
 
+		/*
+		 * Schannel uses a server credential in lsass, not in our
+		 * process, so it can't follow CERT_NCRYPT_KEY_HANDLE_PROP_ID
+		 * to a key we hold here: it needs CERT_KEY_PROV_INFO_PROP_ID
+		 * naming a persisted key it can open itself; without that the
+		 * import works, but AcquireCredentialsHandle() fails with
+		 * SEC_E_NO_CREDENTIALS.
+		 *
+		 * The named key goes in the current user's store, which lsass
+		 * opens impersonating us.  Unlike the CAPI machine keyset the
+		 * RSA path below uses, creating a key in the CNG machine store
+		 * needs the process to be elevated: unelevated, the import
+		 * fails with NTE_PERM.
+		 */
+
 		flags = NCRYPT_SILENT_FLAG;
-		if (container_name) {
+		if (container_name)
 			flags |= NCRYPT_OVERWRITE_KEY_FLAG;
-		}
 
 		keyName = NULL;
 		if (container_name) {
 			if (!MultiByteToWideChar(CP_UTF8, 0, container_name, -1, wContainer, sizeof(wContainer)/sizeof(wContainer[0]))) {
 				/* don't import it under an empty name instead */
 				lwsl_err("%s: bad container name\n", __func__);
-				NCryptFreeObject(hProvCNG);
 				goto cleanup;
 			}
 			keyName = wContainer;
 		}
 
-		/* Import Key */
-		/* We have DER. NCryptImportKey supports NCRYPT_PKCS8_PRIVATE_KEY_BLOB */
-		/* Note: If the PEM was "EC PRIVATE KEY" (SEC1), CryptStringToBinary converted it to DER SEC1. */
-		/* NCryptImportKey typically expects PKCS#8. If it is SEC1, we might need to wrap it? */
-		/* Windows 10+ might support ECCPRIVATE_BLOB? */
-		/* But generic "Private Key" usually implies PKCS#8. */
-		/* Let's try importing as PKCS8 first. */
+		/*
+		 * The DER is PKCS#8 (SEC1, "EC PRIVATE KEY", is not converted
+		 * and fails here).  A named key gets its name from a parameter
+		 * list, NCryptImportKey() has no name argument.
+		 */
 
-		/* NCryptImportKey signature:
-		   (hProvider, hImportKey, pszBlobType, pParameterList, phKey, pbInput, cbInput, dwFlags)
-		   */
 		if (keyName) {
-			/* For persisted keys, we need to pass the key name property.
-			   However, NCryptImportKey into a named key usually requires specific steps or using NCryptCreatePersistedKey.
-			   Wait, if we use NCryptImportKey with NCRYPT_OVERWRITE_KEY_FLAG and a key name, how do we pass the key name?
-			   Docs say: "The behavior of this function is consistent with the NCryptCreatePersistedKey function...".
-			   NCryptCreatePersistedKey takes pszKeyName directly.
-			   NCryptImportKey does NOT take pszKeyName directly in the signature.
-
-			   Actually, to import a named key, we should:
-			   1. Create a parameter list with NCRYPT_KEY_NAME_PROPERTY (L"Name").
-			   */
-			/* nameBuf and nameDesc are already declared at the top */
-
 			nameBuf.cbBuffer = (ULONG)((wcslen(keyName) + 1) * sizeof(WCHAR));
 			nameBuf.BufferType = NCRYPTBUFFER_PKCS_KEY_NAME;
 			nameBuf.pvBuffer = (PVOID)keyName;
@@ -1101,51 +1140,84 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 			status = NCryptImportKey(hProvCNG, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB, NULL, &hKeyCNG, (PUCHAR)key_der, (DWORD)key_der_len, flags);
 
 		if (status != ERROR_SUCCESS) {
-			/* Maybe it is SEC1 (EC PRIVATE KEY) and not PKCS#8? */
-			/* Trying to wrap SEC1 into PKCS#8 manually is hard. */
-			/* However, CryptImportPKCS8 is CAPI. */
 			lwsl_err("NCryptImportKey (PKCS8) failed 0x%x. Note: EC SEC1 keys not auto-converted.\n", (int)status);
-			NCryptFreeObject(hProvCNG);
 			goto cleanup;
 		}
 		lws_schannel_free_secret(&key_der, key_der_len);
+
+		{
+			/*
+			 * Schannel signs the handshake with it, so it must be
+			 * an ECDSA key; say so if the import made it anything
+			 * else, since all we would see is the credential
+			 * failing later
+			 */
+			WCHAR grp[32];
+			DWORD glen = 0;
+
+			if (NCryptGetProperty(hKeyCNG, NCRYPT_ALGORITHM_GROUP_PROPERTY,
+					      (PBYTE)grp, sizeof(grp) - sizeof(WCHAR),
+					      &glen, 0) == ERROR_SUCCESS) {
+				grp[glen / sizeof(WCHAR)] = L'\0';
+				if (wcscmp(grp, NCRYPT_ECDSA_ALGORITHM_GROUP))
+					lwsl_notice("%s: EC key imported as %ls, not ECDSA\n",
+						    __func__, grp);
+			}
+		}
 
 		/* Set usage to all to ensure SChannel doesn't reject it */
 		flags = NCRYPT_ALLOW_ALL_USAGES;
 		NCryptSetProperty(hKeyCNG, NCRYPT_KEY_USAGE_PROPERTY, (PBYTE)&flags, sizeof(flags), 0);
 
-		/* Unified Handle Approach: Always use explicit handle linking */
-		/* Link Handle Property */
-		if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_NCRYPT_KEY_HANDLE_PROP_ID, 0, &hKeyCNG)) {
-			lwsl_err("CertSetCertificateContextProperty (CNG Handle) failed 0x%x\n", GetLastError());
-			NCryptFreeObject(hKeyCNG);
-			NCryptFreeObject(hProvCNG);
-			goto cleanup;
+		if (keyName) {
+			/* what lets lsass find the named key, see above */
+			memset(&kpi, 0, sizeof(kpi));
+			kpi.pwszContainerName = (LPWSTR)keyName;
+			kpi.pwszProvName = (LPWSTR)MS_KEY_STORAGE_PROVIDER;
+			kpi.dwProvType = 0; /* CNG */
+			kpi.dwFlags = NCRYPT_SILENT_FLAG; /* user store */
+			kpi.dwKeySpec = CERT_NCRYPT_KEY_SPEC;
+
+			if (!CertSetCertificateContextProperty(x509_obj.cert,
+						CERT_KEY_PROV_INFO_PROP_ID, 0, &kpi)) {
+				lwsl_err("%s: CertSetCertificateContextProperty (CNG PROV_INFO) failed 0x%x\n",
+					 __func__, GetLastError());
+				goto key_delete;
+			}
 		}
 
-		/* ckc is already declared at the top */
+		/*
+		 * The key handle for use in our process.  Without
+		 * CERT_STORE_NO_CRYPT_RELEASE_FLAG the cert context frees the
+		 * handle when it is freed, or the property is replaced.  When
+		 * the caller takes the handle, its ctx frees it, and the cert
+		 * context is freed independently, eg, right after
+		 * AcquireCredentialsHandle(), so the cert must not.  Only one
+		 * property: CERT_NCRYPT_KEY_HANDLE_PROP_ID is another way to
+		 * set the same key context, and setting both with one handle
+		 * can release it under the other.
+		 */
+
 		ckc.cbSize = sizeof(ckc);
 		ckc.hNCryptKey = hKeyCNG;
 		ckc.dwKeySpec = CERT_NCRYPT_KEY_SPEC;
 
-		/* Link Key Context Property */
-		if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_KEY_CONTEXT_PROP_ID, 0, &ckc)) {
+		if (!CertSetCertificateContextProperty(x509_obj.cert,
+					CERT_KEY_CONTEXT_PROP_ID,
+					phKey ? CERT_STORE_NO_CRYPT_RELEASE_FLAG : 0,
+					&ckc)) {
 			lwsl_err("%s: CertSetCertificateContextProperty (KEY_CONTEXT) failed 0x%x\n", __func__, GetLastError());
-			NCryptFreeObject(hKeyCNG);
-			NCryptFreeObject(hProvCNG);
-			goto cleanup;
+			goto key_delete;
 		}
-		lwsl_debug("%s: Ephemeral KEY_CONTEXT Linked (Prop 5, CERT_NCRYPT_KEY_SPEC)\n", __func__);
 
 		/*
-		 * REMOVED Prop 6 (CERT_KEY_SPEC_PROP_ID) setting.
-		 * The CERT_KEY_CONTEXT already handles binding. Setting Prop 6 might conflict or force legacy interpretation.
+		 * Not CERT_KEY_SPEC_PROP_ID: the CERT_KEY_CONTEXT already
+		 * binds it, and setting it may force the legacy CAPI meaning
 		 */
 
+		/* if the caller doesn't take it, the cert context owns it */
 		if (phKey)
 			*phKey = (void*)hKeyCNG;
-		else
-			NCryptFreeObject(hKeyCNG);
 
 		if (pKeyType)
 			*pKeyType = 1; /* CNG */
@@ -1355,6 +1427,11 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	 * Every success path returns directly above, so we are always here on
 	 * failure and ret is always -1
 	 */
+
+key_delete:
+	/* the EC path persisted a named key, don't leave it behind */
+	if (container_name)
+		lws_tls_schannel_key_delete(container_name, 1);
 
 cleanup:
 	lws_schannel_free_secret(&key_der, key_der_len);
