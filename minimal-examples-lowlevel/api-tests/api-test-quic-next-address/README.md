@@ -23,8 +23,8 @@ there.
 
 ```
 $ ./lws-api-test-quic-next-address -p 7695 --bind ::1 --address localhost \
-	--cert ../api-test-ws-close/localhost-100y.cert \
-	--key ../api-test-ws-close/localhost-100y.key
+	--cert ../api-test-quic-smp/localhost-p256-100y.cert \
+	--key ../api-test-quic-smp/localhost-p256-100y.key
 ```
 
 Option|Meaning
