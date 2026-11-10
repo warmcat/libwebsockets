@@ -19,6 +19,7 @@
 #if !defined(WIN32)
 #include <unistd.h>
 #include <sys/wait.h>
+#include <poll.h>
 #include <time.h>
 #else
 #include <process.h>
@@ -681,12 +682,25 @@ phase4(int argc, const char **argv)
 /*
  * Phase 3: prove the stub exits autonomously when its parent dies.
  *
- * We fork an intermediate process that becomes the stub's parent (it spawns
+ * We start an intermediate process that becomes the stub's parent (it spawns
  * the stub and waits for the UDS connection to establish), then SIGKILL the
  * intermediate so it has no chance to clean anything up.  The stub must then
  * notice by itself that its parent is gone, run its parent_gone_cb (observed
  * via the marker file), unlink its UDS socket and exit.
+ *
+ * The intermediate is this exe again, fork()ed and exec()ed with
+ * --p3-intermediate=, not just fork()ed: by now this process has made
+ * contexts, and on macOS that means SystemConfiguration and libdispatch,
+ * which can't be used in a child forked from it without an exec.  A forked
+ * intermediate hung in its context creation, in the platform DNS lookup,
+ * and this process waited for it until ctest's timeout.
  */
+
+#define P3_ARG_STUB	"--p3-intermediate="
+#define P3_ARG_FD	"--p3-ready-fd="
+
+/* how long the intermediate gets to report the stub connection is up */
+#define P3_READY_BUDGET_MS	((STUB_START_BUDGET_S + 5) * 1000)
 
 static int p3_established;
 
@@ -771,13 +785,37 @@ phase3_intermediate(int ready_fd, int argc, const char **argv)
 	return 0;
 }
 
+/*
+ * main() of the exec'd intermediate: it is given the stub name, which carries
+ * the test process' pid, and the fd of the pipe to report readiness on
+ */
+static int
+phase3_intermediate_main(int argc, const char **argv, const char *stub)
+{
+	const char *p = lws_cmdline_option(argc, argv, P3_ARG_FD);
+	int fd = p ? atoi(p) : -1;
+
+	if (strncmp(stub, STUB_NAME_P3_PREFIX, strlen(STUB_NAME_P3_PREFIX)) ||
+	    strlen(stub) >= sizeof(test_stub_p3) || fd <= 2 || fd > 1023) {
+		lwsl_err("phase 3: bad intermediate args\n");
+		return 1;
+	}
+
+	lws_strncpy(test_stub_p3, stub, sizeof(test_stub_p3));
+
+	return phase3_intermediate(fd, argc, argv);
+}
+
 static int
 phase3(int argc, const char **argv)
 {
+	char arg_stub[96], arg_fd[32];
+	const char *ea[6], *ll;
+	struct pollfd pfd;
 	struct stat st;
 	lws_usec_t start;
 	int fds[2], pid, n, result = 1;
-	char ok;
+	char ok = 0;
 
 	/* clean up any leftovers from earlier runs */
 	unlink(stub_uds_path(test_stub_p3));
@@ -787,6 +825,20 @@ phase3(int argc, const char **argv)
 		lwsl_err("phase 3: pipe failed\n");
 		return 1;
 	}
+
+	/* everything the child needs to exec, before the fork */
+	lws_snprintf(arg_stub, sizeof(arg_stub), P3_ARG_STUB "%s", test_stub_p3);
+	lws_snprintf(arg_fd, sizeof(arg_fd), P3_ARG_FD "%d", fds[1]);
+	n = 0;
+	ea[n++] = argv[0];
+	ea[n++] = arg_stub;
+	ea[n++] = arg_fd;
+	ll = lws_cmdline_option(argc, argv, "-d");
+	if (ll) { /* same log level */
+		ea[n++] = "-d";
+		ea[n++] = ll;
+	}
+	ea[n] = NULL;
 
 	pid = fork();
 	if (pid < 0) {
@@ -798,13 +850,27 @@ phase3(int argc, const char **argv)
 
 	if (!pid) {
 		close(fds[0]);
-		_exit(phase3_intermediate(fds[1], argc, argv));
+		execv(ea[0], (char * const *)ea);
+		_exit(127);
 	}
 
 	close(fds[1]);
 
-	/* wait for the intermediate to tell us the stub connection is up */
-	n = (int)read(fds[0], &ok, 1);
+	/*
+	 * Wait for the intermediate to tell us the stub connection is up, but
+	 * not for ever: if it wedges, say so rather than leave it to ctest
+	 */
+	pfd.fd = fds[0];
+	pfd.events = POLLIN;
+	pfd.revents = 0;
+	n = poll(&pfd, 1, P3_READY_BUDGET_MS);
+	if (n == 1)
+		n = (int)read(fds[0], &ok, 1);
+	else {
+		lwsl_err("phase 3: intermediate not ready after %dms\n",
+			 P3_READY_BUDGET_MS);
+		n = -1;
+	}
 	close(fds[0]);
 	if (n != 1 || ok != '1') {
 		lwsl_err("phase 3: intermediate failed to establish the stub connection\n");
@@ -883,7 +949,8 @@ int main(int argc, const char **argv)
 		       "  -d <log level>    Set LWS log level (default: User+Err+Warn+Notice)\n"
 		       "  --help            Show this help message\n\n"
 		       "Note: This tool spawns a child process and communicates via UDS.\n"
-		       "      Do not pass --lws-stub manually unless you are the spawned child.\n"
+		       "      Do not pass --lws-stub or --p3-intermediate manually: they\n"
+		       "      are for the processes the test starts.\n"
 		       "      The test runs in phases: request / reply over UDS (including a\n"
 		       "      raw-only request and a cancelled one), teardown at context\n"
 		       "      destroy, repeated spawn / destroy on a live context, and the\n"
@@ -895,6 +962,12 @@ int main(int argc, const char **argv)
 	setvbuf(stdout, NULL, _IONBF, 0);
 	setvbuf(stderr, NULL, _IONBF, 0);
 	signal(SIGINT, sigint_handler);
+
+#if !defined(WIN32)
+	/* we are phase 3's exec'd intermediate */
+	if ((p = lws_cmdline_option(argc, argv, P3_ARG_STUB)))
+		return phase3_intermediate_main(argc, argv, p);
+#endif
 
 	/* our stubs, and their paths, are private to this test process */
 	lws_snprintf(test_stub, sizeof(test_stub), STUB_NAME_PREFIX "%d",
