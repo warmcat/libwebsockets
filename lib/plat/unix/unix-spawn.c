@@ -1864,3 +1864,14 @@ lws_spawn_get_fd_stdxxx(struct lws_spawn_piped *lsp, int std_idx)
 
 	return lsp->pipe_fds[std_idx][!!(std_idx == 0)];
 }
+
+const char *
+lws_spawn_get_cgroup_path(struct lws_spawn_piped *lsp)
+{
+#if defined(__linux__)
+	if (lsp && lsp->cgroup_path[0])
+		return lsp->cgroup_path;
+#endif
+
+	return NULL;
+}

@@ -2205,6 +2205,25 @@ LWS_VISIBLE LWS_EXTERN lws_filefd_type
 lws_spawn_get_fd_stdxxx(struct lws_spawn_piped *lsp, int std_idx);
 
 /**
+ * lws_spawn_get_cgroup_path() - return the dir of the child's cgroup
+ *
+ * \p lsp: the opaque pointer returned from lws_spawn()
+ *
+ * Returns the path of the cgroup dir the spawn was given, eg
+ * "/sys/fs/cgroup/system.slice/sai-builder.service/inst-xyz", or NULL if it
+ * has none: it wasn't spawned with a cgroup_name_suffix, the cgroup couldn't
+ * be made, or the platform isn't Linux.
+ *
+ * It lets the caller read the cgroup's own accounting while the child runs,
+ * eg, its cpu.stat, memory.current, io.stat and the cpu, io and memory
+ * .pressure files, rather than wait for the totals in lws_spawn_resource_us_t
+ * when it's reaped.  The string belongs to the lsp and the dir goes away when
+ * the child is reaped, so it's only good until then.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_spawn_get_cgroup_path(struct lws_spawn_piped *lsp);
+
+/**
  * lws_spawn_prepare_self_cgroup() - Create lws parent cgroup
  *
  * \p user: NULL, or the user name that will use the toplevel cgroup

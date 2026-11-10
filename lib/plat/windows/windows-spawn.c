@@ -1121,6 +1121,12 @@ lws_spawn_get_fd_stdxxx(struct lws_spawn_piped *lsp, int std_idx)
 	return (lws_filefd_type)lsp->pipe_fds[std_idx][!!(std_idx == 0)];
 }
 
+const char *
+lws_spawn_get_cgroup_path(struct lws_spawn_piped *lsp)
+{
+	return NULL;
+}
+
 int
 lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 {
