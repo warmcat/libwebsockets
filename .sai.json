@@ -155,7 +155,7 @@
 
 	"configurations": {
 		"default": {
-			"cmake":	"",
+			"cmake":	"-DLWS_WITH_QUIC_TRACE=1",
 			"platforms":	"w11/x86_64-amd/msvc-schannel,freebsd/aarch64/llvm"
 		},
 		"mingw64-cross": {
