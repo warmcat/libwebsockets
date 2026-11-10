@@ -23,6 +23,11 @@
  * address could have helped.
  *
  * A host with no ipv6 loopback can't bind "::1": the test is skipped there.
+ *
+ * When it isn't served in time, both ends' connections are dumped with
+ * lws_quic_dump(), which in a build with LWS_WITH_QUIC_TRACE includes when
+ * each side sent and received each packet, and when its PTOs fired, to show
+ * where the time went.
  */
 
 #include <libwebsockets.h>
@@ -35,6 +40,8 @@
 #define QNA_SKIP	77
 
 static struct lws_context *context;
+/* each end's request, for the dump: NULL once gone */
+static struct lws *srv_wsi, *cli_wsi;
 static lws_sorted_usec_list_t sul_watchdog;
 static lws_usec_t us_start, us_done;
 static char body[64];
@@ -76,7 +83,13 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		*end = &hdr[sizeof(hdr) - 1];
 
 	switch (reason) {
+	case LWS_CALLBACK_WSI_DESTROY:
+		if (wsi == srv_wsi)
+			srv_wsi = NULL;
+		break;
+
 	case LWS_CALLBACK_HTTP:
+		srv_wsi = wsi;
 		pss->resp_len = (size_t)lws_snprintf(&pss->resp[LWS_PRE],
 				sizeof(pss->resp) - LWS_PRE, "served");
 
@@ -109,6 +122,17 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+/* where both ends' connections got to, and with QUIC_TRACE, how */
+
+static void
+dump_ends(void)
+{
+	if (cli_wsi)
+		lws_quic_dump(cli_wsi);
+	if (srv_wsi)
+		lws_quic_dump(srv_wsi);
+}
+
 /* the client */
 
 static int
@@ -119,6 +143,11 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	int lenx = (int)sizeof(buf) - LWS_PRE;
 
 	switch (reason) {
+	case LWS_CALLBACK_WSI_DESTROY:
+		if (wsi == cli_wsi)
+			cli_wsi = NULL;
+		break;
+
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
 		if (lws_http_client_read(wsi, &px, &lenx) < 0)
 			return -1;
@@ -131,6 +160,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		us_done = lws_now_usecs();
 		completed = 1;
+		/* both ends are still there to say why it took so long */
+		if (us_done - us_start > QNA_WITHIN_MS * LWS_US_PER_MS)
+			dump_ends();
 		lws_default_loop_exit(context);
 		break;
 
@@ -165,6 +197,7 @@ static void
 watchdog_cb(lws_sorted_usec_list_t *sul)
 {
 	timed_out = 1;
+	dump_ends();
 	lws_default_loop_exit(context);
 }
 
@@ -279,6 +312,7 @@ int main(int argc, const char **argv)
 				  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	/* served over h3, or not at all: there is no tcp server */
 	i.disable_h3_fallback	= 1;
+	i.pwsi			= &cli_wsi; /* NULL again if it fails at once */
 
 	lws_sul_schedule(context, 0, &sul_watchdog, watchdog_cb,
 			 QNA_TIMEOUT_S * LWS_US_PER_SEC);
