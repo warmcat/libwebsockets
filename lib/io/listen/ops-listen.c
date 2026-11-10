@@ -37,6 +37,18 @@
 #define LWS_VHOST_ANY_PORT_TRIES	8
 
 /*
+ * How long one POLLIN on a listen socket may go on accepting from its
+ * backlog.  Accepting is cheap, but adopting may not be: a tls server makes
+ * its first handshake step as it adopts, signing for it, which is ~1.5s on
+ * a slow cpu.  Taking the whole backlog then holds the loop for all of
+ * them, while the connections already adopted wait unread and their
+ * deadlines run.  Past this, the rest of the backlog waits for the next
+ * pass, the listen socket still being readable; ordinary accepts take a
+ * few us, so a burst of them still goes in one pass.
+ */
+#define LWS_LISTEN_ACCEPT_BUDGET_US	(20 * LWS_US_PER_MS)
+
+/*
  * The back-off after an accept() failed for want of fds is over.  The
  * listener must not simply listen again: the tls restriction or the fds table
  * pause may have closed meanwhile, finding its POLLIN already off.  Readable
@@ -62,11 +74,8 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_filter_network_conn_args filt;
+	lws_usec_t listen_start = lws_now_usecs();
 	lws_sock_file_fd_type fd;
-
-#if defined(LWS_WITH_LATENCY)
-	lws_usec_t _listen_start = lws_now_usecs();
-#endif
 
 	memset(&filt, 0, sizeof(filt));
 
@@ -283,14 +292,15 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 */
 
 	} while (pt->fds_count < context->fd_limit_per_thread - 1 &&
+		 lws_now_usecs() - listen_start < LWS_LISTEN_ACCEPT_BUDGET_US &&
 		 wsi->io->position_in_fds_table != LWS_NO_FDS_POS &&
 		 lws_poll_listen_fd(&pt->fds[wsi->io->position_in_fds_table]) > 0);
 
 #if defined(LWS_WITH_LATENCY)
 	{
-		unsigned int ms = (unsigned int)((lws_now_usecs() - _listen_start) / 1000);
+		unsigned int ms = (unsigned int)((lws_now_usecs() - listen_start) / 1000);
 		if (ms > 2)
-			lws_latency_note(pt, _listen_start, 2000, "listen:%dms", ms);
+			lws_latency_note(pt, listen_start, 2000, "listen:%dms", ms);
 	}
 #endif
 
