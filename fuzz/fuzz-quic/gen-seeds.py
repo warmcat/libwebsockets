@@ -116,6 +116,9 @@ h3_control = varint(0) + h3_frame(4, varint(1) + varint(4096) +
                                      varint(0x33) + varint(1) +
                                      varint(0x2b603742) + varint(1))
 
+# :authority "fuzz", qpack literal value with static name reference 0
+AUTHORITY = b'\x50\x04fuzz'
+
 def wt_connect(path=b'/wt'):
     """HEADERS of a WebTransport extended CONNECT"""
     fl = (b'\x00\x00' +
@@ -123,7 +126,7 @@ def wt_connect(path=b'/wt'):
           b'\x27\x02:protocol\x0cwebtransport' +	# literal name and value
           b'\xd7' +				# :scheme https
           b'\x51' + bytes([len(path)]) + path +
-          b'\x50\x04fuzz' +
+          AUTHORITY +
           # the protocol it asks for, a literal name and value
           b'\x27\x0fwt-available-protocols\x0e"webtransport"')
     return h3_frame(1, fl)
@@ -135,7 +138,7 @@ def h3_get(path=b'/'):
           b'\xd1' +			# :method GET
           b'\xd7' +			# :scheme https
           b'\x51' + bytes([len(path)]) + path +	# :path, literal
-          b'\x50\x04fuzz')			# :authority, literal
+          AUTHORITY)			# :authority, literal
     return h3_frame(1, fl)
 
 def dgram(data):
@@ -198,7 +201,7 @@ seeds.update({
     # a request body, in pieces, on another stream
     'h3-post': handshake(2) + stream(2, SID_CONTROL, h3_control) +
                stream(2, SID_4, h3_frame(1, b'\x00\x00\xd1\xd7\x51\x01/' +
-                                         b'\x50\x04fuzz')[:-1] +
+                                         AUTHORITY)[:-1] +
                       b'z') +
                stream(2, SID_4, h3_frame(0, bytes(300))) +
                stream(2, SID_4, h3_frame(0, b'end'), True) + time(12),

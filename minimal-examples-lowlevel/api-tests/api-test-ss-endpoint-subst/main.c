@@ -447,7 +447,7 @@ start_phase(lws_sorted_usec_list_t *sul)
 		cur_phase++;
 	}
 
-	if (cur_phase == LWS_ARRAY_SIZE(phases)) {
+	if (cur_phase >= LWS_ARRAY_SIZE(phases)) {
 		lws_default_loop_exit(context);
 		return;
 	}

@@ -44,12 +44,13 @@ for x in lex:
     h1.append(x)
     if x.endswith(':'): h1.append('-'.join(p.capitalize() for p in x.split('-')))
     if x.endswith(' ') and x[0].isalpha(): h1.append(x.upper())
+# the scheme tokens are dictionary entries for the parser, not urls we use
 h1+=['\r\n','\r\n\r\n',' HTTP/1.1\r\n',' HTTP/1.0\r\n','HTTP/1.1 ','HTTP/2.0','chunked','keep-alive','close',
  'Upgrade','websocket','h2c','100-continue','gzip','deflate','br','identity','bytes=','bytes=0-','-',',',';','=',
  '0\r\n\r\n','permessage-deflate','client_max_window_bits','server_max_window_bits','client_no_context_takeover',
  'server_no_context_takeover','13','dGhlIHNhbXBsZSBub25jZQ==','multipart/form-data; boundary=',
  'application/x-www-form-urlencoded','text/plain','Basic ','Digest ','realm=','nonce=','/','/..','/./','%2e%2e','%00',
- '?','&','#','*','http://','https://','Host: fuzz\r\n','Content-Length: ','Transfer-Encoding: chunked\r\n']  # NOSONAR: dictionary tokens
+ '?','&','#','*','http://','https://','Host: fuzz\r\n','Content-Length: ','Transfer-Encoding: chunked\r\n']  # NOSONAR
 write('h1',['Header names are the h1 lexer table (lib/sansio/http/lextable-strings.h)',
             'in its lower case and in the usual capitalisation, then values that',
             'steer the parser and the upgrades it can make.'],h1)
@@ -115,9 +116,10 @@ hl=lits('lib/misc/hl-c.c')+['#include','#define','#if','/*','*/','//','"','\\"',
 write('hl',['C keywords from lib/misc/hl-c.c, then the syntax the c, diff and html',
             'drivers classify, and markdown fences.'],hl)
 
+# the scheme tokens are dictionary entries for the parser, not urls we use
 md=['# ','## ','###### ','\n','\n\n','    ','\t','> ','- ','* ','+ ','1. ','1) ','---','***','___','```','~~~','`',
  '**','__','*','_','~~','[','](',')','![','<','>','<http://','\\',AMP,'&#','|','| --- |','|:---:|',':','---:',
- '- [ ] ','- [x] ','[^1]','[^1]: ','<div>','</div>','<!--','-->','http://','https://','www.']  # NOSONAR: dictionary tokens
+ '- [ ] ','- [x] ','[^1]','[^1]: ','<div>','</div>','<!--','-->','http://','https://','www.']  # NOSONAR
 write('md',['markdown block and inline syntax, gfm tables, task lists, footnotes',
             'and autolinks.'],md)
 

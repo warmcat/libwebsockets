@@ -504,6 +504,9 @@ fzq_packet(struct fzq_client *c, int level, const uint8_t *pl, size_t len,
 	size_t pn_ofs, room;
 	uint64_t pn;
 
+	if (level < FZQ_INITIAL || level > FZQ_APP_NEXT_PHASE)
+		return;
+
 	if (level != FZQ_INITIAL) {
 		sec = level == FZQ_HANDSHAKE ? &c->hs : &c->app;
 		if (!sec->len)
