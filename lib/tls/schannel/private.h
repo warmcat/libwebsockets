@@ -248,6 +248,9 @@ size_t
 lws_tls_schannel_alpn_buf(const char *alpn_comma, int quic, uint8_t *buf,
 			  size_t len);
 
+void
+lws_tls_schannel_key_delete(const char *container_name, int cng);
+
 /* Certificate loader prototype */
 int
 lws_tls_schannel_cert_info_load(struct lws_context *context,
