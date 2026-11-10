@@ -912,6 +912,41 @@ lws_tls_schannel_key_delete(const char *container_name, int cng)
 	NCryptFreeObject(hProvCNG);
 }
 
+static NCRYPT_KEY_HANDLE
+lws_schannel_import_ec(NCRYPT_PROV_HANDLE hProv, const BYTE *der, DWORD len,
+		       LPCWSTR name);
+
+/*
+ * Open the cert's key the way lsass will, from its PROV_INFO alone, and
+ * check it is the key for the cert's public key.  Otherwise all we would see
+ * is AcquireCredentialsHandle() failing with SEC_E_UNKNOWN_CREDENTIALS, the
+ * same as for a key lsass can't use; NTE_BAD_PUBLIC_KEY here says the
+ * persisted key isn't the one we were given.
+ */
+
+static int
+lws_schannel_prov_info_check(PCCERT_CONTEXT cert)
+{
+	HCRYPTPROV_OR_NCRYPT_KEY_HANDLE h = 0;
+	DWORD spec = 0;
+	BOOL fr = FALSE;
+
+	if (!CryptAcquireCertificatePrivateKey(cert,
+			CRYPT_ACQUIRE_COMPARE_KEY_FLAG |
+			CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG |
+			CRYPT_ACQUIRE_SILENT_FLAG, NULL, &h, &spec, &fr)) {
+		lwsl_err("%s: the cert's persisted key failed: 0x%x\n",
+			 __func__, (unsigned int)GetLastError());
+
+		return 1;
+	}
+
+	if (fr)
+		NCryptFreeObject((NCRYPT_KEY_HANDLE)h);
+
+	return 0;
+}
+
 int
 lws_tls_schannel_cert_info_load(struct lws_context *context,
 		const char *cert, const char *private_key,
@@ -934,8 +969,6 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	const uint8_t *kp = NULL, *kend = NULL;
 	DWORD flags = NCRYPT_SILENT_FLAG;
 	WCHAR wContainer[128];
-	NCryptBuffer nameBuf;
-	NCryptBufferDesc nameDesc;
 	CRYPT_KEY_PROV_INFO kpi = {0};
 	CERT_KEY_CONTEXT ckc = {0};
 	size_t pkcs1_len;
@@ -1106,10 +1139,6 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 		 * fails with NTE_PERM.
 		 */
 
-		flags = NCRYPT_SILENT_FLAG;
-		if (container_name)
-			flags |= NCRYPT_OVERWRITE_KEY_FLAG;
-
 		keyName = NULL;
 		if (container_name) {
 			if (!MultiByteToWideChar(CP_UTF8, 0, container_name, -1, wContainer, sizeof(wContainer)/sizeof(wContainer[0]))) {
@@ -1120,27 +1149,11 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 			keyName = wContainer;
 		}
 
-		/*
-		 * The DER is PKCS#8 (SEC1, "EC PRIVATE KEY", is not converted
-		 * and fails here).  A named key gets its name from a parameter
-		 * list, NCryptImportKey() has no name argument.
-		 */
-
-		if (keyName) {
-			nameBuf.cbBuffer = (ULONG)((wcslen(keyName) + 1) * sizeof(WCHAR));
-			nameBuf.BufferType = NCRYPTBUFFER_PKCS_KEY_NAME;
-			nameBuf.pvBuffer = (PVOID)keyName;
-
-			nameDesc.ulVersion = NCRYPTBUFFER_VERSION;
-			nameDesc.cBuffers = 1;
-			nameDesc.pBuffers = &nameBuf;
-
-			status = NCryptImportKey(hProvCNG, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB, &nameDesc, &hKeyCNG, (PUCHAR)key_der, (DWORD)key_der_len, flags);
-		} else
-			status = NCryptImportKey(hProvCNG, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB, NULL, &hKeyCNG, (PUCHAR)key_der, (DWORD)key_der_len, flags);
-
-		if (status != ERROR_SUCCESS) {
-			lwsl_err("NCryptImportKey (PKCS8) failed 0x%x. Note: EC SEC1 keys not auto-converted.\n", (int)status);
+		/* as ECDSA, see lws_schannel_ec_blob(); it logs why it failed */
+		hKeyCNG = lws_schannel_import_ec(hProvCNG, key_der,
+						 (DWORD)key_der_len, keyName);
+		if (!hKeyCNG) {
+			lwsl_err("%s: failed to import the EC key\n", __func__);
 			goto cleanup;
 		}
 		lws_schannel_free_secret(&key_der, key_der_len);
@@ -1165,11 +1178,28 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 			}
 		}
 
-		/* Set usage to all to ensure SChannel doesn't reject it */
-		flags = NCRYPT_ALLOW_ALL_USAGES;
-		NCryptSetProperty(hKeyCNG, NCRYPT_KEY_USAGE_PROPERTY, (PBYTE)&flags, sizeof(flags), 0);
+		if (!keyName) {
+			/*
+			 * Set usage to all to ensure SChannel doesn't reject
+			 * it; a named key got it before it was finalized
+			 */
+			flags = NCRYPT_ALLOW_ALL_USAGES;
+			NCryptSetProperty(hKeyCNG, NCRYPT_KEY_USAGE_PROPERTY, (PBYTE)&flags, sizeof(flags), 0);
+		} else {
+			NCRYPT_KEY_HANDLE hk;
 
-		if (keyName) {
+			/*
+			 * Open it by name as lsass will, so a key it can't find
+			 * says so here rather than as a credential failure
+			 */
+			status = NCryptOpenKey(hProvCNG, &hk, keyName, 0,
+					       NCRYPT_SILENT_FLAG);
+			if (status != ERROR_SUCCESS)
+				lwsl_err("%s: the persisted EC key won't open by name: 0x%x\n",
+					 __func__, (unsigned int)status);
+			else
+				NCryptFreeObject(hk);
+
 			/* what lets lsass find the named key, see above */
 			memset(&kpi, 0, sizeof(kpi));
 			kpi.pwszContainerName = (LPWSTR)keyName;
@@ -1184,6 +1214,9 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 					 __func__, GetLastError());
 				goto key_delete;
 			}
+
+			if (lws_schannel_prov_info_check(x509_obj.cert))
+				goto key_delete;
 		}
 
 		/*
@@ -1755,29 +1788,66 @@ lws_schannel_gen_key(NCRYPT_PROV_HANDLE hProv,
 	return hKey;
 }
 
-/* SEC1 ECPrivateKey DER -> BCRYPT_ECCPRIVATE_BLOB -> CNG key */
+/*
+ * The KSP imports a PKCS#8 EC key as ECDH, which can't sign: Schannel refuses
+ * it for a server credential (SEC_E_UNKNOWN_CREDENTIALS), and a CA key must
+ * sign.  A PKCS#8 import can't be asked for ECDSA, so an EC key, PKCS#8 or
+ * SEC1 DER, is taken apart here into a BCRYPT_ECCPRIVATE_BLOB with an ECDSA
+ * magic, which imports as ECDSA.
+ */
 
-static NCRYPT_KEY_HANDLE
-lws_schannel_import_sec1(NCRYPT_PROV_HANDLE hProv, const BYTE *der, DWORD len)
+static int
+lws_schannel_ec_blob(const BYTE *der, DWORD len,
+		     const struct lws_schannel_curve **pcurve,
+		     BCRYPT_ECCKEY_BLOB **pb, DWORD *pblen)
 {
-	const struct lws_schannel_curve *curve;
+	const struct lws_schannel_curve *curve = NULL;
 	CRYPT_ECC_PRIVATE_KEY_INFO *eki = NULL;
-	BCRYPT_ECCKEY_BLOB *b = NULL;
-	NCRYPT_KEY_HANDLE hKey = 0;
-	DWORD cb = 0, blen = 0;
+	CRYPT_PRIVATE_KEY_INFO *pki = NULL;
+	DWORD cb = 0, cb_pki = 0, blen;
+	BCRYPT_ECCKEY_BLOB *b;
+	const char *oid = NULL;
+	LPSTR *poid = NULL;
+	int ret = 1;
 	BYTE *p;
+
+	if (CryptDecodeObjectEx(X509_ASN_ENCODING, PKCS_PRIVATE_KEY_INFO, der,
+				len, CRYPT_DECODE_ALLOC_FLAG, NULL, &pki,
+				&cb_pki)) {
+		/*
+		 * PKCS#8: the curve is the AlgorithmIdentifier's parameter,
+		 * and the SEC1 key inside usually doesn't name it again
+		 */
+		if (!pki->Algorithm.pszObjId ||
+		    strcmp(pki->Algorithm.pszObjId, szOID_ECC_PUBLIC_KEY) ||
+		    !CryptDecodeObjectEx(X509_ASN_ENCODING,
+					 X509_OBJECT_IDENTIFIER,
+					 pki->Algorithm.Parameters.pbData,
+					 pki->Algorithm.Parameters.cbData,
+					 CRYPT_DECODE_ALLOC_FLAG, NULL, &poid,
+					 &cb))
+			goto bail;
+		oid = *poid;
+		der = pki->PrivateKey.pbData;
+		len = pki->PrivateKey.cbData;
+	}
 
 	if (!CryptDecodeObjectEx(X509_ASN_ENCODING, X509_ECC_PRIVATE_KEY, der,
 				 len, CRYPT_DECODE_ALLOC_FLAG, NULL, &eki, &cb))
-		return 0;
+		goto bail;
 
-	/*
-	 * Standalone SEC1 has to name its curve, and CNG wants the public
-	 * point too, which SEC1 makes optional
-	 */
+	if (eki->szCurveOid) {
+		if (oid && strcmp(oid, eki->szCurveOid)) {
+			lwsl_err("%s: PKCS#8 and SEC1 curves differ\n",
+				 __func__);
+			goto bail;
+		}
+		oid = eki->szCurveOid;
+	}
 
-	if (!eki->szCurveOid ||
-	    !(curve = lws_schannel_curve_by_oid(eki->szCurveOid)) ||
+	/* CNG wants the public point too, which SEC1 makes optional */
+
+	if (!oid || !(curve = lws_schannel_curve_by_oid(oid)) ||
 	    eki->PrivateKey.cbData > curve->cb ||
 	    eki->PublicKey.cbData != 1 + 2 * curve->cb ||
 	    eki->PublicKey.pbData[0] != 4) {
@@ -1798,19 +1868,99 @@ lws_schannel_import_sec1(NCRYPT_PROV_HANDLE hProv, const BYTE *der, DWORD len)
 	memcpy(p + 3 * curve->cb - eki->PrivateKey.cbData,
 	       eki->PrivateKey.pbData, eki->PrivateKey.cbData);
 
-	if (NCryptImportKey(hProv, 0, BCRYPT_ECCPRIVATE_BLOB, NULL, &hKey,
-			    (PBYTE)b, blen, NCRYPT_SILENT_FLAG) != ERROR_SUCCESS)
-		hKey = 0;
+	*pcurve = curve;
+	*pb = b;
+	*pblen = blen;
+	ret = 0;
 
 bail:
-	if (b) {
-		lws_explicit_bzero(b, blen);
-		lws_free(b);
-	}
 	if (eki) {
 		lws_explicit_bzero(eki->PrivateKey.pbData,
 				   eki->PrivateKey.cbData);
 		LocalFree(eki);
+	}
+	if (poid)
+		LocalFree(poid);
+	if (pki) {
+		lws_explicit_bzero(pki, cb_pki);
+		LocalFree(pki);
+	}
+
+	return ret;
+}
+
+/*
+ * Import an EC private key, PKCS#8 or SEC1 DER, as an ECDSA key.  Without a
+ * name it is ephemeral.  With one, it is persisted under that name in the
+ * current user's store, replacing any key already there: the name goes in
+ * the import's parameter list, and the import is left unfinalized so the
+ * usage can be set first and persisted with it.
+ *
+ * Not NCryptCreatePersistedKey() with the blob set as a property: each step
+ * of that succeeded on w11, but AcquireCredentialsHandle() still refused the
+ * key, SEC_E_UNKNOWN_CREDENTIALS, as if the KSP had finalized a new key of
+ * its own instead.  The parameter list is the documented way to name it.
+ */
+
+static NCRYPT_KEY_HANDLE
+lws_schannel_import_ec(NCRYPT_PROV_HANDLE hProv, const BYTE *der, DWORD len,
+		       LPCWSTR name)
+{
+	const struct lws_schannel_curve *curve;
+	DWORD usage = NCRYPT_ALLOW_ALL_USAGES, blen;
+	NCRYPT_KEY_HANDLE hKey = 0;
+	NCryptBufferDesc nbd;
+	BCRYPT_ECCKEY_BLOB *b;
+	NCryptBuffer nb;
+	const char *step;
+	SECURITY_STATUS st;
+
+	if (lws_schannel_ec_blob(der, len, &curve, &b, &blen))
+		return 0;
+
+	if (!name) {
+		step = "NCryptImportKey";
+		st = NCryptImportKey(hProv, 0, BCRYPT_ECCPRIVATE_BLOB, NULL,
+				     &hKey, (PBYTE)b, blen, NCRYPT_SILENT_FLAG);
+		goto done;
+	}
+
+	nb.BufferType	= NCRYPTBUFFER_PKCS_KEY_NAME;
+	nb.cbBuffer	= (ULONG)((wcslen(name) + 1) * sizeof(WCHAR));
+	nb.pvBuffer	= (PVOID)name;
+	nbd.ulVersion	= NCRYPTBUFFER_VERSION;
+	nbd.cBuffers	= 1;
+	nbd.pBuffers	= &nb;
+
+	step = "NCryptImportKey (named)";
+	st = NCryptImportKey(hProv, 0, BCRYPT_ECCPRIVATE_BLOB, &nbd, &hKey,
+			     (PBYTE)b, blen, NCRYPT_OVERWRITE_KEY_FLAG |
+					     NCRYPT_DO_NOT_FINALIZE_FLAG |
+					     NCRYPT_SILENT_FLAG);
+	if (st != ERROR_SUCCESS)
+		goto done;
+
+	/* before finalizing, so the persisted key has it for lsass too */
+	step = "NCryptSetProperty (usage)";
+	st = NCryptSetProperty(hKey, NCRYPT_KEY_USAGE_PROPERTY, (PBYTE)&usage,
+			       sizeof(usage), 0);
+	if (st != ERROR_SUCCESS)
+		goto done;
+
+	step = "NCryptFinalizeKey";
+	st = NCryptFinalizeKey(hKey, NCRYPT_SILENT_FLAG);
+
+done:
+	lws_explicit_bzero(b, blen);
+	lws_free(b);
+
+	if (st != ERROR_SUCCESS) {
+		lwsl_err("%s: %s failed 0x%x\n", __func__, step,
+			 (unsigned int)st);
+		if (hKey)
+			NCryptFreeObject(hKey);
+
+		return 0;
 	}
 
 	return hKey;
@@ -1846,6 +1996,7 @@ lws_schannel_import_key_pem(NCRYPT_PROV_HANDLE hProv, const char *pem)
 	CRYPT_PRIVATE_KEY_INFO *pki;
 	DWORD len = 0, cb;
 	size_t plen = strlen(pem);
+	int is_ec;
 	BYTE *der;
 
 	if (!plen || plen > 65536 ||
@@ -1865,14 +2016,22 @@ lws_schannel_import_key_pem(NCRYPT_PROV_HANDLE hProv, const char *pem)
 
 	if (CryptDecodeObjectEx(X509_ASN_ENCODING, PKCS_PRIVATE_KEY_INFO, der,
 				len, CRYPT_DECODE_ALLOC_FLAG, NULL, &pki, &cb)) {
+		/*
+		 * By its algorithm, not by trying: an EC key must not fall
+		 * through to the PKCS#8 import, that makes it ECDH
+		 */
+		is_ec = pki->Algorithm.pszObjId &&
+			!strcmp(pki->Algorithm.pszObjId, szOID_ECC_PUBLIC_KEY);
 		lws_explicit_bzero(pki, cb);
 		LocalFree(pki);
-		if (NCryptImportKey(hProv, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB,
+		if (is_ec)
+			hKey = lws_schannel_import_ec(hProv, der, len, NULL);
+		else if (NCryptImportKey(hProv, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB,
 				    NULL, &hKey, der, len, NCRYPT_SILENT_FLAG) !=
 								ERROR_SUCCESS)
 			hKey = 0;
 	} else {
-		hKey = lws_schannel_import_sec1(hProv, der, len);
+		hKey = lws_schannel_import_ec(hProv, der, len, NULL);
 		if (!hKey)
 			hKey = lws_schannel_import_pkcs1(hProv, der, len);
 	}
