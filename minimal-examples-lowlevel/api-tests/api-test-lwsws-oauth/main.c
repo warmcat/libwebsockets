@@ -3078,6 +3078,7 @@ cap_authorize(const char *enc_ruri, char *code, size_t code_len)
 {
 	char p[1024];
 
+	code[0] = '\0';
 	lws_snprintf(p, sizeof(p), "/api/authorize?client_id=%s&redirect_uri="
 		     "%s&response_type=code&state=cap&code_challenge=%s"
 		     "&code_challenge_method=plain", client_id, enc_ruri,

@@ -2190,10 +2190,9 @@ int main(int argc, const char **argv)
 	struct lws *client_wsi;
 	struct lws_vhost *vh;
 	lws_usec_t start_us;
-	char url_buf[128];
-	const char *p, *prot, *address, *path;
+	lws_parse_uri_t *pu = NULL;
+	const char *p, *address;
 	int port = 7681, relay_port = 0, outage_ms = 0, pmtu = 0;
-	int url_port = 0;
 
 	/* ahead of the builtin options, which have a --help of their own */
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
@@ -2454,12 +2453,13 @@ int main(int argc, const char **argv)
 
 	p = lws_cmdline_option(argc, argv, "-u");
 	if (p) {
-		lws_strncpy(url_buf, p, sizeof(url_buf));
-		if (lws_parse_uri(url_buf, &prot, &address, &url_port, &path)) {
+		pu = lws_parse_uri_create(p);
+		if (!pu) {
 			lwsl_err("Failed to parse URL\n");
 			return 1;
 		}
-		port = url_port;
+		address = pu->host;
+		port = pu->port;
 	} else {
 		address = lws_cmdline_option(argc, argv, switches[LWS_SW_SERVER].sw);
 	}
@@ -2482,6 +2482,7 @@ int main(int argc, const char **argv)
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
+		lws_parse_uri_destroy(&pu);
 		return 1;
 	}
 
@@ -2651,6 +2652,8 @@ int main(int argc, const char **argv)
 
 bail:
 	lws_context_destroy(context);
+	/* the client's address pointed into it */
+	lws_parse_uri_destroy(&pu);
 
         return lws_cmdline_passfail(argc, argv, result);
 }

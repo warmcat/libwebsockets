@@ -360,8 +360,11 @@ reap_cb(void *opaque, const lws_spawn_resource_us_t *r, siginfo_t *si,
 		check(ms < STUCK_HOLD_MS, "he was reaped without his stdio "
 					  "closing");
 	} else
-#endif
+		check(!we_killed_him && !code, "the helper finished by itself, "
+					       "OK");
+#else
 	check(!we_killed_him && !code, "the helper finished by itself, OK");
+#endif
 
 	if (leg == LEG_HOG || leg == LEG_TREE) {
 		/* the helper made sure it had at least this much */
