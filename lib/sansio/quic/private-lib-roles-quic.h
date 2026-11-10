@@ -921,8 +921,13 @@ struct lws_quic_netconn {
 		uint64_t	early_held_max;
 		uint64_t	ack_delay_tx_max;
 		uint64_t	ack_delay_rx_max;
-		/* the times loss detection found persistent congestion */
+		/*
+		 * the times loss detection found persistent congestion, and
+		 * packets that took stream data for the first time only as a
+		 * PTO's probe, past a full congestion window
+		 */
 		uint64_t	persistent_congestion;
+		uint64_t	pto_fresh;
 	} fi_stats;
 	/* quic_ack_ranges: the next ACK we send is a full one */
 	uint8_t			fi_ack_lag;
@@ -1111,6 +1116,11 @@ struct lws_quic_ack_walk {
 	size_t			bytes_acked;
 	int			level;
 	uint8_t			ranges;		/* any range was taken yet */
+	/*
+	 * any frame was acked: a PMTUD probe's ack is one, though its
+	 * bytes were never in flight, see lws_quic_packet_sent()
+	 */
+	uint8_t			acked;
 };
 
 /* fi_stats bookkeeping at the start and end of each ACK frame acted on */

@@ -1648,6 +1648,7 @@ lws_quic_frame_acked(struct lws *nwsi, struct lws_quic_ack_walk *aw,
 
 	lws_quic_fi_stat(qn, ack_acked, 1);
 	aw->bytes_acked += f->wire_len;
+	aw->acked = 1;
 
 	/* the walk goes down: the first frame acked is the newest */
 	if (!aw->rtt)
@@ -1786,7 +1787,7 @@ lws_quic_ack_end(struct lws *nwsi, struct lws_quic_ack_walk *aw)
 	struct lws_quic_netconn *qn = nwsi->quic.qn;
 	lws_usec_t rtt = aw->rtt_largest ? aw->rtt_largest : aw->rtt;
 
-	if (aw->bytes_acked) {
+	if (aw->acked) {
 		lws_callback_on_writable(nwsi);
 		qn->pto_count = 0;
 
@@ -1876,7 +1877,7 @@ lws_quic_ack_end(struct lws *nwsi, struct lws_quic_ack_walk *aw)
 			} else {
 				lws_sul_cancel(&qn->pto_sul);
 			}
-		} else if (aw->bytes_acked) {
+		} else if (aw->acked) {
 			/*
 			 * RFC 9002 Section 6.2.1: When a packet is acknowledged, the
 			 * PTO timer must be updated.  Reset it using pto_count=0 (since
@@ -4720,10 +4721,10 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		 * anyway, on its own (ack_only), which is all that gets
 		 * through while we are held.
 		 */
-		int cc_held = !qn->pto_probe_needed &&
-			      (lws_quic_in_flight_full(qn) ||
-			       (qn->cc_ops && qn->cc_ops->can_send &&
-				!qn->cc_ops->can_send(wsi, mtu)));
+		int cc_full = lws_quic_in_flight_full(qn) ||
+			      (qn->cc_ops && qn->cc_ops->can_send &&
+			       !qn->cc_ops->can_send(wsi, mtu));
+		int cc_held = !qn->pto_probe_needed && cc_full;
 
 		if (!cc_held && !qn->pto_probe_needed && qn->cc_ops &&
 		    qn->cc_ops->get_pacing_delay) {
@@ -5530,6 +5531,9 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 		 */
 		{
 			uint32_t ae = qn->ae_seq_tx[level] + 1;
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+			int pto_fresh = 0;
+#endif
 
 			lws_start_foreach_dll_back(struct lws_dll2 *, d,
 					lws_dll2_get_tail(&qn->in_flight[level])) {
@@ -5542,6 +5546,20 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 				f->packet_size	= (uint16_t)send_len;
 				f->ae_seq	= ae;
 				qn->ae_seq_tx[level] = ae;
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+				/*
+				 * quic_stats: stream data going for the first
+				 * time, only because a PTO's probe may go past
+				 * a full congestion window
+				 */
+				if (qn->pto_probe_needed && cc_full &&
+				    (f->type & 0xf8) == LWS_QUIC_FT_STREAM &&
+				    f->first_sent_us == f->sent_time_us &&
+				    !pto_fresh) {
+					pto_fresh = 1;
+					qn->fi_stats.pto_fresh++;
+				}
+#endif
 			} lws_end_foreach_dll_back(d);
 		}
 
@@ -5692,15 +5710,30 @@ lws_quic_packet_sent(struct lws *wsi, const struct lws_quic_tx_pkt *tp, int n)
 	if (tp->to_probe_path)
 		qn->probe_bytes_sent += (uint64_t)n;
 
-	/* Find the first frame we sent in this packet to attach wire_len to */
-	int ack_eliciting = 0;
+	/*
+	 * Find the first frame we sent in this packet to attach wire_len to.
+	 *
+	 * A PMTUD probe, alone in its packet, gets none: its bytes are not in
+	 * flight for congestion control (RFC 8899 3, item 7: a probe may be
+	 * sent outside it, if probes go an RTT apart, as ours do, one waiting
+	 * for the last's ack or loss).  Counted, a probe lost after the window
+	 * was cut to its minimum filled most of it until a later ack found the
+	 * probe lost, so nothing but PTO probes went meanwhile, each a packet
+	 * of what was sent first again: the interop runner's
+	 * handshakecorruption case had a server give up at its PTO count with
+	 * most of a file unsent.
+	 */
+	int ack_eliciting = 0, cc_counted = 1;
 	if (qn->in_flight[tp->level].tail) {
 		/* Start from the end, which is the most recently added frame */
 		lws_start_foreach_dll(struct lws_dll2 *, d, qn->in_flight[tp->level].tail) {
 			struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
 			if (f->sent_in_pn == tp->pn) {
-				f->wire_len = tp->len;
 				ack_eliciting = 1;
+				if (f->pmtud_probe)
+					cc_counted = 0;
+				else
+					f->wire_len = tp->len;
 				break;
 			}
 			/* If we find a different PN, we didn't add any frames for this packet */
@@ -5713,7 +5746,7 @@ lws_quic_packet_sent(struct lws *wsi, const struct lws_quic_tx_pkt *tp, int n)
 		lws_quic_idle_restart(qn, 1);
 		if (qn->pto_probe_needed > 0)
 			qn->pto_probe_needed--;
-		if (qn->cc_ops && qn->cc_ops->on_sent)
+		if (cc_counted && qn->cc_ops && qn->cc_ops->on_sent)
 			qn->cc_ops->on_sent(wsi, tp->len);
 	}
 
@@ -7195,7 +7228,8 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 				"in flight peak %u, excess max %llu, path "
 				"responses peak %u, cc bypassed %llu, held max "
 				"%lluus, ack delay tx max %lluus, ack delay rx "
-				"max %lluus, persistent congestion %llu",
+				"max %lluus, persistent congestion %llu, "
+				"pto fresh %llu",
 				qn->is_server ? "server" : "client",
 				(unsigned long long)qn->fi_stats.ack_frames,
 				(unsigned long long)qn->fi_stats.ack_ignored,
@@ -7209,7 +7243,8 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 				(unsigned long long)qn->fi_stats.early_held_max,
 				(unsigned long long)qn->fi_stats.ack_delay_tx_max,
 				(unsigned long long)qn->fi_stats.ack_delay_rx_max,
-				(unsigned long long)qn->fi_stats.persistent_congestion);
+				(unsigned long long)qn->fi_stats.persistent_congestion,
+				(unsigned long long)qn->fi_stats.pto_fresh);
 #endif
 
 	lws_dll2_remove(&qn->pt_list);
