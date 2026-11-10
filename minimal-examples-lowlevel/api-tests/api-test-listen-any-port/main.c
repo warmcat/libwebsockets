@@ -25,6 +25,13 @@
  *
  * Each must still come up, on a port both families listen on: a client of
  * 127.0.0.1 and one of ::1 must each get an http response from it.
+ *
+ * A vhost that also serves h3 listens on the same port number in udp, which
+ * something else may have, eg, a udp client socket's ephemeral port: on
+ * Sai, a test's QUIC listener failed to bind that way, and its h3 clients
+ * all timed out.  With --cert and --key, a third vhost offering h3 is given
+ * "listen_port_taken_quic" once, and must come up on a port its QUIC
+ * listener has too: h3 clients of 127.0.0.1 and ::1 must each be answered.
  */
 
 #include <libwebsockets.h>
@@ -33,13 +40,21 @@
 
 #define LAP_TIMEOUT_S		5
 
+#if defined(LWS_ROLE_H3) && defined(LWS_WITH_TLS)
+#define LAP_QUIC	/* we can test the QUIC listener's port too */
+#endif
+
 static const struct lap_vhost {
 	const char		*name;
 	const char		*fault;
 	char			type;	/* LWSFI_* */
+	char			quic;	/* serves h3 too, needs --cert / --key */
 } lap_vhosts[] = {
-	{ "any",	"listen_port_taken",	LWSFI_DETERMINISTIC },
-	{ "any-v6",	"listen_port_taken_v6",	LWSFI_ALWAYS },
+	{ "any",	"listen_port_taken",	  LWSFI_DETERMINISTIC, 0 },
+	{ "any-v6",	"listen_port_taken_v6",	  LWSFI_ALWAYS,        0 },
+#if defined(LAP_QUIC)
+	{ "any-quic",	"listen_port_taken_quic", LWSFI_DETERMINISTIC, 1 },
+#endif
 };
 
 static const char * const lap_ads[] = { "127.0.0.1", "::1" };
@@ -56,14 +71,14 @@ struct lap_client {
 static struct lws_context *context;
 static lws_sorted_usec_list_t sul_watchdog;
 static struct lap_client clients[LAP_CLIENTS];
-static int done, timed_out;
+static int done, timed_out, nclients;
 
 /* each client was answered, or failed */
 
 static void
 lap_check_done(struct lws_context *cx)
 {
-	if (++done == (int)LAP_CLIENTS)
+	if (++done == nclients)
 		lws_default_loop_exit(cx);
 }
 
@@ -123,6 +138,7 @@ int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
+	const char *cert = NULL, *key = NULL;
 	struct lws_vhost *vh, *vh_cli;
 	int port, result = 1;
 	struct lap_client *c;
@@ -137,6 +153,19 @@ int main(int argc, const char **argv)
 		  "taken in its second address family\n");
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+	/*
+	 * the defaults' small fds table doesn't hold every vhost's listeners,
+	 * those given up on, and the clients: size it from the process limit
+	 */
+	info.fd_limit_per_thread = 0;
+#if defined(LAP_QUIC)
+	cert = lws_cmdline_option(argc, argv, "--cert");
+	key = lws_cmdline_option(argc, argv, "--key");
+	if (cert && key)
+		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	else
+		lwsl_user("no --cert / --key: skipping the QUIC listener\n");
+#endif
 
 	context = lws_create_context(&info);
 	if (!context) {
@@ -159,9 +188,17 @@ int main(int argc, const char **argv)
 	/* the servers, on any free port, the second family's bind faulted */
 
 	for (n = 0; n < LWS_ARRAY_SIZE(lap_vhosts); n++) {
+		if (lap_vhosts[n].quic && (!cert || !key))
+			continue;
+
 		info.port		= 0;
 		info.vhost_name		= lap_vhosts[n].name;
 		info.protocols		= protocols_srv;
+		/* a tls vhost offering h3 serves it on the same port, in udp */
+		info.ssl_cert_filepath	= lap_vhosts[n].quic ? cert : NULL;
+		info.ssl_private_key_filepath = lap_vhosts[n].quic ? key : NULL;
+		info.alpn		= lap_vhosts[n].quic ? "h2,http/1.1,h3" :
+							       NULL;
 
 		/* the vhost takes the faults on info.fic, leaving it empty */
 		memset(&fi, 0, sizeof(fi));
@@ -190,16 +227,19 @@ int main(int argc, const char **argv)
 		}
 
 		for (m = 0; m < LWS_ARRAY_SIZE(lap_ads); m++) {
-			c = &clients[n * LWS_ARRAY_SIZE(lap_ads) + m];
+			c = &clients[nclients++];
 			c->v	= &lap_vhosts[n];
 			c->ads	= lap_ads[m];
 			c->port	= port;
 		}
 	}
+	info.ssl_cert_filepath		= NULL;
+	info.ssl_private_key_filepath	= NULL;
+	info.alpn			= NULL;
 
 	/* a client of each family, for each server */
 
-	for (n = 0; n < LAP_CLIENTS; n++) {
+	for (n = 0; n < (size_t)nclients; n++) {
 		c = &clients[n];
 
 		memset(&i, 0, sizeof(i));
@@ -213,6 +253,14 @@ int main(int argc, const char **argv)
 		i.protocol		= protocols_cli[0].name;
 		i.local_protocol_name	= protocols_cli[0].name;
 		i.opaque_user_data	= c;
+		if (c->v->quic) {
+			i.ssl_connection = LCCSCF_USE_SSL |
+					   LCCSCF_ALLOW_SELFSIGNED |
+					   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+			i.alpn		= "h3";
+			/* answered over QUIC, not by a fallback to tcp */
+			i.disable_h3_fallback = 1;
+		}
 
 		if (!lws_client_connect_via_info(&i))
 			/* failing at once, it was told of it already */
@@ -230,7 +278,7 @@ int main(int argc, const char **argv)
 		lwsl_err("FAIL: not answered inside %ds\n", LAP_TIMEOUT_S);
 		result = 1;
 	}
-	for (n = 0; n < LAP_CLIENTS; n++)
+	for (n = 0; n < (size_t)nclients; n++)
 		if (!clients[n].answered) {
 			lwsl_err("FAIL: %s: nothing listens on %s port %d\n",
 				 clients[n].v->name, clients[n].ads,

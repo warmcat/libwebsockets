@@ -17,9 +17,17 @@ taken:
 Each must still come up, and a client of `127.0.0.1` and one of `::1` must
 each get an http response on the port it ended up with.
 
+A vhost that serves h3 too also listens on its port number in udp, which
+something else, eg, a udp client socket, may already have.  With `--cert` and
+`--key`, a third vhost offering h3 is given `listen_port_taken_quic` once,
+making its QUIC listener's bind find the port taken.  It must start again on
+another port, and h3 clients of `127.0.0.1` and `::1` must each be answered
+over QUIC.  This case needs `LWS_ROLE_H3` and TLS.
+
 Needs `LWS_WITH_SYS_FAULT_INJECTION`, and both `LWS_WITH_IPV4` and
 `LWS_WITH_IPV6`.
 
 ```
-$ ./bin/lws-api-test-listen-any-port
+$ ./bin/lws-api-test-listen-any-port --cert localhost-100y.cert \
+	--key localhost-100y.key
 ```
