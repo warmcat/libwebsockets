@@ -175,6 +175,10 @@ lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi);
  * application or test to say the same when its own deadline for a transfer
  * passes first, so the log shows why it hadn't moved.  Nothing is logged
  * for a wsi that isn't on a QUIC connection.
+ *
+ * Built with LWS_WITH_QUIC_TRACE, it also logs the connection's last 64
+ * packets sent and taken, PTOs and handshake and path events, with when each
+ * happened: see READMEs/README.quic.md.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_quic_dump(struct lws *wsi);

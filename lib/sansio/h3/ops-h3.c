@@ -3727,6 +3727,8 @@ rops_close_kill_connection_h3(struct lws *wsi, enum lws_close_status reason)
 	struct lws_h3_netconn *h3n = cnwsi && cnwsi != wsi ?
 						cnwsi->h3.h3n : NULL;
 
+	lws_quic_trace_unanswered(wsi, reason);
+
 	/*
 	 * When the connection closes, its children may go in any order: if
 	 * this is one of the connection's own streams, the others mustn't
@@ -4574,6 +4576,7 @@ lws_h3_client_retry_unanswered(struct lws *nwsi)
 		lwsl_wsi_notice(w, "%s left unanswered by the server, "
 				   "sending it again", meth);
 		w->client_request_retried = 1;
+		lws_quic_trace(qn, LQTE_RETRY, 0, w->quic.qs->stream_id, 0);
 		if (!lws_client_reset(&w, !!(w->flags & LCCSCF_USE_SSL), ads,
 				      w->c_port, path, host, NULL, 1))
 			/* it closes with the connection, as before */

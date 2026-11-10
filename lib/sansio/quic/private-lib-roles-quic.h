@@ -555,6 +555,67 @@ struct lws_quic_early_pkt {
 
 #define LWS_QUIC_EARLY_PKTS_MAX 4
 
+#if defined(LWS_WITH_QUIC_TRACE)
+/*
+ * LWS_WITH_QUIC_TRACE: each connection keeps a ring of what it did last, so
+ * when it goes wrong, lws_quic_dump() can say what happened when, in a build
+ * whose info and debug logs are compiled out.  Each entry is when, since the
+ * connection's first entry, and what.
+ */
+enum lws_quic_trace_ev {
+	LQTE_TX,		/* a packet sent: level, pn, bytes */
+	LQTE_TX_ACK_ONLY,	/* ... one with nothing to retransmit in it */
+	LQTE_TX_HELD,		/* the socket couldn't take it: level, pn */
+	LQTE_RX,		/* a packet taken: level, pn, bytes */
+	LQTE_RX_DUP,		/* a packet dropped as seen before: level, pn */
+	LQTE_PTO,		/* PTO fired: count, ms after it was due */
+	LQTE_HS_DONE,		/* the handshake completed */
+	LQTE_PATH,		/* the path is to: ip version, port */
+	LQTE_CLOSING,		/* entered closing: error code */
+	LQTE_PEER_CLOSE,	/* the peer's CONNECTION_CLOSE: error code */
+	LQTE_UNANSWERED,	/* a request closed before its answer: id, rx */
+	LQTE_RETRY,		/* ... and is sent again, elsewhere: id */
+};
+
+struct lws_quic_trace_ent {
+	uint32_t		us;	/* since the first entry, saturating */
+	uint32_t		val;	/* pn, PTO count, error code */
+	uint16_t		len;	/* bytes, or ms late for PTO, saturating */
+	uint8_t			ev;	/* enum lws_quic_trace_ev */
+	uint8_t			level;
+};
+
+#define LWS_QUIC_TRACE_ENTS	64
+
+struct lws_quic_trace {
+	lws_usec_t		start;
+	lws_usec_t		pto_due;	/* the sul's us is gone by its cb */
+	struct lws_quic_trace_ent ent[LWS_QUIC_TRACE_ENTS];
+	uint32_t		count;	/* all ever added, the ring keeps the last */
+	uint8_t			sent:1;	/* it sent anything */
+	uint8_t			dump:1;	/* a request went unanswered, or again */
+};
+
+struct lws_quic_netconn;
+
+void
+lws_quic_trace_add(struct lws_quic_netconn *qn, enum lws_quic_trace_ev ev,
+		   int level, uint64_t val, size_t len);
+void
+lws_quic_trace_unanswered(struct lws *wsi, enum lws_close_status reason);
+#define lws_quic_trace(_qn, _ev, _level, _val, _len) \
+		lws_quic_trace_add(_qn, _ev, _level, _val, _len)
+/* the sin_port of either family is in the same place */
+#define lws_quic_trace_path(_qn, _sa46) \
+		lws_quic_trace_add(_qn, LQTE_PATH, \
+			(_sa46)->sa4.sin_family == AF_INET ? 4 : 6, \
+			ntohs((_sa46)->sa4.sin_port), 0)
+#else
+#define lws_quic_trace(_qn, _ev, _level, _val, _len)
+#define lws_quic_trace_path(_qn, _sa46)
+#define lws_quic_trace_unanswered(_wsi, _reason)
+#endif
+
 struct lws_quic_netconn {
 	struct lws		*nwsi; /* the parent UDP network wsi */
 #if defined(LWS_WITH_FOOTPRINT)
@@ -703,6 +764,10 @@ struct lws_quic_netconn {
 	 * goes with the connection if the ALPN migration comes first (0-RTT)
 	 */
 	lws_usec_t		hs_deadline_us;
+
+#if defined(LWS_WITH_QUIC_TRACE)
+	struct lws_quic_trace	trace;
+#endif
 
 	/* Congestion Control Ops */
 	const struct lws_cc_ops	*cc_ops;

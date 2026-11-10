@@ -1575,6 +1575,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 
 			pos += (size_t)reason_len;
 			(void)pos;
+			lws_quic_trace(qn, LQTE_PEER_CLOSE, 0, err_code, 0);
 
 			/*
 			 * The peer's "no error": the transport's, or the

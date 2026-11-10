@@ -277,6 +277,45 @@ Before its handshake completes, a server connection has the context's
 
 ---
 
+## Finding out what a connection did: `LWS_WITH_QUIC_TRACE`
+
+`lws_quic_dump(wsi)` logs, at notice level, where a connection and its
+streams stand: handshake and close state, PTO count, what waits and what is
+in flight at each level.  It says where a connection got to, but not how.
+
+Building with `-DLWS_WITH_QUIC_TRACE=1` (off by default) gives each
+connection a ring of the last 64 things it did, which `lws_quic_dump()` adds
+to what it logs.  Times are from the connection's first entry:
+
+ - each packet sent and taken, with its level, packet number and size, and
+   whether it was only an ACK; packets the socket couldn't take, and ones
+   dropped as seen before
+ - each PTO, with how late it ran after it was due
+ - the path, when the connection starts and each time it moves to another
+   address: moving on to the next of a name's addresses, a server's preferred
+   address, a migration
+ - the handshake completing, our CONNECTION_CLOSE and the peer's, with the
+   error codes
+ - a request stream closing before the end of its answer came, with how much
+   of it did, and a request sent again on another connection
+
+Because each side's packets are listed with their numbers, putting a
+client's and its server's traces side by side shows whether a packet that
+was sent never arrived (and the PTO waited for), whether one side took a long
+time between receiving and answering, or whether nothing ran at all (a PTO
+running late, where the event loop or the whole box was stalled).
+
+Most of this would otherwise only be in info or debug logs, which are not
+built into a release build.  The trace needs only notice logs.
+
+With the trace built in, lws also dumps a client connection by itself when
+it goes before its handshake completed, or with a request it never had the
+whole answer to, since that is when there is least else to go on.
+
+It costs about 800 bytes a connection, which is why it is off by default.
+
+---
+
 ## Congestion Control
 
 Libwebsockets features a pluggable QUIC Congestion Control architecture. By default, it uses a New Reno algorithm, but we also provide an implementation of CUBIC.

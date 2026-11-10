@@ -1295,6 +1295,7 @@ error_handling:
 		}
 
 		wsi->quic.qn->handshake_done = 1;
+		lws_quic_trace(wsi->quic.qn, LQTE_HS_DONE, 0, 0, 0);
 		/* from now on the transport idle timeout bounds it */
 		lws_quic_idle_start(wsi->quic.qn);
 
