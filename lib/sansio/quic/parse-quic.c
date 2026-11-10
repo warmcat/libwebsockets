@@ -1135,22 +1135,37 @@ lws_quic_parse_ack(struct lws *nwsi, struct lws_quic_netconn *qn, int level,
 
 	/*
 	 * RFC 9002 5.3: the peer's ack_delay is scaled by its
-	 * ack_delay_exponent and may not exceed its max_ack_delay
-	 * (25ms if it did not send TP 0x0b).  Unclamped, a hostile
-	 * value shifted by up to 20 bits overflows int64 and, as
-	 * lws_usec_t in the RTT estimator, goes negative: then
-	 * smoothed_rtt goes negative, the PTO never fires and every
-	 * in-flight frame is declared lost on each ACK.  Saturate
-	 * the shift and clamp before it is used anywhere.
+	 * ack_delay_exponent.  Unclamped, a hostile value shifted by up
+	 * to 20 bits overflows int64 and, as lws_usec_t in the RTT
+	 * estimator, goes negative: then smoothed_rtt goes negative, the
+	 * PTO never fires and every in-flight frame is declared lost on
+	 * each ACK.  Saturate the shift and clamp before it is used
+	 * anywhere.
+	 *
+	 * Once the handshake is confirmed, it may not exceed the peer's
+	 * max_ack_delay (25ms if it did not send TP 0x0b).  Before then
+	 * the max_ack_delay is ignored (RFC 9002 5.3 SHOULD): a server
+	 * holds 1-RTT packets that overtook the client's Finished until
+	 * its handshake completes, and reports the wait as ack_delay
+	 * (RFC 9000 13.2.5).  Cut to 25ms, an RTT sample of the whole
+	 * wait, seconds when the Finished was lost, backs the PTO off by
+	 * as much, and a request lost in the same flight isn't sent
+	 * again until the server gave up on the connection.  The RTT
+	 * estimator never takes a sample below min_rtt for it, so a
+	 * peer claiming more than it waited gains nothing past that.
+	 * Initial ACKs, from before anything is authenticated, have it
+	 * ignored (RFC 9002 5.3 MAY): ours report none.
 	 */
 	ack_delay_cap = qn->peer_max_ack_delay_us ?
 			(uint64_t)qn->peer_max_ack_delay_us :
 			(uint64_t)(25 * LWS_US_PER_MS);
-	if (ack_delay > ((uint64_t)~0ull >> ade))
-		actual_ack_delay_us = ack_delay_cap;
+	if (level == LWS_QUIC_LEVEL_INITIAL)
+		actual_ack_delay_us = 0;
+	else if (ack_delay > (LWS_QUIC_ACK_DELAY_MAX_US >> ade))
+		actual_ack_delay_us = LWS_QUIC_ACK_DELAY_MAX_US;
 	else
 		actual_ack_delay_us = ack_delay << ade;
-	if (actual_ack_delay_us > ack_delay_cap)
+	if (qn->handshake_confirmed && actual_ack_delay_us > ack_delay_cap)
 		actual_ack_delay_us = ack_delay_cap;
 
 	/* 3. ACK Range Count */
@@ -1195,6 +1210,7 @@ lws_quic_parse_ack(struct lws *nwsi, struct lws_quic_netconn *qn, int level,
 		goto bail;
 	}
 	if (act) {
+		lws_quic_fi_stat_max(qn, ack_delay_rx_max, actual_ack_delay_us);
 		lws_quic_ack_begin(nwsi, &aw, level, actual_ack_delay_us);
 		begun = 1;
 		lws_quic_ack_range(nwsi, &aw, pn - first_ack_range, pn);

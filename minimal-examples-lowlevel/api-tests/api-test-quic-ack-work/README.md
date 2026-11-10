@@ -24,9 +24,21 @@ to each packet with frames in it (`wsi/quic_path_challenge_flood`), and
 neither may have more than 12 PATH_RESPONSEs waiting or in flight at once
 (G-649).
 
+With `--lost-finished`, the client's Handshake packet with its Finished in it
+is damaged on the way the first three times (`wsi/quic_corrupt_finished`), so
+the server holds the client's 1-RTT packets that came after it until the
+client's PTO sends the Finished again.  The server must have held one for at
+least 50ms, reported that wait in the ACK Delay of its ACK (RFC 9000 13.2.5),
+and the client must have taken all of it, far past the 25ms max_ack_delay,
+since its handshake was not confirmed yet (RFC 9002 5.3).  Taking the wait for
+path RTT instead backs the client's PTO off by as much, so a request lost then
+goes again too late.
+
 ```
 $ ./lws-api-test-quic-ack-work -p 7681 --cert ../api-test-ws-close/localhost-100y.cert \
 	--key ../api-test-ws-close/localhost-100y.key
 $ ./lws-api-test-quic-ack-work -p 7681 --cert ../api-test-ws-close/localhost-100y.cert \
 	--key ../api-test-ws-close/localhost-100y.key --path-challenges
+$ ./lws-api-test-quic-ack-work -p 7681 --cert ../api-test-ws-close/localhost-100y.cert \
+	--key ../api-test-ws-close/localhost-100y.key --lost-finished
 ```
