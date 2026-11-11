@@ -1509,6 +1509,18 @@ rops_adoption_bind_h1(struct lws *wsi, int type, const char *vh_prot_name)
 		return 0;
 
 	if (type & _LWS_ADOPT_FINISH) {
+		/*
+		 * A tls connection takes its ah when its handshake has
+		 * completed, in lws_tls_server_accept_completed(): the
+		 * handshake needs none, and is bounded by the tls accept
+		 * timeout.  Its ah's hold, timeout_secs_ah_idle, is then
+		 * all the request head's own, however long the handshake
+		 * took, and a peer that never finishes its handshake pins no
+		 * ah from the pool meanwhile.
+		 */
+		if (type & LWS_ADOPT_ALLOW_SSL)
+			return 1;
+
 		switch (lws_header_table_attach(wsi, 0)) {
 		case LWS_AH_ATTACH_OK:
 			lwsl_debug("Attached ah immediately\n");

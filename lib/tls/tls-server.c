@@ -860,17 +860,12 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 	}
 
 	/*
-	 * OK, we are accepted... give him some time to negotiate.  But not
-	 * if he already holds a header table: an http server attaches one
-	 * when it adopts the connection, usually before the tls accept has
-	 * completed, and its hold (timeout_secs_ah_idle) is the deadline for
-	 * the whole request head.  Traded for a fresh connect timeout here,
-	 * that deadline was lost for the first request on every tls
-	 * connection.
+	 * OK, we are accepted... give him some time to negotiate.  An http
+	 * connection trades this for its ah's hold below, if it can have one
+	 * now.
 	 */
-	if (wsi->pending_timeout != PENDING_TIMEOUT_HOLDING_AH)
-		lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
-				(int)context->timeout_secs);
+	lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+			(int)context->timeout_secs);
 
 	lws_wsi_event(wsi, LWS_WSIEV_TRANSPORT_UP);
 	if (lws_tls_server_conn_alpn(wsi)) {
@@ -888,6 +883,23 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 		wsi->io->tls.want_write_after_accept = 0;
 		lws_callback_on_writable(wsi);
 	}
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	/*
+	 * An http server connection takes its ah only now, not when it was
+	 * adopted (rops_adoption_bind_h1()): its hold, timeout_secs_ah_idle,
+	 * is the deadline for the request head, and starts from here, on the
+	 * vhost the handshake's SNI chose.  If the pool is empty, he waits
+	 * for one, reading nothing, under the timeout above.
+	 */
+	if (lwsi_role_http(wsi) && lwsi_role_server(wsi) && !wsi->stream.ah) {
+		lws_ah_attach_result_t ar = lws_header_table_attach(wsi, 0);
+
+		/* only autoservice or a client connect can close him in there */
+		assert(ar != LWS_AH_ATTACH_WSI_GONE);
+		(void)ar;
+	}
+#endif
 
 	return 0;
 }
