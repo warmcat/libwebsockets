@@ -1018,6 +1018,8 @@ struct lws_quic_netconn {
 		uint64_t	ack_delay_tx_max;
 		uint64_t	ack_delay_rx_max;
 		uint64_t	ack_delay_rtt_max;
+		/* the most smoothed_rtt was after an ACK, in us */
+		uint64_t	srtt_max;
 		/*
 		 * the times loss detection found persistent congestion, and
 		 * packets that took stream data for the first time only as a

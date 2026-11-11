@@ -42,7 +42,10 @@ Each end's 1-RTT ACKs also report 10ms more ACK Delay than they held them for
 Delay is below its min_rtt, as it is by jitter alone half the time when the
 server reports its hold exactly.  The client must still have taken at least
 half the hold off its RTT sample, flooring it at min_rtt, rather than taking
-the whole sample for path RTT.
+the whole sample for path RTT.  Its smoothed RTT must also have stayed below a
+twelfth of the hold: the congestion controller used to run the RTT estimator
+again on each sample, without the ACK Delay taken off, putting an eighth of
+the hold in it anyway.
 
 ```
 $ ./lws-api-test-quic-ack-work -p 7681 --cert ../api-test-ws-close/localhost-100y.cert \

@@ -77,18 +77,11 @@ newreno_on_ack(struct lws *nwsi, size_t bytes_acked, lws_usec_t rtt)
 	else
 		st->bytes_in_flight = 0;
 
-	/* Update RTT Tracking */
-	if (!qn->smoothed_rtt) {
-		qn->smoothed_rtt = rtt;
-		qn->rttvar = rtt / 2;
-		qn->min_rtt = rtt;
-	} else {
-		qn->min_rtt = rtt < qn->min_rtt ? rtt : qn->min_rtt;
-		lws_usec_t rtt_diff = qn->smoothed_rtt > rtt ? qn->smoothed_rtt - rtt : rtt - qn->smoothed_rtt;
-		qn->rttvar = (3 * qn->rttvar + rtt_diff) / 4;
-		qn->smoothed_rtt = (7 * qn->smoothed_rtt + rtt) / 8;
-	}
-	qn->latest_rtt = rtt;
+	/*
+	 * The RTT estimator is lws_quic_ack_end()'s, which took the peer's
+	 * ACK Delay off the sample: what we pace with is its smoothed_rtt
+	 */
+	(void)rtt;
 
 	if (st->cwnd < st->ssthresh) {
 		/* Slow Start */

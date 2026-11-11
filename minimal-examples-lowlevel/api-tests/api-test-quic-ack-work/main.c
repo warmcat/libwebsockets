@@ -79,19 +79,22 @@
  *    sample from, not an ACK
  *
  *  - wsi/quic_stats as above, which also logs how long the server held them,
- *    the most ACK Delay each end sent and took, and the most of it the RTT
- *    estimator took off a sample
+ *    the most ACK Delay each end sent and took, the most of it the RTT
+ *    estimator took off a sample, and the most smoothed_rtt was after an ACK
  *
  * and the transfer must complete with the server having held a packet for
  * at least QAW_HELD_MIN_US, an ACK of it having reported that wait in its
  * ACK Delay (RFC 9000 13.2.5), and the client having taken all of it,
  * though it is far past the 25ms max_ack_delay, since its handshake was not
  * confirmed yet (RFC 9002 5.3), and having taken at least half the hold off
- * its RTT sample, down to min_rtt.  Either way short, the client took the wait
- * for path RTT, and with its PTO backed off by as much, a request lost then
- * went again only after the server gave up on the connection: in the interop
- * runner's handshakecorruption case, the client then made a 51st connection
- * for its 50 files.
+ * its RTT sample, down to min_rtt.  Its smoothed_rtt must also have stayed
+ * below a twelfth of the hold: the congestion controller used to run the RTT
+ * estimator again on each sample, without the ACK Delay taken off, so an
+ * eighth of the hold went into it anyway.  Either way short, the client took
+ * the wait for path RTT, and with its PTO backed off by as much, a request
+ * lost then went again only after the server gave up on the connection: in
+ * the interop runner's handshakecorruption case, the client then made a 51st
+ * connection for its 50 files.
  */
 
 #include <libwebsockets.h>
@@ -122,6 +125,12 @@
  * little after the oldest, whose hold held_max is
  */
 #define QAW_HELD_SLACK_US	(2 * LWS_US_PER_MS)
+/*
+ * a sample of the whole hold taken in again by the congestion controller puts
+ * an eighth of it in smoothed_rtt; without it, smoothed_rtt is the RTT of the
+ * handshake, some 40ms under ASan for a hold of around 1s
+ */
+#define QAW_SRTT_HELD_DIV	12
 #define QAW_CORRUPT_FINISHED	3
 
 struct qaw_stats {
@@ -138,6 +147,7 @@ struct qaw_stats {
 	uint64_t		ack_delay_tx_max;
 	uint64_t		ack_delay_rx_max;
 	uint64_t		ack_delay_rtt_max;
+	uint64_t		srtt_max;
 };
 
 static struct lws_context *context;
@@ -205,6 +215,7 @@ emit_cb(int level, const char *line)
 	st->ack_delay_tx_max	= stat_get(p, "ack delay tx max ", &bad);
 	st->ack_delay_rx_max	= stat_get(p, "ack delay rx max ", &bad);
 	st->ack_delay_rtt_max	= stat_get(p, "ack delay off rtt max ", &bad);
+	st->srtt_max		= stat_get(p, "srtt max ", &bad);
 
 	if (bad)
 		stats_bad = 1;
@@ -291,11 +302,13 @@ held_check(void)
 {
 	lwsl_user("server held 1-RTT packets up to %lluus and sent ACK Delay "
 		  "up to %lluus, client took ACK Delay up to %lluus, and up to "
-		  "%lluus of it off an RTT sample\n",
+		  "%lluus of it off an RTT sample, its smoothed RTT up to "
+		  "%lluus\n",
 		  (unsigned long long)st_srv.held_max,
 		  (unsigned long long)st_srv.ack_delay_tx_max,
 		  (unsigned long long)st_cli.ack_delay_rx_max,
-		  (unsigned long long)st_cli.ack_delay_rtt_max);
+		  (unsigned long long)st_cli.ack_delay_rtt_max,
+		  (unsigned long long)st_cli.srtt_max);
 
 	if (st_srv.held_max < QAW_HELD_MIN_US) {
 		lwsl_err("FAIL: the server held nothing for %uus\n",
@@ -324,6 +337,12 @@ held_check(void)
 	if (st_cli.ack_delay_rtt_max < st_srv.held_max / 2) {
 		lwsl_err("FAIL: the client took the server's hold for path "
 			 "RTT\n");
+		return 1;
+	}
+
+	if (st_cli.srtt_max >= st_srv.held_max / QAW_SRTT_HELD_DIV) {
+		lwsl_err("FAIL: the client's smoothed RTT took in the "
+			 "server's hold\n");
 		return 1;
 	}
 

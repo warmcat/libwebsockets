@@ -329,7 +329,10 @@ lws_quic_fuzz_set_taps(struct lws_context *cx,
  * \param init: (re)start the controller's state for the connection, also on
  *	path migration
  * \param on_sent: bytes of an ack-eliciting packet went on the wire
- * \param on_ack: bytes acknowledged, with an RTT sample for the largest
+ * \param on_ack: bytes acknowledged, with the raw RTT sample, the peer's ACK
+ *	Delay still in it.  lws keeps the RTT estimator, with the ACK Delay
+ *	taken off, and has updated smoothed_rtt from the sample before this:
+ *	a controller uses that, rather than estimating again from the raw one
  * \param on_loss: bytes declared lost by loss detection, react on cwnd
  * \param on_discard: bytes taken out of flight without ack or loss: a PTO
  *	requeue (RFC 9002 6.2.4, cwnd must not react) or a purged stream.  Only
