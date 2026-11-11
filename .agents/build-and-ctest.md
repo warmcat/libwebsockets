@@ -187,7 +187,7 @@
  - **Watch for stale fixtures.**  The fixture scripts
    (`scripts/ctest-background*.sh`) keep each fixture's pid and log under
    its own build tree's `Testing/fixtures/`.  But a killed or interrupted
-   run leaves its fixtures (servers, `proxy-fixture.py`, valgrind
+   run leaves its fixtures (servers, `lws-api-test-proxy-fixture`, valgrind
    instances) alive and holding ports, so the next run's fixture dies of
    `EADDRINUSE` or, worse, tests pass against the old server.  `ki_*`
    failures, `EADDRINUSE` or "unexpectedly dead" mean: find leftovers and
@@ -376,9 +376,12 @@
    SipHash-2-4 reference values for checking lws's copy.
  - **api-test-proxy-v2-peer-limits needs `LWS_WITH_TLS_PASSTHROUGH`**:
    without it every connection is dropped, which looks like a broken tree.
- - **Red-testing proxied clients:** api-test-client-proxy-redirect's
-   proxy-fixture.py resolves with the platform libc, so an inet_aton-form
-   host like `2130706433` really reaches the local origin through it.
+ - **Red-testing proxied clients:** the proxy fixture
+   (api-test-proxy-fixture, lws raw sockets) makes its onward connection
+   with lws' own client connect, which refuses an inet_aton-form host like
+   `2130706433` (`onward connect failed early`, a 502).  The python
+   fixture it replaced resolved with libc, so such a host really reached
+   the local origin; that red test now needs a different route.
  - **Hostile h3 sequences without fault injection:** on an h3 client
    stream, `lws_write(..., LWS_WRITE_BINARY)` goes out raw with no DATA
    framing (`rops_write_role_protocol_h3()`), so a test can frame the
