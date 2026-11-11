@@ -1801,8 +1801,32 @@ lws_quic_ack_end(struct lws *nwsi, struct lws_quic_ack_walk *aw)
 			if (!qn->rtt_sample_us)
 				qn->rtt_sample_us = aw->now;
 			if (!qn->smoothed_rtt) {
-				qn->smoothed_rtt = rtt;
-				qn->rttvar = rtt / 2;
+				/*
+				 * The path's first sample.  RFC 9002 5.3
+				 * takes it whole, but when the peer's ACKs of
+				 * Initial and Handshake packets were lost, it
+				 * can be a server's ACK of 1-RTT packets it
+				 * held until its handshake completed, the
+				 * hold, seconds when the Finished was lost,
+				 * reported as its ACK Delay.  Taken whole, the
+				 * hold is path RTT, the PTO backs off by three
+				 * times as much, and a request lost with it
+				 * only goes again after the server gave up on
+				 * the connection.  There is no min_rtt yet to
+				 * floor it at, so a peer over-reporting its
+				 * delay can bring it down to kGranularity,
+				 * and later samples correct it.  min_rtt is
+				 * the raw sample (RFC 9002 5.2).
+				 */
+				adjusted_rtt = rtt - (lws_usec_t)aw->ack_delay;
+				if (adjusted_rtt < LWS_QUIC_GRANULARITY_US)
+					adjusted_rtt = rtt < LWS_QUIC_GRANULARITY_US ?
+						rtt : LWS_QUIC_GRANULARITY_US;
+				lws_quic_fi_stat_max(qn, ack_delay_rtt_max,
+						     rtt - adjusted_rtt);
+
+				qn->smoothed_rtt = adjusted_rtt;
+				qn->rttvar = adjusted_rtt / 2;
 				qn->min_rtt = rtt;
 			} else {
 				if (rtt < qn->min_rtt)
@@ -4204,6 +4228,20 @@ tp_ok:
 				if (nwsi && nwsi->quic.qn) {
 					struct lws_quic_netconn *qn = nwsi->quic.qn;
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+					/*
+					 * quic_no_hs_ack: a server acks
+					 * nothing in the Initial and
+					 * Handshake PN spaces, as if every
+					 * one of those ACKs was lost, so the
+					 * client's first RTT sample is of a
+					 * 1-RTT packet
+					 */
+					if (qn->is_server &&
+					    pn_space != LWS_QUIC_LEVEL_APP &&
+					    lws_fi(&nwsi->fic, "quic_no_hs_ack"))
+						goto next_packet;
+#endif
 					qn->needs_ack[pn_space] = 1;
 
 					if (pn_space != LWS_QUIC_LEVEL_APP ||

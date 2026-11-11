@@ -95,6 +95,16 @@
  * lost then went again only after the server gave up on the connection: in
  * the interop runner's handshakecorruption case, the client then made a 51st
  * connection for its 50 files.
+ *
+ * With --first-sample, the faults are those of --lost-finished, and
+ *
+ *  - wsi/quic_no_hs_ack: the server acks nothing in the Initial and
+ *    Handshake PN spaces, so the client's first RTT sample is the server's
+ *    ACK of the 1-RTT packets it held, as when the interop runner's
+ *    handshakeloss case lost all of those ACKs
+ *
+ * and the same must hold of the client.  RFC 9002 5.3 takes the first sample
+ * whole, with no min_rtt yet to guard it: it used to make the hold path RTT.
  */
 
 #include <libwebsockets.h>
@@ -497,6 +507,13 @@ static const struct qaw_fault faults_ack[] = {
 	{ "wsi/quic_no_half_rtt", 0 },
 	{ "wsi/quic_stats", 0 },
 	{ NULL, 0 }
+}, faults_fs[] = {
+	{ "wsi/quic_corrupt_finished", QAW_CORRUPT_FINISHED },
+	{ "wsi/quic_ack_delay_over", 0 },
+	{ "wsi/quic_no_half_rtt", 0 },
+	{ "wsi/quic_no_hs_ack", 0 },
+	{ "wsi/quic_stats", 0 },
+	{ NULL, 0 }
 };
 
 int
@@ -507,7 +524,7 @@ main(int argc, const char **argv)
 	const struct qaw_fault *faults = faults_ack;
 	const char *p, *cert, *key;
 	struct lws_vhost *vh_cli;
-	int result = 1, port = 7711, pc, lf;
+	int result = 1, port = 7711, pc, lf, fs;
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
@@ -531,10 +548,13 @@ main(int argc, const char **argv)
 
 	pc = !!lws_cmdline_option(argc, argv, "--path-challenges");
 	lf = !!lws_cmdline_option(argc, argv, "--lost-finished");
+	fs = !!lws_cmdline_option(argc, argv, "--first-sample");
 	if (pc)
 		faults = faults_pc;
 	if (lf)
 		faults = faults_lf;
+	if (fs)
+		faults = faults_fs;
 
 	for (; faults->name; faults++) {
 		lws_fi_t fi;
@@ -633,7 +653,7 @@ bail:
 				 seen_srv, seen_cli,
 				 stats_bad ? ", unreadable" : "");
 			result = 1;
-		} else if (lf)
+		} else if (lf || fs)
 			result = held_check();
 		else
 			result = pc ? challenges_check("server", &st_srv) |
