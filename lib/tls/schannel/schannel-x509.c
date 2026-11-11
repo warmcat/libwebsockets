@@ -1205,8 +1205,15 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 			kpi.pwszContainerName = (LPWSTR)keyName;
 			kpi.pwszProvName = (LPWSTR)MS_KEY_STORAGE_PROVIDER;
 			kpi.dwProvType = 0; /* CNG */
-			kpi.dwFlags = NCRYPT_SILENT_FLAG; /* user store */
-			kpi.dwKeySpec = CERT_NCRYPT_KEY_SPEC;
+			/*
+			 * As Windows' own PFX import writes it for a CNG key:
+			 * no flags for the user store, and keyspec 0, since
+			 * a CNG key has none.  CERT_NCRYPT_KEY_SPEC belongs to
+			 * the CERT_KEY_CONTEXT below, not here: the acquire in
+			 * our process ignores it, lsass may not.
+			 */
+			kpi.dwFlags = 0;
+			kpi.dwKeySpec = 0;
 
 			if (!CertSetCertificateContextProperty(x509_obj.cert,
 						CERT_KEY_PROV_INFO_PROP_ID, 0, &kpi)) {
