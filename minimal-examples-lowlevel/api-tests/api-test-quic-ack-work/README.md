@@ -37,6 +37,13 @@ completes (`wsi/quic_no_half_rtt`), so the largest client packet it holds,
 whose hold its ACK Delay reports, is one the client takes an RTT sample from,
 not an ACK.
 
+Each end's 1-RTT ACKs also report 10ms more ACK Delay than they held them for
+(`wsi/quic_ack_delay_over`), so the client's RTT sample less the server's ACK
+Delay is below its min_rtt, as it is by jitter alone half the time when the
+server reports its hold exactly.  The client must still have taken at least
+half the hold off its RTT sample, flooring it at min_rtt, rather than taking
+the whole sample for path RTT.
+
 ```
 $ ./lws-api-test-quic-ack-work -p 7681 --cert ../api-test-ws-close/localhost-100y.cert \
 	--key ../api-test-ws-close/localhost-100y.key

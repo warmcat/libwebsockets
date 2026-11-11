@@ -1793,12 +1793,9 @@ lws_quic_ack_end(struct lws *nwsi, struct lws_quic_ack_walk *aw)
 
 		/* Update RTT Estimator (RFC 9002 5.3) */
 		if (aw->rtt_largest > 0) {
-			lws_usec_t adjusted_rtt = aw->rtt_largest;
+			lws_usec_t adjusted_rtt;
 
 			rtt = aw->rtt_largest;
-			if (qn->min_rtt && rtt > qn->min_rtt + (lws_usec_t)aw->ack_delay) {
-				adjusted_rtt = rtt - (lws_usec_t)aw->ack_delay;
-			}
 			qn->latest_rtt = rtt;
 			/* the path's first sample, see lws_quic_pc_lost() */
 			if (!qn->rtt_sample_us)
@@ -1808,7 +1805,31 @@ lws_quic_ack_end(struct lws *nwsi, struct lws_quic_ack_walk *aw)
 				qn->rttvar = rtt / 2;
 				qn->min_rtt = rtt;
 			} else {
-				if (rtt < qn->min_rtt) qn->min_rtt = rtt;
+				if (rtt < qn->min_rtt)
+					qn->min_rtt = rtt;
+
+				/*
+				 * The peer's ACK Delay comes off the sample,
+				 * but the sample is never taken below
+				 * min_rtt.  RFC 9002 5.3 takes the whole
+				 * sample when the delay would leave less than
+				 * min_rtt, but a peer that reports exactly how
+				 * long it held the ACK, eg, a server holding
+				 * 1-RTT packets until it has the keys, leaves
+				 * the path's RTT, which falls either side of
+				 * min_rtt by jitter alone.  Half the time the
+				 * hold, maybe 100s of ms, would then go in as
+				 * path RTT, and the PTO back off by as much.
+				 * A peer over-reporting its delay can only
+				 * bring the sample down to min_rtt.
+				 */
+				adjusted_rtt = rtt - qn->min_rtt >
+						(lws_usec_t)aw->ack_delay ?
+					rtt - (lws_usec_t)aw->ack_delay :
+					qn->min_rtt;
+				lws_quic_fi_stat_max(qn, ack_delay_rtt_max,
+						     rtt - adjusted_rtt);
+
 				lws_usec_t rtt_diff = qn->smoothed_rtt > adjusted_rtt ? (qn->smoothed_rtt - adjusted_rtt) : (adjusted_rtt - qn->smoothed_rtt);
 				qn->rttvar = (3 * qn->rttvar + rtt_diff) / 4;
 				qn->smoothed_rtt = (7 * qn->smoothed_rtt + adjusted_rtt) / 8;
@@ -4981,6 +5002,15 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 			    qn->rx_app_largest_us) {
 				lws_usec_t held = lws_wsi_now(wsi) -
 					qn->rx_app_largest_us;
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+				/*
+				 * quic_ack_delay_over: report more than we
+				 * held it, so the peer's sample less the ACK
+				 * Delay is below its min_rtt
+				 */
+				if (lws_fi(&wsi->fic, "quic_ack_delay_over"))
+					held += LWS_QUIC_FI_ACK_DELAY_OVER_US;
+#endif
 				if (held > 0) {
 					ack_delay_enc = (uint64_t)(held >> 3);
 					lws_quic_fi_stat_max(qn,
@@ -7236,8 +7266,8 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 				"in flight peak %u, excess max %llu, path "
 				"responses peak %u, cc bypassed %llu, held max "
 				"%lluus, ack delay tx max %lluus, ack delay rx "
-				"max %lluus, persistent congestion %llu, "
-				"pto fresh %llu",
+				"max %lluus, ack delay off rtt max %lluus, "
+				"persistent congestion %llu, pto fresh %llu",
 				qn->is_server ? "server" : "client",
 				(unsigned long long)qn->fi_stats.ack_frames,
 				(unsigned long long)qn->fi_stats.ack_ignored,
@@ -7251,6 +7281,7 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 				(unsigned long long)qn->fi_stats.early_held_max,
 				(unsigned long long)qn->fi_stats.ack_delay_tx_max,
 				(unsigned long long)qn->fi_stats.ack_delay_rx_max,
+				(unsigned long long)qn->fi_stats.ack_delay_rtt_max,
 				(unsigned long long)qn->fi_stats.persistent_congestion,
 				(unsigned long long)qn->fi_stats.pto_fresh);
 #endif
