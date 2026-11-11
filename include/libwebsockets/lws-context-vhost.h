@@ -849,7 +849,9 @@ struct lws_context_creation_info {
 	 */
 	unsigned int timeout_secs_ah_idle;
 	/**< VHOST: seconds to allow a client to hold an ah without using it.
-	 * 0 defaults to 10s. */
+	 * It is also the deadline for a request's head: a tls connection
+	 * takes its first ah, and so starts this, only when its handshake
+	 * has completed, which timeout_secs bounds.  0 defaults to 10s. */
 #endif /* WITH_NETWORK */
 
 #if defined(LWS_WITH_TLS_SESSIONS)

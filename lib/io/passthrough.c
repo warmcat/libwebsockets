@@ -469,8 +469,9 @@ lws_pre_accept_proxy_v2(struct lws *wsi)
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	/*
-	 * An http role attaches an ah at adoption, when nobody was counting
-	 * him: give it back while he is still nobody's, and ask again once he
+	 * A plaintext http connection attaches an ah at adoption (a tls one
+	 * only when its handshake completes, after we are done here), when
+	 * nobody was counting him: give it back while he is still nobody's, and ask again once he
 	 * is the peer's, so that it is counted against the peer, and
 	 * ip_limit_ah may leave him waiting for one like any other connection
 	 * of the peer's.  Nothing has been read into it yet: the role only
