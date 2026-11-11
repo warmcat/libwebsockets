@@ -808,7 +808,7 @@ mcuf_profile(const uint8_t *bf, const uint8_t *p, const uint8_t *end,
 	     lws_glyph_metrics_t *m)
 {
 	const uint8_t *q = p + 4;
-	unsigned int b;
+	unsigned int b, first, last;
 
 	if (p >= end)
 		return 0;
@@ -822,21 +822,27 @@ mcuf_profile(const uint8_t *bf, const uint8_t *p, const uint8_t *end,
 	/*
 	 * The face's band count was checked against MCUFO_MAX_KERN_BANDS when
 	 * it was loaded, but the bands index m->l[] and m->r[] here, so make
-	 * sure locally
+	 * sure locally.  The bands are read once and only the checked copies
+	 * used after.
 	 */
 
-	if (end - p < 4 || p[0] > p[1] || p[1] >= bf[MCUFO_KERN_BANDS] ||
-	    p[1] >= MCUFO_MAX_KERN_BANDS)
+	if (end - p < 4)
+		return 0;
+
+	first = p[0];
+	last = p[1];
+	if (first > last || last >= bf[MCUFO_KERN_BANDS] ||
+	    last >= MCUFO_MAX_KERN_BANDS)
 		return 0;
 
 	if (m) {
-		m->first = p[0];
-		m->last = p[1];
-		m->l[p[0]] = p[2];
-		m->r[p[0]] = p[3];
+		m->first = (uint8_t)first;
+		m->last = (uint8_t)last;
+		m->l[first] = p[2];
+		m->r[first] = p[3];
 	}
 
-	for (b = (unsigned int)p[0] + 1; b <= p[1]; b++) {
+	for (b = first + 1; b <= last; b++) {
 		if (q >= end)
 			return 0;
 
