@@ -217,7 +217,10 @@
    DER in policy JSONs, arrays in `minimal-http-server-tls-mem.c`); if it
    is ever re-signed, keep the key and update every copy identically.
    Tests should take `LWS_CTEST_SERVER_RESOLVE` rather than hardcode
-   `127.0.0.1`.
+   `127.0.0.1`.  In an IPv6-only build a `127.0.0.1` listen iface binds
+   `::ffff:127.0.0.1` on the dual-stack v6 listener (0e2708574), as
+   client connects map it; before that the vhost came up with no
+   listener and no error.
  - **Path length matters.**  Tests with goldens or caches can fail only
    on deep checkout paths (`LHP_URL_LEN` silently drops assets; the cache
    blob path buffer is 256 bytes).  For "fails on their machine, passes
