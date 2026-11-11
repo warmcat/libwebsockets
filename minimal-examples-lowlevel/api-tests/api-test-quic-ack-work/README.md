@@ -47,6 +47,14 @@ twelfth of the hold: the congestion controller used to run the RTT estimator
 again on each sample, without the ACK Delay taken off, putting an eighth of
 the hold in it anyway.
 
+With `--first-sample`, the faults are those of `--lost-finished`, and the
+server also acks nothing in the Initial and Handshake PN spaces
+(`wsi/quic_no_hs_ack`), so the client's first RTT sample is the server's ACK
+of the 1-RTT packets it held, as when the interop runner's handshakeloss case
+lost all of those ACKs.  The same must hold of the client: RFC 9002 5.3 takes
+the first sample whole, with no min_rtt yet to guard it, and that used to make
+the hold path RTT.
+
 ```
 $ ./lws-api-test-quic-ack-work -p 7681 --cert ../api-test-ws-close/localhost-100y.cert \
 	--key ../api-test-ws-close/localhost-100y.key
@@ -54,4 +62,6 @@ $ ./lws-api-test-quic-ack-work -p 7681 --cert ../api-test-ws-close/localhost-100
 	--key ../api-test-ws-close/localhost-100y.key --path-challenges
 $ ./lws-api-test-quic-ack-work -p 7681 --cert ../api-test-ws-close/localhost-100y.cert \
 	--key ../api-test-ws-close/localhost-100y.key --lost-finished
+$ ./lws-api-test-quic-ack-work -p 7681 --cert ../api-test-ws-close/localhost-100y.cert \
+	--key ../api-test-ws-close/localhost-100y.key --first-sample
 ```

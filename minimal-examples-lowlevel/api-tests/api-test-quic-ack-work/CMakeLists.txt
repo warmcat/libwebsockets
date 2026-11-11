@@ -50,6 +50,15 @@ if (requirements)
 	set_tests_properties(api-test-quic-ack-work-lost-finished
 			     PROPERTIES TIMEOUT 60)
 
+	lws_get_free_port(PORT_QAW_FS)
+	add_test(NAME api-test-quic-ack-work-first-sample
+		 COMMAND lws-api-test-quic-ack-work -p ${PORT_QAW_FS}
+			 --cert ${QAW_CERTS}/localhost-100y.cert
+			 --key ${QAW_CERTS}/localhost-100y.key
+			 --first-sample)
+	set_tests_properties(api-test-quic-ack-work-first-sample
+			     PROPERTIES TIMEOUT 60)
+
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
 		add_dependencies(${SAMP} websockets_shared)
