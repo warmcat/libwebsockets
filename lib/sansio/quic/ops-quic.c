@@ -3946,12 +3946,14 @@ tp_ok:
 		/* to take the packet out of what we ack, if we can't keep it */
 		struct lws_quic_netconn *pn_qn = nwsi->quic.qn;
 		uint64_t pn_hi_was = 0, pn_bm_was = 0;
+		lws_usec_t pn_largest_us_was = 0;
 
 		if (nwsi->quic.qn) {
 			uint64_t highest = nwsi->quic.qn->highest_rx_pn[pn_space];
 
 			pn_hi_was = highest;
 			pn_bm_was = nwsi->quic.qn->rx_pn_bitmask[pn_space];
+			pn_largest_us_was = nwsi->quic.qn->rx_app_largest_us;
 			nwsi->quic.qn->rx_pkt_unacked = 0;
 			if ((nwsi->quic.qn->rx_pn_bitmask[pn_space] != 0 || highest != 0) && full_pn <= highest) {
 				uint64_t diff = highest - full_pn;
@@ -3996,6 +3998,14 @@ tp_ok:
 				}
 				nwsi->quic.qn->rx_pn_bitmask[pn_space] |= 1ULL;
 				nwsi->quic.qn->highest_rx_pn[pn_space] = full_pn;
+				/*
+				 * the ACK Delay we report counts from when
+				 * the largest PN we ack came (RFC 9000
+				 * 13.2.5); for a packet held until we had its
+				 * keys, rx_us is when its datagram came
+				 */
+				if (pn_space == LWS_QUIC_LEVEL_APP)
+					nwsi->quic.qn->rx_app_largest_us = rx_us;
 			}
 			lws_quic_trace(nwsi->quic.qn, LQTE_RX, level, full_pn,
 				       packet_size);
@@ -4218,6 +4228,7 @@ tp_ok:
 				pn_qn->rx_pkt_unacked = 0;
 				pn_qn->highest_rx_pn[pn_space] = pn_hi_was;
 				pn_qn->rx_pn_bitmask[pn_space] = pn_bm_was;
+				pn_qn->rx_app_largest_us = pn_largest_us_was;
 			}
 
 			/*
@@ -4380,15 +4391,7 @@ tp_ok:
 						goto next_packet;
 					}
 
-					/*
-					 * The ACK Delay we report counts from
-					 * when the first packet it owes came,
-					 * which for one held until our
-					 * handshake completed, is when it was
-					 * held: RFC 9000 13.2.5, the wait for
-					 * keys is ours to report, or the peer
-					 * takes it for path RTT
-					 */
+					/* when the first packet we owe an ACK came */
 					if (!qn->rx_ack_eliciting_since_us)
 						qn->rx_ack_eliciting_since_us =
 									rx_us;
@@ -5162,8 +5165,13 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 			 * scaled by 2 ^ ack_delay_exponent.  We leave our
 			 * exponent implicitly defaulted to 3 (we don't emit TP
 			 * 0x0a), so divide by 8.  For App-space ACKs we report
-			 * how long we actually held the ACK (so the peer can
-			 * subtract it for RTT); Initial/Handshake ACKs are sent
+			 * how long it has been since the largest PN we ack
+			 * came (RFC 9000 13.2.5), which for one held until our
+			 * handshake completed includes the wait for keys: it
+			 * is ours to report, or the peer takes it for path
+			 * RTT.  Counting from an older packet we owe the ACK
+			 * for would report more than the peer's sample, of the
+			 * largest, holds.  Initial/Handshake ACKs are sent
 			 * immediately so their delay is genuinely 0.
 			 */
 			uint8_t * const _ack_start = p;
@@ -5172,9 +5180,9 @@ lws_quic_packet_tx(struct lws *wsi, uint8_t *buf, size_t max,
 			tp->ack_since_us = 0;
 
 			if (pn_space == LWS_QUIC_LEVEL_APP &&
-			    qn->rx_ack_eliciting_since_us) {
+			    qn->rx_app_largest_us) {
 				lws_usec_t held = lws_wsi_now(wsi) -
-					qn->rx_ack_eliciting_since_us;
+					qn->rx_app_largest_us;
 				if (held > 0) {
 					ack_delay_enc = (uint64_t)(held >> 3);
 					lws_quic_fi_stat_max(qn,
