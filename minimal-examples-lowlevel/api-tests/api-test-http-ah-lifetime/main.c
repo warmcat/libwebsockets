@@ -1592,8 +1592,14 @@ int main(int argc, const char **argv)
 	lwsl_user("LWS API selftest: http ah lifetime, %s on %s\n",
 		  case_names[tcase], role_names[role]);
 
-	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
-		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+	/*
+	 * Only h3 uses tls.  Without it, don't have the vhosts create client
+	 * tls contexts nobody uses: on a cpu-starved windows builder those
+	 * took most of the test's ctest timeout before it even started.
+	 */
+	if (role == AHL_H3)
+		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.timeout_secs = AHL_TIMEOUT_S;
 	info.timeout_secs_ah_idle = AHL_AH_IDLE_S;
 	if (tcase == AHL_MUX_CAP_CASE)
