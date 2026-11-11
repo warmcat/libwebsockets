@@ -1838,6 +1838,7 @@ lws_quic_ack_end(struct lws *nwsi, struct lws_quic_ack_walk *aw)
 
 		if (qn->cc_ops && qn->cc_ops->on_ack)
 			qn->cc_ops->on_ack(nwsi, aw->bytes_acked, rtt);
+		lws_quic_fi_stat_max(qn, srtt_max, qn->smoothed_rtt);
 
 		/* If we have pending TX and CC might have unblocked, trigger POLLOUT */
 		int pending = 0;
@@ -7267,7 +7268,8 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 				"responses peak %u, cc bypassed %llu, held max "
 				"%lluus, ack delay tx max %lluus, ack delay rx "
 				"max %lluus, ack delay off rtt max %lluus, "
-				"persistent congestion %llu, pto fresh %llu",
+				"srtt max %lluus, persistent congestion %llu, "
+				"pto fresh %llu",
 				qn->is_server ? "server" : "client",
 				(unsigned long long)qn->fi_stats.ack_frames,
 				(unsigned long long)qn->fi_stats.ack_ignored,
@@ -7282,6 +7284,7 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 				(unsigned long long)qn->fi_stats.ack_delay_tx_max,
 				(unsigned long long)qn->fi_stats.ack_delay_rx_max,
 				(unsigned long long)qn->fi_stats.ack_delay_rtt_max,
+				(unsigned long long)qn->fi_stats.srtt_max,
 				(unsigned long long)qn->fi_stats.persistent_congestion,
 				(unsigned long long)qn->fi_stats.pto_fresh);
 #endif
