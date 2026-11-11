@@ -18,8 +18,8 @@
  *  - through a SOCKS5 proxy (--socks host:port), when built with
  *    LWS_WITH_SOCKS5
  *
- * ctest runs it against api-test-ws-close's proxy-fixture.py, which is
- * both kinds of proxy on one port.
+ * ctest runs it against api-test-proxy-fixture, which is both kinds of
+ * proxy on one port.
  */
 
 #include <libwebsockets.h>
@@ -34,7 +34,7 @@ static const char *proxy_log;
 
 /*
  * ctest only shows a fixture's output when the fixture itself fails, not when
- * a test using it does.  So when we fail, we show what proxy-fixture.py saw,
+ * a test using it does.  So when we fail, we show what the proxy fixture saw,
  * from the log it was told to keep with --log: whether our connections reached
  * it, what they asked for, and how far each got.  It goes straight to stderr,
  * already timestamped like our logs, so log spew handling can't thin it out.

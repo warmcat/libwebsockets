@@ -15,12 +15,12 @@ require_lws_config(LWS_WITH_SERVER 1 requirements)
 require_lws_config(LWS_CLIENT_HTTP_PROXYING 1 requirements)
 
 #
-# The proxies are api-test-ws-close's proxy-fixture.py: an http CONNECT and
-# SOCKS5 proxy in one process
+# The proxy is api-test-proxy-fixture: an http CONNECT and SOCKS5 proxy in one
+# process, on lws raw sockets
 #
-find_program(PYTHON3_FOR_FIXTURE python3)
+require_lws_config(LWS_ROLE_RAW 1 requirements)
 
-if (requirements AND PYTHON3_FOR_FIXTURE AND NOT WIN32)
+if (requirements AND NOT WIN32)
 	add_executable(${SAMP} ${SRCS})
 
 	if (websockets_shared)
@@ -38,13 +38,12 @@ if (requirements AND PYTHON3_FOR_FIXTURE AND NOT WIN32)
 
 	add_test(NAME st_cprx_proxy COMMAND
 		${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
-		cprx_proxy ${PYTHON3_FOR_FIXTURE}
-		${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close/proxy-fixture.py
+		cprx_proxy $<TARGET_FILE:lws-api-test-proxy-fixture>
 		--port ${PORT_CPR_PROXY}
 		--log ${CMAKE_CURRENT_BINARY_DIR}/cprx-proxy.log)
 	add_test(NAME ki_cprx_proxy COMMAND
 		${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
-		cprx_proxy ${PYTHON3_FOR_FIXTURE})
+		cprx_proxy $<TARGET_FILE_NAME:lws-api-test-proxy-fixture>)
 	set_tests_properties(st_cprx_proxy PROPERTIES
 			     WORKING_DIRECTORY . FIXTURES_SETUP cprx_proxy TIMEOUT 60
 			     ENVIRONMENT "SAI_LIST_PORT=${PORT_CPR_PROXY}")

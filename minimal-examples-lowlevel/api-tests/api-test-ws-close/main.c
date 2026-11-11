@@ -15,7 +15,7 @@
  * With --proxy host:port, --socks host:port and --socks-auth host:port it
  * additionally runs h1 legs through an http CONNECT proxy, a SOCKS5 proxy
  * with no auth and a SOCKS5 proxy requiring username/password; ctest runs it
- * that way against proxy-fixture.py in this directory.
+ * that way against ../api-test-proxy-fixture.
  *
  * Before this test, no ctest performed a clean ws close at all: every ws
  * connection in the suite ended by dropping the socket, so the close
@@ -74,7 +74,7 @@ static const char *proxy_log;
 
 /*
  * ctest only shows a fixture's output when the fixture itself fails, not when
- * a test using it does.  So when we fail, we show what proxy-fixture.py saw,
+ * a test using it does.  So when we fail, we show what the proxy fixture saw,
  * from the log it was told to keep with --log: whether our connections reached
  * it, what they asked for, and how far each got.  It goes straight to stderr,
  * already timestamped like our logs, so log spew handling can't thin it out.

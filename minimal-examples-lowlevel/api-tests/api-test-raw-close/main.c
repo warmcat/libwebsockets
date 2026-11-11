@@ -37,7 +37,7 @@ static const char *proxy_log;
 
 /*
  * ctest only shows a fixture's output when the fixture itself fails, not when
- * a test using it does.  So when we fail, we show what proxy-fixture.py saw,
+ * a test using it does.  So when we fail, we show what the proxy fixture saw,
  * from the log it was told to keep with --log: whether our connections reached
  * it, what they asked for, and how far each got.  It goes straight to stderr,
  * already timestamped like our logs, so log spew handling can't thin it out.
@@ -398,7 +398,7 @@ int main(int argc, const char **argv)
 	/*
 	 * A raw client through socks5: the raw role's own path out of the
 	 * socks handshake, which no other test reaches.  The proxy fixture
-	 * is api-test-ws-close's proxy-fixture.py.
+	 * is api-test-proxy-fixture.
 	 */
 	if ((p = lws_cmdline_option(argc, argv, "--socks"))) {
 		info.port = CONTEXT_PORT_NO_LISTEN;

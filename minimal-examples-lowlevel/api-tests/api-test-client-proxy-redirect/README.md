@@ -24,12 +24,13 @@ proxy is `127.0.0.1`, so a request retargeted at the proxy's address arrives
 with the wrong `Host:`, and one retargeted at the proxy's port never reaches
 the origin.
 
-ctest runs it against `../api-test-ws-close/proxy-fixture.py`, which is an
-http CONNECT and a SOCKS5 proxy on one port, with the raw origin's tls using
+ctest runs it against `lws-api-test-proxy-fixture` (from
+`../api-test-proxy-fixture`), which is an http CONNECT and a SOCKS5 proxy on
+one port, with the raw origin's tls using
 `../api-test-ws-close/localhost-100y.cert` and `.key`.
 
 ```
-$ python3 ../api-test-ws-close/proxy-fixture.py --port 7692 --log /tmp/proxy.log &
+$ ./lws-api-test-proxy-fixture --port 7692 --log /tmp/proxy.log &
 $ ./lws-api-test-client-proxy-redirect -p 7690 --port2 7691 --proxy 127.0.0.1:7692 \
 	--cert ../api-test-ws-close/localhost-100y.cert \
 	--key ../api-test-ws-close/localhost-100y.key --proxy-log /tmp/proxy.log
@@ -45,4 +46,4 @@ Option|Meaning
 --cert <path>|The raw origin's tls certificate (default `localhost-100y.cert`)
 --key <path>|The raw origin's tls key (default `localhost-100y.key`)
 --proxy <host:port>|The http CONNECT / SOCKS5 proxy (required)
---proxy-log <path>|The proxy's log (`proxy-fixture.py --log`), shown if the test fails
+--proxy-log <path>|The proxy's log (`lws-api-test-proxy-fixture --log`), shown if the test fails
