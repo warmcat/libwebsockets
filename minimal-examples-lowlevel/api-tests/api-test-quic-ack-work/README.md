@@ -32,7 +32,10 @@ least 50ms, reported that wait in the ACK Delay of its ACK (RFC 9000 13.2.5),
 and the client must have taken all of it, far past the 25ms max_ack_delay,
 since its handshake was not confirmed yet (RFC 9002 5.3).  Taking the wait for
 path RTT instead backs the client's PTO off by as much, so a request lost then
-goes again too late.
+goes again too late.  The server sends nothing in 1-RTT until its handshake
+completes (`wsi/quic_no_half_rtt`), so the largest client packet it holds,
+whose hold its ACK Delay reports, is one the client takes an RTT sample from,
+not an ACK.
 
 ```
 $ ./lws-api-test-quic-ack-work -p 7681 --cert ../api-test-ws-close/localhost-100y.cert \

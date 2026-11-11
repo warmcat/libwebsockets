@@ -65,6 +65,12 @@
  *    server can't open it, and holds the client's 1-RTT packets that came
  *    after it until the client's PTO sends the Finished again
  *
+ *  - wsi/quic_no_half_rtt: the server sends nothing in 1-RTT until its
+ *    handshake completes, so the client has nothing to ack in 1-RTT
+ *    meanwhile, and the largest of its packets the server holds, whose hold
+ *    the ACK Delay reports (RFC 9000 13.2.5), is one the client takes an RTT
+ *    sample from, not an ACK
+ *
  *  - wsi/quic_stats as above, which also logs how long the server held them,
  *    and the most ACK Delay each end sent and took
  *
@@ -102,6 +108,11 @@
  * than the wait
  */
 #define QAW_HELD_MIN_US		(50 * LWS_US_PER_MS)
+/*
+ * the ACK Delay is of the largest packet held (RFC 9000 13.2.5), which came a
+ * little after the oldest, whose hold held_max is
+ */
+#define QAW_HELD_SLACK_US	(2 * LWS_US_PER_MS)
 #define QAW_CORRUPT_FINISHED	3
 
 struct qaw_stats {
@@ -279,13 +290,14 @@ held_check(void)
 		return 1;
 	}
 
-	if (st_srv.ack_delay_tx_max < st_srv.held_max) {
+	if (st_srv.ack_delay_tx_max + QAW_HELD_SLACK_US < st_srv.held_max) {
 		lwsl_err("FAIL: the server's ACK Delay left out the wait\n");
 		return 1;
 	}
 
 	/* it goes in units of 8us, ack_delay_exponent 3 */
-	if (st_cli.ack_delay_rx_max + 8 <= st_srv.held_max) {
+	if (st_cli.ack_delay_rx_max + 8 + QAW_HELD_SLACK_US <=
+							st_srv.held_max) {
 		lwsl_err("FAIL: the client cut the server's ACK Delay\n");
 		return 1;
 	}
@@ -437,6 +449,7 @@ static const struct qaw_fault faults_ack[] = {
 	{ NULL, 0 }
 }, faults_lf[] = {
 	{ "wsi/quic_corrupt_finished", QAW_CORRUPT_FINISHED },
+	{ "wsi/quic_no_half_rtt", 0 },
 	{ "wsi/quic_stats", 0 },
 	{ NULL, 0 }
 };

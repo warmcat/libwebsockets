@@ -716,6 +716,7 @@ struct lws_quic_netconn {
 	lws_usec_t		ack_delay_us;		/* configured max ACK delay (def 25ms) */
 	lws_usec_t		peer_max_ack_delay_us;	/* peer's advertised max_ack_delay (TP 0x0b) */
 	lws_usec_t		rx_ack_eliciting_since_us; /* time of 1st un-ACK'd eliciting App pkt */
+	lws_usec_t		rx_app_largest_us;	/* when the largest App PN came */
 	uint8_t			rx_ack_eliciting_count;    /* eliciting pkts since last App ACK sent */
 	uint8_t			ack_delay_armed;	    /* ack_delay_sul is currently scheduled */
 
