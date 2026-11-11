@@ -441,18 +441,21 @@ static const char * const test_key =
 
 /*
  * With --lost-close, which needs --quiet conn, the relay loses what the server
- * sends the client from RELAY_LC_FROM_US to RELAY_LC_TO_US after the first,
- * which is when, having waited QCS_QUIET_FIRST_REQ_S for a first request, it
- * reaps the connection: its CONNECTION_CLOSE never arrives.  QCS_LC_WRITE_US
- * after its connection was established, the client writes on its stream, to a
- * server that has forgotten the connection.  The server must answer with a
+ * sends the client from RELAY_LC_FROM_US after the server's handshake until the
+ * client's late write.  That covers when, having waited QCS_QUIET_FIRST_REQ_S
+ * after its handshake for a first request, the server reaps the connection:
+ * its CONNECTION_CLOSE never arrives.  Both ends of the window are the
+ * server's handshake and the client's write, not times from the server's first
+ * datagram: on a slow box the handshake itself can take most of a second, and
+ * then a window timed from the first datagram closed before the server did.
+ * QCS_LC_WRITE_US after its connection was established, the client writes on
+ * its stream, to a server that has forgotten the connection.  The server must answer with a
  * Stateless Reset (RFC 9000 10.3), with the token it gave the client for its
  * CID, so the client closes as soon as that arrives, within QCS_QUIET_CLOSE_US
  * of the server's close as if it had heard the CONNECTION_CLOSE, rather than
  * when its PTO count or idle timeout gives up.
  */
 #define RELAY_LC_FROM_US	(700 * LWS_US_PER_MS)
-#define RELAY_LC_TO_US		(1250 * LWS_US_PER_MS)
 #define QCS_LC_WRITE_US		(1350 * LWS_US_PER_MS)
 
 /* a QUIC varint (RFC 9000 16), 0 if it fits in len */
@@ -689,8 +692,8 @@ static struct {
 	char			lost_finished;
 
 	/* --lost-close */
-	lws_usec_t		lc_first;	/* the server's first datagram */
 	unsigned int		lc_lost;
+	char			lc_written;	/* the client's late write */
 	char			lost_close;
 
 	/* --one-burst */
@@ -1123,15 +1126,11 @@ relay_lost_close(struct lws *wsi, struct relay_dir *d, const uint8_t *in,
 	if (fd == LWS_SOCK_INVALID)
 		return;
 
-	if (d == &relay.dir[1]) {
-		if (!relay.lc_first)
-			relay.lc_first = now;
-		if (now - relay.lc_first >= RELAY_LC_FROM_US &&
-		    now - relay.lc_first < RELAY_LC_TO_US) {
-			relay.lc_lost++;
-			d->dropped++;
-			return;
-		}
+	if (d == &relay.dir[1] && server_estab_us && !relay.lc_written &&
+	    now - server_estab_us >= RELAY_LC_FROM_US) {
+		relay.lc_lost++;
+		d->dropped++;
+		return;
 	}
 
 	relay_send(fd, in, len, &d->dest);
@@ -2004,6 +2003,9 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		/* --deaf: what the first write sends is lost */
 		if (relay.deaf && !relay.deaf_start)
 			relay_deaf_start();
+		/* --lost-close: what the server answers it with goes on */
+		if (relay.lost_close)
+			relay.lc_written = 1;
                 lwsl_wsi_info(wsi, "CLIENT WSI allowance=%d", (int)lws_get_peer_write_allowance(wsi));
 		int n = lws_write(wsi, &buf[LWS_PRE], to_send, LWS_WRITE_BINARY);
                 if (n > 0) {
