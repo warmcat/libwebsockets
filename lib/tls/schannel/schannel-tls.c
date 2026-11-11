@@ -375,6 +375,10 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 
     if (status == SEC_E_UNKNOWN_CREDENTIALS || status == SEC_E_INVALID_PARAMETER) {
         SCHANNEL_CRED old_cred = { 0 };
+
+        /* the fallback's status replaces it, so say what this one was */
+        lwsl_notice("%s: SCH_CREDENTIALS refused 0x%x, trying SCHANNEL_CRED\n",
+                    __func__, (unsigned int)status);
         old_cred.dwVersion = SCHANNEL_CRED_VERSION;
         old_cred.cCreds = 1;
         old_cred.paCred = &pCertCtx;
