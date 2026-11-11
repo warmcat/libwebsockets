@@ -21,8 +21,8 @@
  * while the proxy is "127.0.0.1", so a request that was retargeted at the
  * proxy's address shows up with the wrong Host:, and one retargeted at the
  * proxy's port does not reach the origin at all.  The proxies are
- * api-test-ws-close's proxy-fixture.py, which speaks both http CONNECT and
- * SOCKS5 on one port.
+ * api-test-proxy-fixture, which speaks both http CONNECT and SOCKS5 on one
+ * port.
  *
  * Raw clients go through the same proxies to a raw origin that speaks
  * first (a banner, as smtp does), on its own port, and with tls on another:
@@ -54,7 +54,7 @@ static const char *proxy_log;
 
 /*
  * ctest only shows a fixture's output when the fixture itself fails, not when
- * a test using it does.  So when we fail, we show what proxy-fixture.py saw,
+ * a test using it does.  So when we fail, we show what the proxy fixture saw,
  * from the log it was told to keep with --log: whether our connections reached
  * it, what they asked for, and how far each got.  It goes straight to stderr,
  * already timestamped like our logs, so log spew handling can't thin it out.

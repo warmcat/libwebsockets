@@ -11,12 +11,12 @@ require_lws_config(LWS_WITH_TLS 1 requirements)
 require_lws_config(LWS_CLIENT_HTTP_PROXYING 1 requirements)
 
 #
-# The proxies are api-test-ws-close's proxy-fixture.py: an http CONNECT and
-# SOCKS5 proxy on one port; the broker's tls uses its test certificate too
+# The proxy is api-test-proxy-fixture: an http CONNECT and SOCKS5 proxy on one
+# port; the broker's tls uses api-test-ws-close's test certificate
 #
-find_program(PYTHON3_FOR_FIXTURE python3)
+require_lws_config(LWS_ROLE_RAW 1 requirements)
 
-if (requirements AND PYTHON3_FOR_FIXTURE AND NOT WIN32)
+if (requirements AND NOT WIN32)
 	add_executable(${PROJECT_NAME} main.c)
 
 	if (websockets_shared)
@@ -32,13 +32,12 @@ if (requirements AND PYTHON3_FOR_FIXTURE AND NOT WIN32)
 
 	add_test(NAME st_mqttx_proxy COMMAND
 		${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
-		mqttx_proxy ${PYTHON3_FOR_FIXTURE}
-		${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close/proxy-fixture.py
+		mqttx_proxy $<TARGET_FILE:lws-api-test-proxy-fixture>
 		--port ${PORT_MQTT_XPORT_PROXY}
 		--log ${CMAKE_CURRENT_BINARY_DIR}/mqttx-proxy.log)
 	add_test(NAME ki_mqttx_proxy COMMAND
 		${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
-		mqttx_proxy ${PYTHON3_FOR_FIXTURE})
+		mqttx_proxy $<TARGET_FILE_NAME:lws-api-test-proxy-fixture>)
 	set_tests_properties(st_mqttx_proxy PROPERTIES
 			     WORKING_DIRECTORY . FIXTURES_SETUP mqttx_proxy TIMEOUT 60
 			     ENVIRONMENT "SAI_LIST_PORT=${PORT_MQTT_XPORT_PROXY}")
