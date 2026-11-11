@@ -604,6 +604,11 @@ callback_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		if (!conn || conn->closed[ONW])
 			break;
+		/*
+		 * This wsi is done with conn, which may be freed below: don't
+		 * leave it pointing there for any close callback after this
+		 */
+		lws_set_opaque_user_data(wsi, NULL);
 		plog("c%u: onward connect to %s:%u failed after %dms: %s",
 		     conn->cid, conn->host, (unsigned int)conn->port,
 		     ms_since(conn->t0), in ? (const char *)in : "(null)");
