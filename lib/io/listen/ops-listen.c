@@ -902,10 +902,28 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 				a.af = AF_INET;
 				goto single;
 			}
+#elif defined(LWS_WITH_IPV6)
+			/*
+			 * IPv6-only build: as with client connects, take the
+			 * v4 literal as v4-mapped ::ffff:a.b.c.d.  The v6
+			 * listener is dual-stack in these builds, unless the
+			 * vhost forced it v6-only, when no v4 peer can reach it
+			 */
+			if (LWS_IPV6_ENABLED(vhost) &&
+			    !lws_check_opt(vhost->options,
+					   LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
+					   LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE)) {
+				a.af = AF_INET6;
+				goto single;
+			}
 #endif
+			/*
+			 * Not 1, which means an iface that may appear later:
+			 * this one never can, so fail the vhost creation
+			 */
 			lwsl_err("%s: ipv4 not supported on %s\n", __func__,
 					vhost->name);
-			return 1;
+			return -1;
 		}
 
 		if (q == 16) {
@@ -917,7 +935,7 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 #endif
 			lwsl_err("%s: ipv6 not supported on %s\n", __func__,
 					vhost->name);
-			return 1;
+			return -1;
 		}
 	}
 
