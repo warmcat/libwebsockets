@@ -573,6 +573,9 @@ struct lws_quic_early_pkt {
 /* the most ACK Delay, in us, taken from a peer: fits lws_usec_t arithmetic */
 #define LWS_QUIC_ACK_DELAY_MAX_US ((uint64_t)0x7fffffff)
 
+/* what the quic_ack_delay_over fault adds to the ACK Delay we report, in us */
+#define LWS_QUIC_FI_ACK_DELAY_OVER_US (10 * LWS_US_PER_MS)
+
 #if defined(LWS_WITH_QUIC_TRACE)
 /*
  * LWS_WITH_QUIC_TRACE: each connection keeps a ring of what it did last, so
@@ -1007,12 +1010,14 @@ struct lws_quic_netconn {
 		uint64_t	cc_bypassed;
 		/*
 		 * the longest a 1-RTT packet that came before the handshake
-		 * completed was held, the most ACK Delay we sent, and the
-		 * most we took from the peer's ACKs, all in us
+		 * completed was held, the most ACK Delay we sent, the most
+		 * we took from the peer's ACKs, and the most of that the RTT
+		 * estimator took off a sample, all in us
 		 */
 		uint64_t	early_held_max;
 		uint64_t	ack_delay_tx_max;
 		uint64_t	ack_delay_rx_max;
+		uint64_t	ack_delay_rtt_max;
 		/*
 		 * the times loss detection found persistent congestion, and
 		 * packets that took stream data for the first time only as a
