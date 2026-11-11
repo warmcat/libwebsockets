@@ -256,7 +256,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    header arrives).  New per-client
    policy must use the helpers, and anything evaluated at adopt runs
    before the PROXY header has been read.
- - **The h1 role attaches an ah at adoption, before pre-accept:** anything
+ - **The h1 role attaches an ah at adoption, before pre-accept, on a
+   plaintext connection** (a tls one takes it when its handshake
+   completes, `lws_tls_server_accept_completed()`): anything
    that changes `wsi->peer` later must detach and re-attach the ah, or
    `lws_peer_track_ah_detach()` asserts (G-196).  The ah wait list takes
    POLLIN off on every refused attach, and pre-accept leaves an ah waiter
@@ -532,15 +534,17 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    creation parameters hash the same, so a per-vhost trust change after
    creation (`lws_tls_client_vhost_extra_cert_mem()`) reaches every vhost
    sharing it (G-392).
- - **An h1 tls server's accept is bounded by the header table hold, not
-   the 15s SSL_ACCEPT timeout:** the ah is attached at adoption, just
-   after the accept armed `PENDING_TIMEOUT_SSL_ACCEPT` (`timeout_secs`),
-   and arms `PENDING_TIMEOUT_HOLDING_AH` (`timeout_secs_ah_idle`, 10s)
-   over it, which a4a785f64 keeps across the accept's completion as the
-   request head's deadline.  A burst of accepts signed serially on a slow
-   board (riscv mbedtls 2.28, Windows Debug mbedtls) is killed at ~10s as
-   TIMEDOUT WAITING 25.  Reproduce with a slow key and the process on
-   one shared core (`taskset -c 3` with two busy loops on that core).
+ - **An http tls server's handshake is bounded by `timeout_secs`
+   (`PENDING_TIMEOUT_SSL_ACCEPT`), its request head by the header table
+   hold:** the ah is attached only when the accept completes, arming
+   `PENDING_TIMEOUT_HOLDING_AH` (`timeout_secs_ah_idle`, 10s) from there.
+   Before that, the ah came at adoption and its hold covered the
+   handshake too, so a burst of accepts signed serially on a slow board
+   (riscv mbedtls 2.28, Windows Debug mbedtls) was killed at ~10s as
+   TIMEDOUT WAITING 25, and a peer that never finished its handshake
+   pinned an ah.  api-test-http-tls-ah covers it.  A slow handshake can
+   be reproduced with a slow key and the process on one shared core
+   (`taskset -c 3` with two busy loops on that core).
 
 ## Raw connections
 
