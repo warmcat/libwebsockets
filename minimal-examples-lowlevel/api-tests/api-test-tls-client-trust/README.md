@@ -29,6 +29,24 @@ created in this order:
 
 The clients verify the server cert for real, with no relaxations.
 
+## The OS trust store
+
+With `--os-trust`, only `g` and `h` are made and run instead.  They have no CA
+of their own and the OS trust store on.  The ctest runs it with
+`SSL_CERT_FILE` naming `localhost-100y.cert`, so that the OpenSSL family's
+default verify paths, which stand for the OS trust store, are all that lets
+them reach `srv`.  It is run only on the OpenSSL family.
+
+Loading the OS trust store is by far the most expensive part of making a
+client tls ctx, and every tls vhost has one, though most never connect.  So
+the OS trust is loaded into a ctx by its first client connection, not when
+the ctx is made.
+
+|vhost|created with|connecting to `srv`|
+|---|---|---|
+|`g`|no CA, the OS trust store on|served: its connection loads the OS trust first|
+|`h`|the same as `g`, sharing its ctx|served|
+
 ## Running it
 
 ```
@@ -40,3 +58,4 @@ $ lws-api-test-tls-client-trust -p 7681 --certs <this dir>
 |`-p <port>`|Port of the server vhost (default 7681)|
 |`-s <address>`|Address the clients connect to (default `localhost`)|
 |`--certs <dir>`|Dir holding the certs and key (default `.`)|
+|`--os-trust`|Run the OS trust store cases `g` and `h` instead, see above|

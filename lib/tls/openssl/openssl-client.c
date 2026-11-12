@@ -257,6 +257,44 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 }
 #endif
 
+/*
+ * Loading the OS trust store into a client ctx is by far the most expensive
+ * part of making one: OpenSSL's default verify paths parse the whole system
+ * bundle, ~10ms on linux and ~600ms on windows, and on windows the platform
+ * store is imported as well.  Every tls vhost gets a client ctx, but most
+ * never make a client connection, so the trust is loaded by the first
+ * connection that will verify against it, not when the ctx is made.
+ */
+
+static void
+lws_tls_client_ctx_os_trust(struct lws_vhost *vh)
+{
+	struct lws_tls_client_reuse *tcr = vh->tls.tcr;
+
+	if (!tcr)
+		/* a ctx the user provided was set up by the user */
+		return;
+
+	lws_context_lock(vh->context, __func__); /* -------------- cx { */
+
+	if (tcr->os_trust_pending) {
+		tcr->os_trust_pending = 0;
+
+		lws_plat_vhost_tls_client_ctx_init(vh);
+#if defined(LWS_SSL_CLIENT_USE_OS_CA_CERTS)
+		/* loads OS default CA certs */
+		SSL_CTX_set_default_verify_paths(tcr->ssl_client_ctx);
+#endif
+		/*
+		 * a missing default bundle or dir leaves errors queued, that
+		 * must not be taken for this connection's own
+		 */
+		ERR_clear_error();
+	}
+
+	lws_context_unlock(vh->context); /* } cx -------------- */
+}
+
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
@@ -303,6 +341,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 		return -1;
 	}
+
+	lws_tls_client_ctx_os_trust(wsi->a.vhost);
 
 	wsi->io->tls.ssl = SSL_new(wsi->a.vhost->tls.ssl_client_ctx);
 	if (!wsi->io->tls.ssl) {
@@ -1079,8 +1119,6 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				openssl_SSL_CTX_private_data_index,
 				(char *)vh->context);
 
-	lws_plat_vhost_tls_client_ctx_init(vh);
-
 	tcr = lws_zalloc(sizeof(*tcr), "client ctx tcr");
 	if (!tcr) {
 		SSL_CTX_free(vh->tls.ssl_client_ctx);
@@ -1090,6 +1128,9 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	tcr->ssl_client_ctx = vh->tls.ssl_client_ctx;
 	tcr->refcount = 1;
 	tcr->unshared = !!info->client_ssl_ctx_unshared;
+	/* see lws_tls_client_ctx_os_trust() */
+	tcr->os_trust_pending = !lws_check_opt(vh->options,
+					LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS);
 	memcpy(tcr->hash, hash, len);
 	tcr->index = vh->context->tls.count_client_contexts++;
 	lws_dll2_add_head(&tcr->cc_list, &vh->context->tls.cc_owner);
@@ -1215,12 +1256,6 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		lwsl_notice("%s: vh %s: client groups list '%s'\n", __func__,
 			    vh->name, group_list);
 	}
-#endif
-
-#ifdef LWS_SSL_CLIENT_USE_OS_CA_CERTS
-	if (!lws_check_opt(vh->options, LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS))
-		/* loads OS default CA certs */
-		SSL_CTX_set_default_verify_paths(vh->tls.ssl_client_ctx);
 #endif
 
 	/* openssl init for cert verification (for client sockets) */
