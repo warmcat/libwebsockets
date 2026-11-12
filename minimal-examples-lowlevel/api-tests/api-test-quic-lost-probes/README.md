@@ -9,7 +9,9 @@ PTO, until it gave up on the connection.
 
 An h3 server and its clients run in this process, built with
 `LWS_WITH_SYS_FAULT_INJECTION`, with a udp "NAT" between them that sees only
-each datagram's direction and size.  For each of two connections, the NAT
+each datagram's direction and size, and keeps a mapping of its own for each
+connection, since the first stays up during the second.  For each of two
+connections, the NAT
 drops the server's last PMTUD probe twice, the second time with nothing else
 of the server's in flight, and drops everything the client sends after that.
 The server's PTOs then send PINGs alone, P1 to P4, at 1, 3, 7 and 15 times its
