@@ -542,7 +542,9 @@ and `READMEs/README.sans-io-port.md`; read those before changing either.
    handshake too, so a burst of accepts signed serially on a slow board
    (riscv mbedtls 2.28, Windows Debug mbedtls) was killed at ~10s as
    TIMEDOUT WAITING 25, and a peer that never finished its handshake
-   pinned an ah.  api-test-http-tls-ah covers it.  A slow handshake can
+   pinned an ah.  A connection alpn made h2 takes no ah of its own at
+   all, only its streams do, and waits for the peer's first frames under
+   `timeout_secs`.  api-test-http-tls-ah covers both.  A slow handshake can
    be reproduced with a slow key and the process on one shared core
    (`taskset -c 3` with two busy loops on that core).
 
