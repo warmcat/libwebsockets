@@ -8,9 +8,14 @@ needs none and is bounded by the tls accept timeout, `timeout_secs`.
 The server's pool has exactly the room one https GET needs, counting the lws
 client in the same process.  A raw connection connects to the tls server and
 sends nothing.  Then an lws https client GETs `/`, over h1, or h2 chosen by
-alpn: it must be answered well inside the 2s ah idle timeout, which it can't
-be if the silent connection holds an ah.  The silent connection must then be
-closed at the 4s tls accept timeout, not at the ah idle timeout.
+alpn: it must be answered while the silent connection is still open, which it
+can't be if the silent connection holds an ah, since then the GET waits for
+the silent one's 2s ah idle timeout to close it.  The silent connection must
+then be closed at the 4s tls accept timeout, not at the ah idle timeout.
+
+The GET's answer time is only logged, not tested: its tls handshake alone can
+take over a second where the server's private key operation is slow, eg,
+mbedtls on a slow cpu.
 
 On h2 the pool is the same size: the server's stream takes an ah, and its
 network connection, whose headers are all decoded into its streams' ahs,

@@ -21,9 +21,12 @@
  *  - a raw connection connects to the tls server and sends nothing
  *
  *  - a little later, an lws https client GETs /, over h1 or, with --h2, h2
- *    by alpn.  It must be answered well inside the ah idle timeout: if the
- *    silent connection held an ah, there would be none for this one until
- *    the silent one's hold expired.
+ *    by alpn.  It must be answered while the silent connection is still
+ *    open: if that held an ah, there would be none for this one until the
+ *    silent one's ah idle timeout closed it.  How long the GET takes is not
+ *    itself a test, since its tls handshake alone can take over a second
+ *    where the server's private key operation is slow, eg, mbedtls on a
+ *    slow cpu.
  *
  *  - the silent connection must then be closed by the server's tls accept
  *    timeout, not at the ah idle timeout, which only an ah would have
@@ -40,8 +43,6 @@
 #define TAH_TIMEOUT_S		4
 /* the https client starts this long after the silent connection connected */
 #define TAH_LEAD_MS		200
-/* ... and must be answered within this, well inside the ah idle timeout */
-#define TAH_ANSWER_MS		1000
 /* the silent connection must last at least this long */
 #define TAH_SILENT_MIN_MS	((TAH_AH_IDLE_S * 1000) + 1000)
 #define TAH_DEADLINE_S		15
@@ -225,14 +226,10 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		}
 
-		if (ms > TAH_ANSWER_MS) {
-			lws_snprintf(why, sizeof(why), "GET answered after "
-				     "%dms, want within %dms", (int)ms,
-				     TAH_ANSWER_MS);
-			finish(0, why);
-			break;
-		}
-
+		/*
+		 * The silent connection must still be open: RAW_CLOSE fails
+		 * the test if it closed before we got here
+		 */
 		lwsl_user("%s: GET answered after %dms\n", __func__, (int)ms);
 		st.answered = 1;
 		/* now we wait for the server to close the silent connection */
