@@ -404,20 +404,23 @@ static const char * const test_key =
 
 /*
  * With --deaf, the client holds its writes until RELAY_DEAF_AT_US after its
- * connection is established, so the handshake is long confirmed.  From its
- * first write, the relay loses everything the client sends for
- * RELAY_DEAF_LOSS_US, the start of its stream data with it, and everything the
- * server sends the client for RELAY_DEAF_US, as a run of corrupted packets
- * each way would.  The server acks what does get through from the client, but
- * the client hears none of it, so nothing tells it what it sent was lost (RFC
- * 9002 6.1 finds loss from acks), and the server, missing the start of the
- * stream, has nothing to deliver.  Only the client's PTO can get the data
- * there: its probes must carry what it has unacked, oldest first, not just a
- * PING (RFC 9002 6.2.4), and by the end of RELAY_DEAF_US the server must have
- * the start of the stream.  A client whose probes are PINGs, or new data
- * behind the hole, never fills it while it is deaf; when a request is what
- * was lost, the server waiting for it has nothing to say, and the client dies
- * of its PTO count.
+ * connection is established, so the handshake is long confirmed.  From the
+ * first datagram the relay sees from the client after its first write, the
+ * relay loses everything the client sends for RELAY_DEAF_LOSS_US, the start of
+ * its stream data with it, and everything the server sends the client for
+ * RELAY_DEAF_US, as a run of corrupted packets each way would.  The window
+ * opens on the datagram, not the write: the datagram goes out on a later
+ * service pass, and a host that stalls between the two would otherwise see
+ * the window close before anything of the client's reached it.  The server
+ * acks what does get through from the client, but the client hears none of
+ * it, so nothing tells it what it sent was lost (RFC 9002 6.1 finds loss from
+ * acks), and the server, missing the start of the stream, has nothing to
+ * deliver.  Only the client's PTO can get the data there: its probes must
+ * carry what it has unacked, oldest first, not just a PING (RFC 9002 6.2.4),
+ * and by the end of RELAY_DEAF_US the server must have the start of the
+ * stream.  A client whose probes are PINGs, or new data behind the hole, never
+ * fills it while it is deaf; when a request is what was lost, the server
+ * waiting for it has nothing to say, and the client dies of its PTO count.
  */
 #define RELAY_DEAF_AT_US	(300 * LWS_US_PER_MS)
 #define RELAY_DEAF_LOSS_US	(50 * LWS_US_PER_MS)
@@ -682,6 +685,7 @@ static struct {
 	lws_sorted_usec_list_t	sul_deaf;
 	lws_usec_t		deaf_start;
 	char			deaf;
+	char			deaf_armed; /* the client made its first write */
 
 	/* --lost-finished */
 	lws_sorted_usec_list_t	sul_lf;
@@ -1056,6 +1060,10 @@ relay_deaf(struct lws *wsi, struct relay_dir *d, const uint8_t *in, size_t len)
 
 	if (fd == LWS_SOCK_INVALID)
 		return;
+
+	/* the window opens on the client's first datagram after its write */
+	if (relay.deaf_armed && !relay.deaf_start && d == &relay.dir[0])
+		relay_deaf_start();
 
 	if (relay.deaf_start) {
 		t = lws_now_usecs() - relay.deaf_start;
@@ -2001,8 +2009,8 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 			to_send = sizeof(buf) - LWS_PRE;
 		pattern_fill(client_sent, &buf[LWS_PRE], to_send);
 		/* --deaf: what the first write sends is lost */
-		if (relay.deaf && !relay.deaf_start)
-			relay_deaf_start();
+		if (relay.deaf)
+			relay.deaf_armed = 1;
 		/* --lost-close: what the server answers it with goes on */
 		if (relay.lost_close)
 			relay.lc_written = 1;
