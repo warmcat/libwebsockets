@@ -14,9 +14,10 @@
  * until it gave up on the connection.
  *
  * An h3 server and its clients are in this process, with a udp "NAT" between
- * them that sees each datagram's direction and size, nothing more.  For each
- * of two connections, the server's PMTUD search sends its last probe, a
- * datagram the size of its ceiling, and
+ * them that sees each datagram's direction and size, nothing more, and keeps
+ * a mapping of its own for each connection.  For each of two connections,
+ * the server's PMTUD search sends its last probe, a datagram the size of its
+ * ceiling, and
  *
  *  - the NAT drops it.  The server's PTO sends a PING, which gets an ack,
  *    the probe is found lost, and goes again.  By then everything else the
@@ -89,8 +90,15 @@ enum {
 static struct lws_context *cx;
 static lws_sorted_usec_list_t sul_watchdog, sul_next;
 static struct lws_vhost *vh_cli[QLP_PHASE_COUNT];
-static struct lws *nat_in, *nat_out, *srv_held;
-static lws_sockaddr46 nat_client, nat_srv;
+/*
+ * Each phase's connection has a NAT mapping of its own, a pair of sockets, as
+ * a real NAT keeps one per flow: the first phase's connection stays up, and
+ * what passes between it and the server meanwhile must not be taken for, or
+ * go to, the next phase's client
+ */
+static struct lws *nat_in[QLP_PHASE_COUNT], *nat_out[QLP_PHASE_COUNT],
+		  *srv_held;
+static lws_sockaddr46 nat_client[QLP_PHASE_COUNT], nat_srv;
 static int port_srv = 7720, phase, state, pto_probes, timed_out, fails,
 	   completed[QLP_PHASE_COUNT], cli_dropped[QLP_PHASE_COUNT],
 	   probes_seen[QLP_PHASE_COUNT], held_released, stats_lines;
@@ -283,25 +291,34 @@ static int
 callback_nat(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	     void *in, size_t len)
 {
+	int n;
+
 	(void)user;
 
 	if (reason != LWS_CALLBACK_RAW_RX || !lws_get_udp(wsi) || !len)
 		return 0;
 
-	if (wsi == nat_in) {
-		/* the phase's client is the only one sending to the NAT */
-		nat_client = lws_get_udp(wsi)->sa46;
+	for (n = 0; n < QLP_PHASE_COUNT; n++)
+		if (wsi == nat_in[n] || wsi == nat_out[n])
+			break;
+	if (n == QLP_PHASE_COUNT)
+		return 0;
+
+	if (wsi == nat_in[n]) {
+		/* only phase n's client sends to its mapping */
+		nat_client[n] = lws_get_udp(wsi)->sa46;
 		/* from the probe's second drop until passing P4, nothing */
-		if (state == QLP_PROBES) {
+		if (n == phase && state == QLP_PROBES) {
 			cli_dropped[phase]++;
 			return 0;
 		}
-		nat_sendto(nat_out, in, len, &nat_srv);
+		nat_sendto(nat_out[n], in, len, &nat_srv);
 		return 0;
 	}
 
-	if (wsi == nat_out && nat_srv_dgram(len))
-		nat_sendto(nat_in, in, len, &nat_client);
+	/* only the phase's own connection sees the drops */
+	if (n != phase || nat_srv_dgram(len))
+		nat_sendto(nat_in[n], in, len, &nat_client[n]);
 
 	return 0;
 }
@@ -424,7 +441,7 @@ qlp_get(const char *path)
 	i.context		= cx;
 	i.vhost			= vh_cli[phase];
 	i.address		= "127.0.0.1";
-	i.port			= (int)local_port(nat_in);
+	i.port			= (int)local_port(nat_in[phase]);
 	i.host			= "localhost";
 	i.origin		= "localhost";
 	i.path			= path;
@@ -448,7 +465,6 @@ qlp_next(lws_sorted_usec_list_t *sul)
 		phase		= QLP_PHASE_CONGESTION;
 		state		= QLP_PASS;
 		pto_probes	= 0;
-		memset(&nat_client, 0, sizeof(nat_client));
 		lwsl_user("congestion: the server answers once its window "
 			  "was cut\n");
 		if (qlp_get("/held")) {
@@ -511,7 +527,7 @@ main(int argc, const char **argv)
 		return 1;
 	}
 
-	/* a server, its clients and the NAT's two sockets */
+	/* a server, its clients and the NAT's sockets */
 	info.fd_limit_per_thread = 0;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -549,15 +565,21 @@ main(int argc, const char **argv)
 		}
 	}
 
-	/* the NAT's sides, on ports the kernel picks */
-	nat_in = lws_create_adopt_udp(vh_cli[0], "127.0.0.1", 0, LWS_CAUDP_BIND,
-				      "qlp-nat", NULL, NULL, NULL, NULL, NULL);
-	nat_out = lws_create_adopt_udp(vh_cli[0], "127.0.0.1", 0,
-				       LWS_CAUDP_BIND, "qlp-nat", NULL, NULL,
-				       NULL, NULL, NULL);
+	/* each phase's NAT mapping, on ports the kernel picks */
+	for (n = 0; n < QLP_PHASE_COUNT; n++) {
+		nat_in[n] = lws_create_adopt_udp(vh_cli[n], "127.0.0.1", 0,
+						 LWS_CAUDP_BIND, "qlp-nat",
+						 NULL, NULL, NULL, NULL, NULL);
+		nat_out[n] = lws_create_adopt_udp(vh_cli[n], "127.0.0.1", 0,
+						  LWS_CAUDP_BIND, "qlp-nat",
+						  NULL, NULL, NULL, NULL, NULL);
+		if (!nat_in[n] || !nat_out[n] || !local_port(nat_in[n])) {
+			lwsl_err("Failed to create the NAT\n");
+			goto bail;
+		}
+	}
 	memset(&nat_srv, 0, sizeof(nat_srv));
-	if (!nat_in || !nat_out || !local_port(nat_in) ||
-	    lws_sa46_parse_numeric_address("127.0.0.1", &nat_srv)) {
+	if (lws_sa46_parse_numeric_address("127.0.0.1", &nat_srv)) {
 		lwsl_err("Failed to create the NAT\n");
 		goto bail;
 	}
