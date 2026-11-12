@@ -177,11 +177,16 @@ enum lws_callback_reasons {
 
 	LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION = 58,
 	/**< Similar to LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION
-	 * this callback is called during OpenSSL verification of the cert
-	 * sent from the server to the client. It is sent to protocol[0]
-	 * callback as no protocol has been negotiated on the connection yet.
+	 * this callback is called during the tls library's verification of
+	 * the cert sent from the server to the client.  Despite the name, it
+	 * is made with OpenSSL, OpenHiTLS and mbedTLS, and what user, in and
+	 * len are differs with each, as described below.  It is sent to the
+	 * client connection's protocol, or protocol[0] if it has none.
 	 * Notice that the wsi is set because lws_client_connect_via_info was
 	 * successful.
+	 *
+	 * With OpenSSL, and likewise OpenHiTLS with its own store ctx and
+	 * ssl types:
 	 *
 	 * See http://www.openssl.org/docs/ssl/SSL_CTX_set_verify.html
 	 * to understand more detail about the OpenSSL callback that
@@ -204,6 +209,28 @@ enum lws_callback_reasons {
 	 * Note: LCCSCF_ALLOW_SELFSIGNED and
 	 * LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK still work without this
 	 * callback being implemented.
+	 *
+	 * With mbedTLS, the callback is made from mbedtls_ssl_set_verify()'s
+	 * callback, once for each cert of the chain mbedtls built, from the
+	 * top of the chain down to the server's own cert last, at depth 0,
+	 * on tls over tcp and QUIC (http/3) connections alike.
+	 * user is the cert, a mbedtls_x509_crt *, in is a uint32_t * to
+	 * mbedtls' MBEDTLS_X509_BADCERT_* flags for that cert, and len is its
+	 * depth.  The flags lws later judges the connection on are the ones
+	 * you leave there: return 0 having cleared them to accept a cert
+	 * mbedtls refused, or having set some (eg, MBEDTLS_X509_BADCERT_OTHER)
+	 * to refuse it.  Returning nonzero fails the handshake at once, and,
+	 * unlike flags, it cannot be relaxed by LCCSCF_ALLOW_SELFSIGNED,
+	 * LCCSCF_ALLOW_EXPIRED or LCCSCF_ALLOW_INSECURE.  So it is the way to
+	 * do certificate or public key pinning, eg, hashing the cert's
+	 * SubjectPublicKeyInfo, x509->pk_raw, at the depth you pin.  The
+	 * flags are mbedtls' own: with LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK,
+	 * the server cert still has MBEDTLS_X509_BADCERT_CN_MISMATCH here,
+	 * which lws ignores afterwards.  The callback is only made when lws
+	 * found mbedtls_ssl_set_verify() at build time
+	 * (LWS_HAVE_mbedtls_ssl_set_verify), and mbedTLS 3.6.0 does not call
+	 * it for TLS 1.3 connections, fixed in 3.6.1: don't rely on it to pin
+	 * with 3.6.0.
 	 */
 
 	/* ---------------------------------------------------------------------

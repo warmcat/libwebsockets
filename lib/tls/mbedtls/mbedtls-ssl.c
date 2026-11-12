@@ -244,8 +244,8 @@ lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret)
  * The conn now belongs to wsi (lws_tls_transfer_wsi()).  The bio context is
  * the conn's own net member, which moves with it; conn->wsi is how the server
  * SNI callback finds the wsi, the ssl user data is how the quic callbacks do,
- * and a client's jit trust verify callback is given the wsi to collect the
- * peer chain into
+ * and a client's verify callback is given the wsi it reports the peer chain
+ * for
  */
 void
 lws_tls_conn_set_wsi(struct lws *wsi)
@@ -254,8 +254,7 @@ lws_tls_conn_set_wsi(struct lws *wsi)
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03020000
 	mbedtls_ssl_set_user_data_p(&wsi->io->tls.ssl->ssl, wsi);
 #endif
-#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_TLS_JIT_TRUST) && \
-    defined(LWS_HAVE_mbedtls_ssl_set_verify)
+#if defined(LWS_WITH_CLIENT) && defined(LWS_HAVE_mbedtls_ssl_set_verify)
 	if (lwsi_role_client(wsi))
 		lws_mbedtls_client_set_verify(wsi);
 #endif
