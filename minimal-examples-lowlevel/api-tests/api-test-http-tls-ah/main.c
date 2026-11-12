@@ -15,7 +15,8 @@
  * on a server short of cpu, eats into the time its request head is given.
  *
  * The server's pool has room for exactly what one https request needs, its
- * own and that of the lws client in the same process.  Then:
+ * own and that of the lws client in the same process.  On h2, the server's
+ * own is its stream's: a network connection alpn made h2 takes none.  Then:
  *
  *  - a raw connection connects to the tls server and sends nothing
  *
@@ -47,11 +48,10 @@
 
 /*
  * What one https GET needs from the pool, the server's and the lws client's
- * own, which share it here: on h1, one each.  On h2, the server's network
- * connection holds one as well as its stream.
+ * own, which share it here: one each.  On h2, that is the server's stream:
+ * its network connection must not hold one as well.
  */
-#define TAH_POOL_H1		2
-#define TAH_POOL_H2		3
+#define TAH_POOL		2
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
@@ -333,7 +333,7 @@ int main(int argc, const char **argv)
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.timeout_secs = TAH_TIMEOUT_S;
 	info.timeout_secs_ah_idle = TAH_AH_IDLE_S;
-	info.max_http_header_pool = h2 ? TAH_POOL_H2 : TAH_POOL_H1;
+	info.max_http_header_pool = TAH_POOL;
 
 	context = lws_create_context(&info);
 	if (!context) {

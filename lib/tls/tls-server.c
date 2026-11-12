@@ -891,8 +891,13 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 	 * is the deadline for the request head, and starts from here, on the
 	 * vhost the handshake's SNI chose.  If the pool is empty, he waits
 	 * for one, reading nothing, under the timeout above.
+	 *
+	 * A connection alpn made h2 takes none: its headers are decoded into
+	 * each stream's own ah, and nothing reads the network connection's.
+	 * It stays under the timeout above until the peer's first frames.
 	 */
-	if (lwsi_role_http(wsi) && lwsi_role_server(wsi) && !wsi->stream.ah) {
+	if (lwsi_role_http(wsi) && !lwsi_role_h2(wsi) &&
+	    lwsi_role_server(wsi) && !wsi->stream.ah) {
 		lws_ah_attach_result_t ar = lws_header_table_attach(wsi, 0);
 
 		/* only autoservice or a client connect can close him in there */
