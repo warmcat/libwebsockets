@@ -12,6 +12,10 @@ alpn: it must be answered well inside the 2s ah idle timeout, which it can't
 be if the silent connection holds an ah.  The silent connection must then be
 closed at the 4s tls accept timeout, not at the ah idle timeout.
 
+On h2 the pool is the same size: the server's stream takes an ah, and its
+network connection, whose headers are all decoded into its streams' ahs,
+must not hold one too.
+
 ```
 $ ./lws-api-test-http-tls-ah --cert localhost-100y.cert \
 	--key localhost-100y.key -p 7681 --h2
