@@ -143,6 +143,16 @@
    `-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP3=0 -DLWS_MBEDTLS_INCLUDE_DIRS=<p>/include`
    `"-DLWS_MBEDTLS_LIBRARIES=<p>/lib64/libmbedtls.so;<p>/lib64/libmbedx509.so;<p>/lib64/libmbedcrypto.so"`
    and `LD_LIBRARY_PATH` for ctest (B82).
+ - **mbedtls 4.x with h3 / QUIC can be built here**: clone the
+   `development` branch of https://libwebsockets.org/repo/mbedtls (it
+   carries the four `quic: Epoch 2` patches and enables
+   `MBEDTLS_SSL_LWS_QUIC_SUPPORT` already) into your scratchpad,
+   `git submodule update --init` there and again in `tf-psa-crypto/`,
+   build shared with testing and programs off and
+   `-DMBEDTLS_FATAL_WARNINGS=OFF`, install to a prefix, then
+   `-DLWS_WITH_MBEDTLS=1 -DCMAKE_PREFIX_PATH=<prefix>` as Sai's mbedtls4
+   config does: h3 stays on, and the binaries find the libs through their
+   rpath without `LD_LIBRARY_PATH` (full ctest passed this way).
  - **Data races in examples or lib can be shown red/green with clang
    `-fsanitize=thread`** (gcc has no libtsan here): build only
    `websockets_shared` with SSL off.  The rtc_camera plugin's
