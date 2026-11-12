@@ -343,9 +343,10 @@ times what its data fills through the lag.
 ## a client that hears nothing back
 
 With `--deaf`, the client holds its writes until 300ms after its connection is
-established.  From its first write, the relay loses everything the client sends
-for 50ms, the start of its stream data with it, and everything the server sends
-the client for 1.5s, as a run of corrupted packets each way would.  The server
+established.  From the first datagram the relay sees from the client after
+that write, it loses everything the client sends for 50ms, the start of its
+stream data with it, and everything the server sends the client for 1.5s, as a
+run of corrupted packets each way would.  The server
 acks what gets through from the client after that, but the client hears none of
 it, so no ack tells it what it sent was lost (RFC 9002 6.1), and the server,
 missing the start of the stream, has nothing to deliver.  Only the client's PTO
