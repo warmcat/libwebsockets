@@ -98,6 +98,56 @@ static int port, result = 1, finished;
 
 static void grt_check(void);
 
+/*
+ * What happened to each request and connection, and when, kept quietly and
+ * logged only if the test fails: which connection each request went out on,
+ * which one the server heard it on, and when the server's connections went
+ */
+
+#define GRT_EV_MAX		128
+
+static struct grt_ev {
+	lws_usec_t		t;
+	char			s[112];
+} evs[GRT_EV_MAX];
+static lws_usec_t ev_t0;
+static int ev_count, ev_dropped;
+
+static void
+grt_ev(const char *what, const char *path, struct lws *wsi)
+{
+	struct grt_ev *e;
+
+	if (ev_count == GRT_EV_MAX) {
+		ev_dropped++;
+		return;
+	}
+
+	e = &evs[ev_count++];
+	e->t = lws_now_usecs();
+	lws_snprintf(e->s, sizeof(e->s), "%s%s%s %s", what, path ? " " : "",
+		     path ? path : "", lws_wsi_tag(lws_get_network_wsi(wsi)));
+}
+
+static void
+grt_ev_dump(void)
+{
+	int n;
+
+	for (n = 0; n < ev_count; n++)
+		lwsl_notice("  +%5dms %s\n",
+			    (int)((evs[n].t - ev_t0) / LWS_US_PER_MS),
+			    evs[n].s);
+	if (ev_dropped)
+		lwsl_notice("  (%d more)\n", ev_dropped);
+
+	for (n = 0; n < GRT_COUNT; n++)
+		lwsl_notice("  %s %s: status %d, server saw it %d times, "
+			    "last on %s\n", reqs[n].method, reqs[n].path,
+			    reqs[n].status, reqs[n].srv_hits,
+			    reqs[n].srv_conn[0] ? reqs[n].srv_conn : "-");
+}
+
 /* ------------------------------------------------------------- server */
 
 struct pss_srv {
@@ -115,6 +165,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
+		grt_ev("srv hears", (const char *)in, wsi);
 		for (n = 0; n < GRT_COUNT; n++)
 			if (!strcmp((const char *)in, reqs[n].path)) {
 				reqs[n].srv_hits++;
@@ -141,6 +192,11 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		if (lws_http_transaction_completed(wsi))
 			return -1;
+		break;
+
+	case LWS_CALLBACK_WSI_DESTROY:
+		/* a server connection, or one of its streams, going */
+		grt_ev("srv gone", NULL, wsi);
 		break;
 
 	default:
@@ -251,22 +307,34 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	int lenx = (int)sizeof(buf) - LWS_PRE;
 
 	switch (reason) {
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+		/* the request is going out, on this connection */
+		if (r)
+			grt_ev("cli sends", r->path, wsi);
+		break;
+
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
 		if (lws_http_client_read(wsi, &px, &lenx) < 0)
 			return -1;
 		return 0;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+		if (r)
+			grt_ev("cli answered", r->path, wsi);
 		grt_req_done(r, (int)lws_http_client_http_response(wsi));
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_user("%s: CONNECTION_ERROR: %s\n", __func__,
 			  in ? (const char *)in : "(null)");
+		if (r)
+			grt_ev("cli failed", r->path, wsi);
 		grt_req_done(r, -1);
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (r)
+			grt_ev("cli closed", r->path, wsi);
 		grt_req_done(r, -1);
 		break;
 
@@ -296,8 +364,10 @@ grt_finish(const char *why, int ok)
 	if (ok) {
 		result = 0;
 		lwsl_user("%s: %s\n", __func__, why);
-	} else
+	} else {
 		lwsl_err("%s: FAIL: %s\n", __func__, why);
+		grt_ev_dump();
+	}
 	lws_default_loop_exit(context);
 }
 
@@ -364,11 +434,7 @@ grt_check(void)
 static void
 watchdog_cb(lws_sorted_usec_list_t *sul)
 {
-	int n;
-
-	for (n = 0; n < GRT_COUNT; n++)
-		lwsl_err("%s: %s %s: %d\n", __func__, reqs[n].method,
-			 reqs[n].path, reqs[n].status);
+	/* how each request stood is in the events grt_finish() logs */
 	grt_finish("timed out", 0);
 }
 
@@ -448,6 +514,8 @@ main(int argc, const char **argv)
 
 	lws_sul_schedule(context, 0, &sul_watchdog, watchdog_cb,
 			 GRT_TIMEOUT_S * LWS_US_PER_SEC);
+
+	ev_t0 = lws_now_usecs();
 
 	if (grt_request(GRT_A) || grt_request(GRT_B) || grt_request(GRT_C1) ||
 	    grt_request(GRT_D1)) {

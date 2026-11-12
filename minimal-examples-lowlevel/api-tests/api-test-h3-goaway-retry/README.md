@@ -38,3 +38,7 @@ $ ./lws-api-test-h3-goaway-retry -p 7681 --cert ../api-test-ws-close/localhost-1
 ```
 
 It needs `-DLWS_WITH_SYS_FAULT_INJECTION=1`.
+
+If it fails, it logs what it kept meanwhile: which connection each request
+went out on and was heard on, when each was answered or failed, and when the
+server's connections and streams went.
