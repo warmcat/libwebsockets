@@ -204,6 +204,36 @@ enum lws_callback_reasons {
 	 * Note: LCCSCF_ALLOW_SELFSIGNED and
 	 * LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK still work without this
 	 * callback being implemented.
+	 *
+	 * With mbedTLS, the callback is made from mbedtls_ssl_set_verify()'s
+	 * callback, once for each cert of the chain mbedtls built, from the
+	 * top of the chain down to the server's own cert last, at depth 0.
+	 * It is sent to the client's protocol, or protocol[0] if it has none.
+	 * user is the cert, a mbedtls_x509_crt *, in is a uint32_t * to
+	 * mbedtls' MBEDTLS_X509_BADCERT_* flags for that cert, and len is its
+	 * depth.  The flags lws later judges the connection on are the ones
+	 * you leave there: return 0 having cleared them to accept a cert
+	 * mbedtls refused, or having set some (eg, MBEDTLS_X509_BADCERT_OTHER)
+	 * to refuse it.  Returning nonzero fails the handshake at once, and,
+	 * unlike flags, it cannot be relaxed by LCCSCF_ALLOW_SELFSIGNED,
+	 * LCCSCF_ALLOW_EXPIRED or LCCSCF_ALLOW_INSECURE.  So it is the way to
+	 * do certificate or public key pinning, eg, hashing the cert's
+	 * SubjectPublicKeyInfo, x509->pk_raw, at the depth you pin.  The
+	 * flags are mbedtls' own: with LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK,
+	 * the server cert still has MBEDTLS_X509_BADCERT_CN_MISMATCH here,
+	 * which lws ignores afterwards.  The callback is only made when lws
+	 * found mbedtls_ssl_set_verify() at build time
+	 * (LWS_HAVE_mbedtls_ssl_set_verify), and mbedTLS 3.6.0 does not call
+	 * it for TLS 1.3 connections, fixed in 3.6.1: don't rely on it to pin
+	 * with 3.6.0.
+	 */
+
+	LWS_CALLBACK_PERFORM_SERVER_CERT_VERIFICATION =
+			LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION,
+	/**< The same callback, by a name that does not suggest it is only made
+	 * with OpenSSL.  See LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION
+	 * for what it gives you with each tls backend.  Since it has the same
+	 * value, only one of the two names can be a case in one switch.
 	 */
 
 	/* ---------------------------------------------------------------------

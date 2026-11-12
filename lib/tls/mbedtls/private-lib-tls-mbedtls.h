@@ -163,11 +163,9 @@ lws_mbedtls_conf_ciphers(struct lws_tls_ctx *ctx, const char *vhname,
 
 int
 lws_mbedtls_conn_set_alpn(struct lws_tls_conn *conn, const char *alpn_comma);
-#if defined(LWS_WITH_CLIENT)
-#if defined(LWS_WITH_TLS_JIT_TRUST) && defined(LWS_HAVE_mbedtls_ssl_set_verify)
+#if defined(LWS_WITH_CLIENT) && defined(LWS_HAVE_mbedtls_ssl_set_verify)
 void
 lws_mbedtls_client_set_verify(struct lws *wsi);
-#endif
 #endif
 
 int

@@ -30,31 +30,25 @@ const char *mbedtls_client_preload_filepath;
 extern int lws_plat_mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len);
 extern int lws_plat_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len);
 
-#if defined(LWS_WITH_TLS_JIT_TRUST) && defined(LWS_HAVE_mbedtls_ssl_set_verify)
+#if defined(LWS_HAVE_mbedtls_ssl_set_verify)
 
+#if defined(LWS_WITH_TLS_JIT_TRUST)
 /*
- * mbedtls calls this for each cert in the peer's chain as it verifies it.
- *
- * Our job is just to collect the SKID and AKID of each into the wsi's
+ * Collect the SKID and AKID of a cert of the peer's chain into the wsi's
  * kid_chain; if the verification result turns out to be "not trusted", the
  * JIT trust code sorts them into a hierarchy and asks the system for the CA
  * whose SKID the top of the chain names.  None of these certs are trusted
  * by being seen here, even if a misconfigured server sends us its root.
  */
 
-static int
-lws_mbedtls_client_verify_cb(void *opaque, mbedtls_x509_crt *x509, int depth,
-			     uint32_t *flags)
+static void
+lws_mbedtls_client_collect_kids(struct lws *wsi, mbedtls_x509_crt *x509)
 {
-	struct lws *wsi = (struct lws *)opaque;
 	lws_tls_kid_chain_t *ch = &wsi->io->tls.kid_chain;
 	union lws_tls_cert_info_results ci;
 
-	(void)depth;
-	(void)flags;
-
 	if (ch->count == LWS_ARRAY_SIZE(ch->akid))
-		return 0;
+		return;
 
 	/*
 	 * the len is the usable size of ci.ns.name[]; the backend rejects a
@@ -70,13 +64,53 @@ lws_mbedtls_client_verify_cb(void *opaque, mbedtls_x509_crt *x509, int depth,
 		lws_tls_kid_copy(&ci, &ch->akid[ch->count]);
 
 	ch->count++;
+}
+#endif
 
-	return 0;
+/*
+ * mbedtls calls this for each cert in the peer's chain as it verifies it, from
+ * the top of the chain down to the server's own cert at depth 0, with what it
+ * found wrong with that cert in *flags.
+ *
+ * The user code is given each one in LWS_CALLBACK_PERFORM_SERVER_CERT_VERIFICATION,
+ * with the flags it may change: the authmode is optional, so it is the flags
+ * left here that lws_tls_client_confirm_peer_cert() judges after the
+ * handshake.  If the user code returns nonzero, the cert is refused whatever
+ * the flags and LCCSCF_ALLOW_* say: mbedtls treats an error from the verify
+ * callback as fatal to the handshake even with an optional authmode.
+ */
+
+static int
+lws_mbedtls_client_verify_cb(void *opaque, mbedtls_x509_crt *x509, int depth,
+			     uint32_t *flags)
+{
+	struct lws *wsi = (struct lws *)opaque;
+	const struct lws_protocols *lp;
+
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	lws_mbedtls_client_collect_kids(wsi, x509);
+#endif
+
+	lp = wsi->a.protocol;
+	if (!lp)
+		lp = &(lws_get_context_protocol(wsi->a.context, 0));
+
+	if (!lp->callback(wsi, LWS_CALLBACK_PERFORM_SERVER_CERT_VERIFICATION,
+			  x509, flags, (size_t)depth))
+		return 0;
+
+	lwsl_wsi_notice(wsi, "server cert at depth %d refused by the user "
+			"callback", depth);
+	lws_strncpy(wsi->io->tls.err_helper, "server cert refused by callback",
+		    sizeof(wsi->io->tls.err_helper));
+	*flags |= MBEDTLS_X509_BADCERT_OTHER;
+
+	return MBEDTLS_ERR_X509_FATAL_ERROR;
 }
 
 /*
- * The verify callback's opaque is the wsi whose kid_chain it fills: set it at
- * creation, and again when the conn moves to another wsi (keep-warm hand-off)
+ * The verify callback's opaque is the wsi it reports for: set it at creation,
+ * and again when the conn moves to another wsi (keep-warm hand-off)
  */
 void
 lws_mbedtls_client_set_verify(struct lws *wsi)
@@ -191,13 +225,18 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		return -1;
 	}
 
-#if defined(LWS_WITH_TLS_JIT_TRUST) && defined(LWS_HAVE_mbedtls_ssl_set_verify)
+	wsi->io->tls.err_helper[0] = '\0';
+
+#if defined(LWS_HAVE_mbedtls_ssl_set_verify)
 	/*
-	 * Per-connection verify callback so we can capture the peer chain's
-	 * key identifiers for JIT trust; the vhost-shared conf cannot carry a
-	 * per-wsi opaque.  Start each connection with an empty chain.
+	 * Per-connection verify callback, so the user code can see the peer's
+	 * chain, and JIT trust capture its key identifiers; the vhost-shared
+	 * conf cannot carry a per-wsi opaque.  Start each connection with an
+	 * empty chain.
 	 */
+#if defined(LWS_WITH_TLS_JIT_TRUST)
 	memset(&wsi->io->tls.kid_chain, 0, sizeof(wsi->io->tls.kid_chain));
+#endif
 	lws_mbedtls_client_set_verify(wsi);
 #endif
 
@@ -258,7 +297,11 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 	if (n == MBEDTLS_ERR_SSL_WANT_WRITE)
 		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
-	lws_snprintf(errbuf, elen, "mbedtls connect err %d %d", n, en);
+	if (wsi->io->tls.err_helper[0])
+		/* we know better than mbedtls' error why it failed */
+		lws_snprintf(errbuf, elen, "tls: %s", wsi->io->tls.err_helper);
+	else
+		lws_snprintf(errbuf, elen, "mbedtls connect err %d %d", n, en);
 
 	return LWS_SSL_CAPABLE_ERROR;
 }
