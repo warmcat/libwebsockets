@@ -27,6 +27,15 @@
  *    it shares with nobody: e reaches srv
  *  - "f", created the same way as e afterwards, must not have joined e,
  *    whose trust is now its own: refused
+ *
+ * With --os-trust, only "g" and "h" are made, and run.  They have no CA of
+ * their own and the OS trust store on, and are run with SSL_CERT_FILE naming
+ * localhost-100y.cert, so the OS trust is all that lets them reach srv.  The
+ * OS trust is loaded into a client ctx by its first connection, not when the
+ * ctx is made, since most never connect:
+ *
+ *  - "g": must be served, its connection loading the OS trust first
+ *  - "h", created the same way, shares g's ctx: served too
  */
 
 #include <libwebsockets.h>
@@ -43,6 +52,8 @@ enum {
 	CTT_VH_D,
 	CTT_VH_E,
 	CTT_VH_F,
+	CTT_VH_G,
+	CTT_VH_H,
 	CTT_VH_COUNT
 };
 
@@ -53,19 +64,25 @@ static const struct {
 	char		add_trust;	/* given localhost-100y.cert */
 	char		must_add;	/* ...and the add must work */
 	char		served;		/* expected to reach srv */
+	char		os_trust;	/* no CA, OS trust on: --os-trust */
 } vhs[] = {
-	{ "a", 0, 0, 0, 0, 0 },
-	{ "b", 0, 0, 1, 0, 0 /* not checked */ },
-	{ "c", 0, 1, 1, 1, 1 },
-	{ "d", 0, 0, 0, 0, 0 },
-	{ "e", 1, 0, 1, 1, 1 },
-	{ "f", 1, 0, 0, 0, 0 },
+	{ "a", 0, 0, 0, 0, 0, 0 },
+	{ "b", 0, 0, 1, 0, 0 /* not checked */, 0 },
+	{ "c", 0, 1, 1, 1, 1, 0 },
+	{ "d", 0, 0, 0, 0, 0, 0 },
+	{ "e", 1, 0, 1, 1, 1, 0 },
+	{ "f", 1, 0, 0, 0, 0, 0 },
+	{ "g", 0, 0, 0, 0, 1, 1 },
+	{ "h", 0, 0, 0, 0, 1, 1 },
 };
 
 /* b's outcome depends on whether the backend shares ctxs, it isn't checked */
-static const int cases[] = { CTT_VH_A, CTT_VH_C, CTT_VH_D, CTT_VH_E, CTT_VH_F };
+static const int cases_trust[] = { CTT_VH_A, CTT_VH_C, CTT_VH_D, CTT_VH_E,
+				   CTT_VH_F };
+static const int cases_os_trust[] = { CTT_VH_G, CTT_VH_H };
 
-#define CTT_CASE_COUNT ((int)LWS_ARRAY_SIZE(cases))
+static const int *cases = cases_trust;
+static int case_count = (int)LWS_ARRAY_SIZE(cases_trust);
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli[CTT_VH_COUNT];
@@ -160,7 +177,7 @@ next_case(lws_sorted_usec_list_t *sul)
 {
 	struct lws_client_connect_info i;
 
-	if (++cur >= CTT_CASE_COUNT) {
+	if (++cur >= case_count) {
 		result = !!failures;
 		lws_default_loop_exit(context);
 		return;
@@ -211,7 +228,7 @@ int main(int argc, const char **argv)
 	char srv_cert[256], srv_key[256], ca[256];
 	struct lws_context_creation_info info;
 	const char *p;
-	int n = 0;
+	int n = 0, os;
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
@@ -224,9 +241,15 @@ int main(int argc, const char **argv)
 		server_addr = p;
 	if ((p = lws_cmdline_option(argc, argv, "--certs")))
 		certs = p;
+	os = !!lws_cmdline_option(argc, argv, "--os-trust");
+	if (os) {
+		cases = cases_os_trust;
+		case_count = (int)LWS_ARRAY_SIZE(cases_os_trust);
+	}
 
 	signal(SIGINT, sigint_handler);
-	lwsl_user("LWS API selftest: client vhost trust stays its own\n");
+	lwsl_user("LWS API selftest: client vhost trust %s\n",
+		  os ? "from the OS trust store" : "stays its own");
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -275,17 +298,28 @@ int main(int argc, const char **argv)
 	info.port			= CONTEXT_PORT_NO_LISTEN;
 	info.ssl_cert_filepath		= NULL;
 	info.ssl_private_key_filepath	= NULL;
-	info.options			|=
-				LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS;
 
 	for (n = 0; n < CTT_VH_COUNT; n++) {
+		/* each mode makes only the vhosts it runs */
+		if (vhs[n].os_trust != os)
+			continue;
+
 		info.vhost_name = vhs[n].name;
 		info.client_ssl_ctx_unshared = (uint8_t)vhs[n].unshared;
-		if (vhs[n].ca_path) {
+		if (vhs[n].os_trust) {
+			/* no CA of its own: only the OS trust store */
+			info.options &= ~(uint64_t)
+					LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS;
+			info.client_ssl_ca_filepath = NULL;
+			info.client_ssl_ca_mem = NULL;
+			info.client_ssl_ca_mem_len = 0;
+		} else if (vhs[n].ca_path) {
+			info.options |= LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS;
 			info.client_ssl_ca_filepath = ca;
 			info.client_ssl_ca_mem = NULL;
 			info.client_ssl_ca_mem_len = 0;
 		} else {
+			info.options |= LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS;
 			info.client_ssl_ca_filepath = NULL;
 			info.client_ssl_ca_mem = ca_der;
 			info.client_ssl_ca_mem_len = (unsigned int)ca_der_len;
@@ -330,7 +364,7 @@ bail:
 		lws_realloc(trust_der, 0, "ctt der");
 
 	lwsl_user("Completed: %s (%d of %d cases failed)\n",
-		  result ? "FAIL" : "PASS", failures, CTT_CASE_COUNT);
+		  result ? "FAIL" : "PASS", failures, case_count);
 
 	return result;
 }

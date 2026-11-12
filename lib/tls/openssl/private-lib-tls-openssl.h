@@ -90,6 +90,11 @@ struct lws_tls_client_reuse {
 	 * added to it after creation
 	 */
 	uint8_t unshared;
+	/*
+	 * The OS trust store is still to be loaded into the ctx, by the
+	 * first client connection made with it
+	 */
+	uint8_t os_trust_pending;
 };
 
 typedef int (*next_proto_cb)(SSL *, const unsigned char **out,
