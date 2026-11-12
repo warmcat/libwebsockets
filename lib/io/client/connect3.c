@@ -198,6 +198,7 @@ static void
 lws_client_quic_rejected(struct lws *wsi)
 {
 	static const char cce[] = "server certificate rejected";
+	char why[sizeof(wsi->io->tls.err_helper) + 8];
 
 	wsi->io->quic_peer_rejected = 0;
 
@@ -224,7 +225,14 @@ lws_client_quic_rejected(struct lws *wsi)
 	 * this connection, the user hears why
 	 */
 	wsi->tried_quic = 0;
-	lws_inform_client_conn_fail(wsi, (void *)cce, sizeof(cce) - 1);
+	if (wsi->io->tls.peer_cert_refused && wsi->io->tls.err_helper[0]) {
+		/* refused in the handshake: the verify callback said why */
+		int n = lws_snprintf(why, sizeof(why), "tls: %s",
+				     wsi->io->tls.err_helper);
+
+		lws_inform_client_conn_fail(wsi, (void *)why, (size_t)n);
+	} else
+		lws_inform_client_conn_fail(wsi, (void *)cce, sizeof(cce) - 1);
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "quic peer rejected");
 }
 #endif

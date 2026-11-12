@@ -506,9 +506,16 @@ static int32_t OpenHiTLS_client_verify_callback(int32_t verify_code,
 			}
 #endif
 
+			wsi->io->tls.peer_cert_refused = 1;
+
 			return vr ? vr : -1; /* not ok */
 		}
 	}
+
+	if (n)
+		/* the user code refused it */
+		wsi->io->tls.peer_cert_refused = 1;
+
 	/*
 	 * Both lws user callback and openHiTLS verify callback use
 	 * 0 = OK, so pass through directly.

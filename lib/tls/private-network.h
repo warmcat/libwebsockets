@@ -287,6 +287,12 @@ struct lws_lws_tls {
 	unsigned int		want_write_after_accept:1;
 	/* a staged close: our close_notify has gone, the write side is shut */
 	unsigned int		close_notify_sent:1;
+	/*
+	 * the client's verify callback refused the server's cert during the
+	 * handshake, err_helper says why: the server can't be used whatever
+	 * the transport, see lws_tls_quic_handshake()
+	 */
+	unsigned int		peer_cert_refused:1;
 #if defined(LWS_WITH_GNUTLS) && defined(LWS_WITH_TLS_SESSIONS)
 	/* the client cache has had this connection's session (gnutls) */
 	unsigned int		sess_cached:1;

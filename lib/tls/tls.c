@@ -251,16 +251,15 @@ lws_tls_quic_admit(struct lws *wsi)
 #endif
 
 /*
- * A quic connection's handshake completed: is the peer acceptable, as tls
- * over tcp would decide it?  On a client, the server's certificate under the
- * connection's LCCSCF_ flags; on a server, the client's certificate under the
- * client-certificate policy of the vhost it ends up bound to.  0 if so, else
- * nonzero with the reason in ebuf.
+ * Advance a quic connection's handshake with the CRYPTO data that came at
+ * level: as lws_tls_quic_advance_handshake(), <0 the handshake failed
  */
 int
 lws_tls_quic_handshake(struct lws *wsi, int level, const uint8_t *in,
 		       size_t in_len, uint8_t *out, size_t *out_len)
 {
+	int n;
+
 #if defined(LWS_WITH_SYS_FAULT_INJECTION) && defined(LWS_WITH_CLIENT)
 	uint64_t ms;
 
@@ -276,10 +275,38 @@ lws_tls_quic_handshake(struct lws *wsi, int level, const uint8_t *in,
 		lws_msleep((unsigned int)ms);
 #endif
 
-	return lws_tls_quic_advance_handshake(wsi, level, in, in_len, out,
-					      out_len);
+	n = lws_tls_quic_advance_handshake(wsi, level, in, in_len, out,
+					   out_len);
+
+#if defined(LWS_WITH_CLIENT)
+	/*
+	 * The handshake failed because the client's verify callback refused
+	 * the server's cert, either the tls library's verdict or the user
+	 * code's.  It is the same as the cert being refused once the
+	 * handshake completed (lws_tls_quic_confirm_peer()): QUIC got
+	 * through, and TCP would be shown the same cert, so it is not a
+	 * transport failure to fall back to TCP from.  The user hears why now,
+	 * while the connection's CONNECTION_CLOSE goes on being sent.
+	 */
+	if (n < 0 && lwsi_role_client(wsi) && wsi->io->tls.peer_cert_refused) {
+		lws_tls_restrict_return_handshake(wsi);
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+		lws_tls_jit_trust_peer_rejected(wsi);
+#endif
+		lws_client_quic_peer_rejected(wsi);
+	}
+#endif
+
+	return n;
 }
 
+/*
+ * A quic connection's handshake completed: is the peer acceptable, as tls
+ * over tcp would decide it?  On a client, the server's certificate under the
+ * connection's LCCSCF_ flags; on a server, the client's certificate under the
+ * client-certificate policy of the vhost it ends up bound to.  0 if so, else
+ * nonzero with the reason in ebuf.
+ */
 int
 lws_tls_quic_confirm_peer(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {

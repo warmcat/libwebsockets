@@ -403,6 +403,9 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 				return CCTLS_RETURN_ERROR;
 			}
 #endif
+			/* a new session: nothing refused the server yet */
+			wsi->io->tls.peer_cert_refused = 0;
+
 			/*
 			 * The tls_client_bio_create fault fails it as running
 			 * out of heap for the session would

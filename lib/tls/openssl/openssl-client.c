@@ -246,9 +246,16 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 			}
 #endif
 
+			wsi->io->tls.peer_cert_refused = 1;
+
 			return preverify_ok;	// not ok
 		}
 	}
+
+	if (n)
+		/* the user code refused it */
+		wsi->io->tls.peer_cert_refused = 1;
+
 	/*
 	 * convert callback return code from 0 = OK to verify callback
 	 * return value 1 = OK
