@@ -361,7 +361,7 @@ render(lws_sorted_usec_list_t *sul)
 	}
 
 	lws_sul_cancel(sul);
-	lwsl_notice("%s: %d lines in %dms: drawing %dms, blitting %dms, "
+	lwsl_info("%s: %d lines in %dms: drawing %dms, blitting %dms, "
 		    "%d wakes\n", __func__, (int)rs->curr + frame_top,
 		    (int)((lws_now_usecs() - upd.start) / LWS_US_PER_MS),
 		    (int)(upd.lines / LWS_US_PER_MS),
@@ -455,7 +455,7 @@ render_band(lws_sorted_usec_list_t *sul)
 	rs->lds->disp->blit(rs->lds, band, &box, NULL);
 	upd.blit = lws_now_usecs() - t1;
 
-	lwsl_notice("%s: %d lines in %dms: drawing %dms, blitting %dms, "
+	lwsl_info("%s: %d lines in %dms: drawing %dms, blitting %dms, "
 		    "%d wakes\n", __func__, band_h,
 		    (int)((lws_now_usecs() - upd.start) / LWS_US_PER_MS),
 		    (int)(upd.lines / LWS_US_PER_MS),
