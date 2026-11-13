@@ -19,8 +19,8 @@ runs the client is refused first.  Either way the request must be served over
 h3, with no fallback to tcp.
 
 The client hears `LWS_CALLBACK_CONNECTING` for each address it tries, as a tcp
-client does, so a second one is the move, and `lws_get_peer_simple()` then
-says where to.  The move must come inside 400ms of the start, before the
+client does, so a second one is the move, and `lws_get_peer_simple()` and
+`lws_get_peer_addresses()` then both say where to.  The move must come inside 400ms of the start, before the
 client's first PTO (500ms) could have resent anything to the refusing
 address, and be to the address the server listens on.  The run whose first
 address is the server's has no move, and says so.

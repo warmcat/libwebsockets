@@ -126,6 +126,10 @@ lws_canonical_hostname(struct lws_context *context);
  *	the client connected with socket descriptor fd.  Names may be
  *	truncated if there is not enough room.  If either cannot be
  *	determined, they will be returned as valid zero-length strings.
+ *
+ *	While a client is still connecting on fd, it is the address it is
+ *	trying, as lws_get_peer_simple() reports: with several attempts
+ *	racing, the one started last.
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
@@ -141,6 +145,10 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
  * This provides a 123.123.123.123 type IP address in name from the
  * peer that has connected to wsi.  Returns name, or NULL with name empty if
  * wsi has no connection.
+ *
+ * While a client is still connecting, it is the address it is trying, as
+ * told to LWS_CALLBACK_CONNECTING for each address in turn.  With several
+ * attempts racing, it is the one started last.
  */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen);

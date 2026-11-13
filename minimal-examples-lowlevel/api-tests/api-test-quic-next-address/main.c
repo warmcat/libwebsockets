@@ -21,7 +21,8 @@
  * served over h3, with no fallback to tcp.
  *
  * The client hears LWS_CALLBACK_CONNECTING for each address it tries, so a
- * second one is the move, and lws_get_peer_simple() then says where to.  The
+ * second one is the move, and lws_get_peer_simple() and
+ * lws_get_peer_addresses() then both say where to.  The
  * move must come inside 400ms of the start, before the client's first PTO
  * (500ms) could have resent anything to the refusing address, and be to the
  * address the server listens on.  The run whose first address is the
@@ -55,7 +56,7 @@ static struct lws_context *context;
 static struct lws *srv_wsi, *cli_wsi;
 static lws_sorted_usec_list_t sul_watchdog;
 static lws_usec_t us_start, us_done, us_moved;
-static char body[64], peer_first[64], peer_moved[64];
+static char body[64], peer_first[64], peer_moved[64], peer_disagree[160];
 static size_t body_len;
 static int port = 7695, completed, timed_out, connectings, reject_move;
 
@@ -150,21 +151,32 @@ static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
-	char buf[LWS_PRE + 256], *px = buf + LWS_PRE;
+	char buf[LWS_PRE + 256], *px = buf + LWS_PRE, peer[64], rip[64];
 	int lenx = (int)sizeof(buf) - LWS_PRE;
 
 	switch (reason) {
 	case LWS_CALLBACK_CONNECTING:
+		/* both ways of asking who the peer is must agree */
+		lws_get_peer_simple(wsi, peer, sizeof(peer));
+		if (lws_get_peer_addresses(wsi, lws_get_socket_fd(wsi), NULL, 0,
+					   rip, sizeof(rip)))
+			rip[0] = '\0';
+		if (strcmp(peer, rip) && !peer_disagree[0])
+			lws_snprintf(peer_disagree, sizeof(peer_disagree),
+				     "lws_get_peer_simple() says %s, "
+				     "lws_get_peer_addresses() \"%s\"",
+				     peer, rip);
+
 		/* one for each address it tries: the second is the move */
 		if (connectings++ == 0) {
-			lws_get_peer_simple(wsi, peer_first, sizeof(peer_first));
+			lws_strncpy(peer_first, peer, sizeof(peer_first));
 			break;
 		}
 		if (connectings > 2)
 			/* there are only two addresses to try */
 			break;
 		us_moved = lws_now_usecs();
-		lws_get_peer_simple(wsi, peer_moved, sizeof(peer_moved));
+		lws_strncpy(peer_moved, peer, sizeof(peer_moved));
 		lwsl_user("%s: moved from %s to %s after %dms\n", __func__,
 			  peer_first, peer_moved,
 			  (int)((us_moved - us_start) / LWS_US_PER_MS));
@@ -366,6 +378,8 @@ int main(int argc, const char **argv)
 		lwsl_err("FAIL: not served inside %ds\n", QNA_TIMEOUT_S);
 	else if (!connectings)
 		lwsl_err("FAIL: the client never heard CONNECTING\n");
+	else if (peer_disagree[0])
+		lwsl_err("FAIL: at CONNECTING, %s\n", peer_disagree);
 	else if (us_moved && strcmp(peer_moved, bind_ads))
 		lwsl_err("FAIL: moved to %s, the server is on %s\n",
 			 peer_moved, bind_ads);

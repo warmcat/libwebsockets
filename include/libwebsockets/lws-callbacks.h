@@ -965,12 +965,13 @@ enum lws_callback_reasons {
 	 * going to try to connect to its proxy.
 	 *
 	 * It is called for each address a client tries, so a second one says
-	 * the client moved on to its peer's next address.  A quic client
-	 * refused by an address moves on to the next on a fresh udp socket:
-	 * there, it is called once that socket is connect()ed to the next
-	 * address, which lws_get_peer_simple() then reports, but before
-	 * anything is sent on it.  (A tcp socket has no peer to report until
-	 * its connect() completes.)
+	 * the client moved on to its peer's next address, and
+	 * lws_get_peer_simple() and lws_get_peer_addresses() report the
+	 * address being tried.  On tcp, it is called before the connect() to
+	 * it, which may not complete.  A quic client refused by an address
+	 * moves on to the next on a fresh udp socket: there, it is called
+	 * once that socket is connect()ed to the next address, but before
+	 * anything is sent on it.
 	 *
 	 * Returning nonzero closes the connection.
 	 */
