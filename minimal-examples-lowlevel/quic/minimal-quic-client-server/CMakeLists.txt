@@ -63,12 +63,15 @@ if (requirements)
 		# The client spreads its writes over 8s, longer than the server
 		# reaps a connection that has been idle since its handshake:
 		# the server must keep the connection, and the stream, while
-		# the client is still sending on it
+		# the client is still sending on it.  And the client's connect
+		# timeout is far shorter: once connected, its stream must not
+		# be closed by it
 		#
 		lws_get_free_port(PORT_QCS_SPREAD)
 		add_test(NAME ${SAMP}-spread COMMAND ${SAMP}
 				--server ${LWS_CTEST_SERVER_RESOLVE}
-				-p ${PORT_QCS_SPREAD} --spread 8000)
+				-p ${PORT_QCS_SPREAD} --spread 8000
+				--connect-timeout 2)
 		set_tests_properties(${SAMP}-spread PROPERTIES
 					     WORKING_DIRECTORY .
 					     TIMEOUT 60)
