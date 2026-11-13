@@ -2159,6 +2159,7 @@ enum {
 	LWS_SW_ONE_BURST,
 	LWS_SW_WRITE_SIZE,
 	LWS_SW_SPREAD,
+	LWS_SW_CONNECT_TIMEOUT,
 	LWS_SW_CUBIC,
 	LWS_SW_QUIET,
 	LWS_SW_MAX_IDLE,
@@ -2188,6 +2189,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_ONE_BURST] = { "--one-burst", "The server's Handshake flight must come in the same burst as its Initial, not wait for the client to send again (needs --relay)" },
 	[LWS_SW_WRITE_SIZE] = { "--write-size", "Bytes sent per write, 1 to 1024 (default 1024)" },
 	[LWS_SW_SPREAD] = { "--spread",	"The client spreads its writes over this many ms (default 0, as fast as it can)" },
+	[LWS_SW_CONNECT_TIMEOUT] = { "--connect-timeout", "Seconds the client may take to connect, 1 to 60 (default 20); its stream must not be held to it once it has" },
 	[LWS_SW_CUBIC]	= { "--cubic",	"Use the CUBIC congestion controller instead of the default NewReno" },
 	[LWS_SW_QUIET]	= { "--quiet",	"conn: after the handshake nobody sends anything; stream: the client writes once on its stream first.  The server must close the connection in time" },
 	[LWS_SW_MAX_IDLE] = { "--max-idle", "The QUIC max_idle_timeout both sides advertise, in ms, 1000 to 10000 (default 30000)" },
@@ -2249,6 +2251,17 @@ int main(int argc, const char **argv)
 			return 1;
 		}
 		spread_us = (lws_usec_t)ms * LWS_US_PER_MS;
+	}
+
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_CONNECT_TIMEOUT].sw);
+	if (p) {
+		int s = atoi(p);
+
+		if (s < 1 || s > 60) {
+			lwsl_err("--connect-timeout must be 1 to 60\n");
+			return 1;
+		}
+		info.connect_timeout_secs = (unsigned int)s;
 	}
 
 	p = lws_cmdline_option(argc, argv, switches[LWS_SW_MAX_IDLE].sw);

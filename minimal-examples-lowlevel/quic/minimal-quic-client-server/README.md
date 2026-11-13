@@ -41,6 +41,7 @@ arrived.
 |--one-burst|With `--relay`, the server's Handshake flight must come in the same burst as its Initial, see below|
 |--write-size <n>|Bytes sent per `lws_write()`, 1 to 1024 (default 1024)|
 |--spread <ms>|The client spreads its writes over this long, 0 to 30000 (default 0, as fast as it can), see below|
+|--connect-timeout <s>|The seconds the client may take to connect, 1 to 60 (default 20), see below|
 |--cubic|Use the CUBIC congestion controller instead of the default NewReno, see below|
 |--quiet conn\|stream|After the handshake both sides go quiet, and the server must close the connection in time, see below|
 |--max-idle <ms>|The QUIC idle timeout both sides advertise, 1000 to 10000 (default 30000), see below|
@@ -57,8 +58,12 @@ for that long.  The server reaps a connection that is idle, by default 5s after
 its handshake if it has no streams, and must not take one whose stream is still
 busy for idle.
 
+The client's connect timeout bounds only its connecting: once the connection
+is up, its stream must not be closed by it, however long it goes on.  With
+`--connect-timeout <s>` shorter than the spread, the stream outlasts it.
+
 ```
- $ ./lws-minimal-quic-client-server --spread 8000
+ $ ./lws-minimal-quic-client-server --spread 8000 --connect-timeout 2
 ```
 
 ## quiet connections
