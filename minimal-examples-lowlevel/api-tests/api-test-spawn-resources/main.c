@@ -23,7 +23,13 @@
  *			resident, uses HOG_CPU_US of cpu, then holds the memory
  *			for HOG_HOLD_MS
  *
- *   --tree		starts TREE_HOGS hogs at once and waits for them
+ *   --tree		starts TREE_HOGS hogs at once and waits for them.  Each
+ *			hog says on a pipe when it's resident and has used its
+ *			cpu, and waits for the tree to say they all are before
+ *			it starts its HOG_HOLD_MS: on a busy machine, the first
+ *			hog can be done before the last one is resident.  On
+ *			windows, the hogs are told the pipes' fds with --ready
+ *			and --go.
  *
  *   --stuck		starts something that holds on to its stdio for
  *			STUCK_HOLD_MS, and then never goes by itself
@@ -67,6 +73,7 @@
 #if defined(WIN32)
 #include <process.h>
 #include <io.h>
+#include <fcntl.h>
 #else
 #include <unistd.h>
 #include <sys/types.h>
@@ -190,8 +197,55 @@ say(const char *what)
 #endif
 }
 
+/*
+ * One byte on a pipe between the tree and its hogs.  It returns 0 when the
+ * byte went, or nonzero if it can't, eg, the far end has gone.
+ */
+
 static int
-hog(void)
+pipe_put(int fd)
+{
+	char c = 'h';
+
+#if defined(WIN32)
+	return _write(fd, &c, 1) != 1;
+#else
+	ssize_t n;
+
+	do {
+		n = write(fd, &c, 1);
+	} while (n < 0 && errno == EINTR);
+
+	return n != 1;
+#endif
+}
+
+static int
+pipe_get(int fd)
+{
+	char c;
+
+#if defined(WIN32)
+	return _read(fd, &c, 1) != 1;
+#else
+	ssize_t n;
+
+	do {
+		n = read(fd, &c, 1);
+	} while (n < 0 && errno == EINTR);
+
+	return n != 1;
+#endif
+}
+
+/*
+ * A hog in a tree is given the tree's pipes: it says on ready_fd when it's
+ * resident and has used its cpu, and waits on go_fd for the tree to say all
+ * its hogs are.  A hog by itself has neither, -1.
+ */
+
+static int
+hog(int ready_fd, int go_fd)
 {
 	size_t len = HOG_MIB * MIB, n;
 	lws_usec_t t0 = lws_now_usecs();
@@ -223,6 +277,16 @@ hog(void)
 
 	say("hog used its cpu");
 
+	if (ready_fd >= 0) {
+		/*
+		 * If the tree is gone, there's nobody to wait for: holding
+		 * now changes nothing either way
+		 */
+		if (!pipe_put(ready_fd))
+			(void)pipe_get(go_fd);
+		say("hog's tree is all resident");
+	}
+
 	/* stay resident long enough to be seen alongside the other hogs */
 	sleep_ms(HOG_HOLD_MS);
 
@@ -236,13 +300,35 @@ hog(void)
 	return sum == 0xffffffffu ? 3 : 0;
 }
 
+/*
+ * Once every hog says it's resident, or has gone without saying, let them
+ * all go on to their HOG_HOLD_MS together
+ */
+
+static void
+tree_rendezvous(int ready_fd, int go_fd)
+{
+	int n;
+
+	for (n = 0; n < TREE_HOGS; n++)
+		if (pipe_get(ready_fd))
+			break; /* every hog has gone */
+
+	say("tree's hogs are all resident");
+
+	for (n = 0; n < TREE_HOGS; n++)
+		if (pipe_put(go_fd))
+			break;
+}
+
 static int
 tree(void)
 {
-	int n, ret = 0, st;
+	int n, ret = 0, st, ready[2], go[2];
 #if defined(WIN32)
+	char path[MAX_PATH], rfd[12], gfd[12];
 	intptr_t h[TREE_HOGS];
-	char path[MAX_PATH];
+	int hr, hg;
 #else
 	pid_t pid[TREE_HOGS];
 #endif
@@ -253,23 +339,89 @@ tree(void)
 	if (!GetModuleFileNameA(NULL, path, (DWORD)sizeof(path)))
 		return 4;
 
-	for (n = 0; n < TREE_HOGS; n++) {
-		h[n] = _spawnl(_P_NOWAIT, path, path, "--hog", NULL);
-		if (h[n] == -1)
-			return 5;
+	/*
+	 * The hogs inherit our open fds by number, all but those opened
+	 * _O_NOINHERIT.  Only the ends they use are given to them, dups
+	 * that can be inherited, so that what we hold ourselves is ours.
+	 */
+	if (_pipe(ready, 64, _O_BINARY | _O_NOINHERIT))
+		return 4;
+	if (_pipe(go, 64, _O_BINARY | _O_NOINHERIT)) {
+		_close(ready[0]);
+		_close(ready[1]);
+		return 4;
+	}
+	hr = _dup(ready[1]);
+	hg = _dup(go[0]);
+	_close(ready[1]);
+	_close(go[0]);
+	if (hr < 0 || hg < 0) {
+		ret = 4;
+		goto bail;
 	}
 
-	for (n = 0; n < TREE_HOGS; n++)
-		if (_cwait(&st, h[n], 0) == -1 || st)
-			ret = 6;
+	lws_snprintf(rfd, sizeof(rfd), "%d", hr);
+	lws_snprintf(gfd, sizeof(gfd), "%d", hg);
+
+	for (n = 0; n < TREE_HOGS; n++) {
+		h[n] = _spawnl(_P_NOWAIT, path, path, "--hog", "--ready", rfd,
+			       "--go", gfd, NULL);
+		if (h[n] == -1) {
+			ret = 5;
+			break;
+		}
+	}
+
+	_close(hr);
+	hr = -1;
+	_close(hg);
+	hg = -1;
+
+	if (!ret) {
+		tree_rendezvous(ready[0], go[1]);
+
+		for (n = 0; n < TREE_HOGS; n++)
+			if (_cwait(&st, h[n], 0) == -1 || st)
+				ret = 6;
+	}
+
+bail:
+	if (hr >= 0)
+		_close(hr);
+	if (hg >= 0)
+		_close(hg);
+	_close(ready[0]);
+	_close(go[1]);
 #else
+	if (pipe(ready))
+		return 4;
+	if (pipe(go)) {
+		close(ready[0]);
+		close(ready[1]);
+		return 4;
+	}
+
 	for (n = 0; n < TREE_HOGS; n++) {
 		pid[n] = fork();
 		if (pid[n] < 0)
+			/* the ones we did start see the pipes close and go */
 			return 5;
-		if (!pid[n])
-			_exit(hog());
+		if (!pid[n]) {
+			/* only the tree may hold these ends */
+			close(ready[0]);
+			close(go[1]);
+			_exit(hog(ready[1], go[0]));
+		}
 	}
+
+	/* only the hogs may hold these ends */
+	close(ready[1]);
+	close(go[0]);
+
+	tree_rendezvous(ready[0], go[1]);
+
+	close(ready[0]);
+	close(go[1]);
 
 	for (n = 0; n < TREE_HOGS; n++)
 		if (waitpid(pid[n], &st, 0) != pid[n] || !WIFEXITED(st) ||
@@ -563,8 +715,16 @@ main(int argc, const char **argv)
 		say("started, exiting");
 		return 0;
 	}
-	if (lws_cmdline_option(argc, argv, "--hog"))
-		return hog();
+	if (lws_cmdline_option(argc, argv, "--hog")) {
+		const char *r = lws_cmdline_option(argc, argv, "--ready"),
+			   *g = lws_cmdline_option(argc, argv, "--go");
+
+		/* windows: in a tree, the fds of its pipes we inherited */
+		if (r && g)
+			return hog(atoi(r), atoi(g));
+
+		return hog(-1, -1);
+	}
 	if (lws_cmdline_option(argc, argv, "--tree"))
 		return tree();
 #if !defined(WIN32)
