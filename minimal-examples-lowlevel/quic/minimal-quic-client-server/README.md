@@ -63,7 +63,7 @@ is up, its stream must not be closed by it, however long it goes on.  With
 `--connect-timeout <s>` shorter than the spread, the stream outlasts it.
 
 ```
- $ ./lws-minimal-quic-client-server --spread 8000 --connect-timeout 2
+ $ ./lws-minimal-quic-client-server --spread 8000 --connect-timeout 5
 ```
 
 ## quiet connections
