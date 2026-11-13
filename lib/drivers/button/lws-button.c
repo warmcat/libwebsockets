@@ -497,6 +497,29 @@ lws_button_get_bit(struct lws_button_state *bcs, const char *name)
 	return 0; /* not found */
 }
 
+int
+lws_button_is_down(lws_button_state_t *bcs, const char *name)
+{
+	const lws_button_controller_t *bc;
+	lws_button_idx_t bit;
+	int n;
+
+	if (!bcs || !name)
+		return -1;
+
+	bc = bcs->controller;
+	bit = lws_button_get_bit(bcs, name);
+	if (!bit || !(bcs->enable_bitmap & bit))
+		/* we only know its gpio is an input while it's enabled */
+		return -1;
+
+	for (n = 0; !(bit & (1 << n)); n++)
+		;
+
+	return !!bc->gpio_ops->read(bc->button_map[n].gpio) ==
+	       !!(bc->active_state_bitmap & (1 << n));
+}
+
 void
 lws_button_enable(lws_button_state_t *bcs,
 		  lws_button_idx_t _reset, lws_button_idx_t _set)

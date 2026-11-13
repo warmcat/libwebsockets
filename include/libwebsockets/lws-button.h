@@ -116,5 +116,23 @@ LWS_VISIBLE LWS_EXTERN void
 lws_button_enable(struct lws_button_state *bcs,
 		  lws_button_idx_t _reset, lws_button_idx_t _set);
 
+/**
+ * lws_button_is_down() - whether a button is held down right now
+ *
+ * \param bcs: button controller state
+ * \param name: the button's smd_interaction_name, eg, "user"
+ *
+ * Returns 1 if the button is down now, 0 if it's up, or -1 if there's no
+ * enabled button of that name.
+ *
+ * The button events are sent on its edges, so a button that is already held
+ * when it's enabled, eg, held from before the device finished starting, isn't
+ * reported as going down until it's released and pressed again; nor is an
+ * event sent before a peer joined smd seen by that peer.  This lets them see
+ * how it is now, without waiting for its next event.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_button_is_down(struct lws_button_state *bcs, const char *name);
+
 #endif
 
