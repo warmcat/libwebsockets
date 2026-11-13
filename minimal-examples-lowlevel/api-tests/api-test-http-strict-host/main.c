@@ -158,6 +158,10 @@ static struct lws_context *shc_cx;
 static struct lws_vhost *shc_vh_cli;
 static lws_sorted_usec_list_t shc_sul_next, shc_sul_watchdog;
 static const char *shc_server = "localhost";
+#if defined(SHC_H3)
+/* the current h3 / wt case's client, while it exists, to dump if it stalls */
+static struct lws *shc_cli_wsi;
+#endif
 static int shc_cur = -1, shc_port, shc_h2_port, shc_fails, shc_finished,
 	   shc_case_done, shc_rx_len;
 static char shc_rx[16];
@@ -312,6 +316,14 @@ shc_raw_cb(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 		break;
 
+#if defined(SHC_H3)
+	case LWS_CALLBACK_WSI_DESTROY:
+		/* every wsi of the client vhost comes here, its protocols[0] */
+		if (wsi == shc_cli_wsi)
+			shc_cli_wsi = NULL;
+		break;
+#endif
+
 	default:
 		break;
 	}
@@ -437,6 +449,11 @@ static void
 shc_watchdog(lws_sorted_usec_list_t *sul)
 {
 	shc_fail("timed out");
+#if defined(SHC_H3)
+	/* our deadline comes before lws' own: say where the client got to */
+	if (shc_cli_wsi)
+		lws_quic_dump(shc_cli_wsi);
+#endif
 	shc_case_done = 1;
 	lws_sul_schedule(shc_cx, 0, &shc_sul_next, shc_next, 1);
 }
@@ -505,6 +522,12 @@ shc_next(lws_sorted_usec_list_t *sul)
 
 	lws_sul_schedule(shc_cx, 0, &shc_sul_watchdog, shc_watchdog,
 			 SHC_TIMEOUT_S * LWS_US_PER_SEC);
+
+#if defined(SHC_H3)
+	shc_cli_wsi = NULL;
+	if (c->via == SHC_V_H3 || c->via == SHC_V_WT)
+		i.pwsi = &shc_cli_wsi;
+#endif
 
 	if (!lws_client_connect_via_info(&i)) {
 		shc_fail("connect failed");
