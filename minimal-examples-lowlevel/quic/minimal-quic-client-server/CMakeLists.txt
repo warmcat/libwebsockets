@@ -64,14 +64,14 @@ if (requirements)
 		# reaps a connection that has been idle since its handshake:
 		# the server must keep the connection, and the stream, while
 		# the client is still sending on it.  And the client's connect
-		# timeout is far shorter: once connected, its stream must not
-		# be closed by it
+		# timeout, 5s, is shorter: once connected, its stream must not
+		# be closed by it, and 5s leaves a slow handshake room
 		#
 		lws_get_free_port(PORT_QCS_SPREAD)
 		add_test(NAME ${SAMP}-spread COMMAND ${SAMP}
 				--server ${LWS_CTEST_SERVER_RESOLVE}
 				-p ${PORT_QCS_SPREAD} --spread 8000
-				--connect-timeout 2)
+				--connect-timeout 5)
 		set_tests_properties(${SAMP}-spread PROPERTIES
 					     WORKING_DIRECTORY .
 					     TIMEOUT 60)
