@@ -1392,6 +1392,20 @@ lws_io_dgram_alt_cb(lws_sorted_usec_list_t *sul)
 	lws_io_udp_enable_ecn(wsi);
 	lws_io_set_peer(wsi, &sa46);
 
+	/*
+	 * As a tcp client hears of each address it tries, so does this one:
+	 * the new socket is connected, but nothing went on it yet, and the
+	 * peer it reports is the new address
+	 */
+	if (wsi->a.protocol &&
+	    user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
+			LWS_CALLBACK_CONNECTING, wsi->user_space,
+			(void *)(intptr_t)wsi->io->desc.sockfd, 0)) {
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+				   "dgram alt: CONNECTING cb closed");
+		return;
+	}
+
 	/* the transport is up again, to the new peer */
 	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_client_transport_up) &&
 	    lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_client_transport_up).
