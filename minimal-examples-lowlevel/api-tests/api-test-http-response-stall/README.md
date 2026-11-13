@@ -27,6 +27,15 @@ up a few ms short of `http_response_stall_secs` after the client stopped: the
 test allows it to be 500ms short, still far past the `timeout_secs` cut the
 file sender used to make.
 
+That only holds while little is in flight between them, so the server's send
+and the client's receive socket buffers are made 64KB.  Left to the kernel,
+they can grow to hold several MB in flight: the server sends its last long
+before a slow client has read up to where it stops, and after it resumes, the
+client must read MBs before the server can send again.  On a loaded host both
+took the whole 2s between the client's 4s pause and the server's 6s stall,
+and the client that resumed was cut off.  If the run that resumes is cut off,
+the test logs when, from its first data, it stopped, resumed and was cut off.
+
 A peer that stops reading may still take a little more, which renews the
 watchdog: on the BSDs and macOS, the sender's persist timer probes the closed
 window after 5s, and the receiver opens it for the room it had held back from
