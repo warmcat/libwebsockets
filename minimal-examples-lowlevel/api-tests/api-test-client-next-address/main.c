@@ -23,6 +23,12 @@
  * must connect on the next one.  Both clients must end up connected, each on
  * the family its server listens on.
  *
+ * The client hears LWS_CALLBACK_CONNECTING for each address it tries, and
+ * there, before the connect() has completed, lws_get_peer_simple() and
+ * lws_get_peer_addresses() must report the address being tried.  So the
+ * client that is refused must have heard it twice, for two different
+ * addresses, and each client's last must be the one it connected to.
+ *
  * The test runs under ctest, which gives the fake nameserver's port in
  * LWS_ASYNCDNS_PORT, the port the resolver asks its nameservers on.  To run
  * it by hand, set that to any free udp port.
@@ -50,9 +56,14 @@ static struct leg {
 	int			port;
 	int			connected;
 	int			done;
+	int			tries;		/* CONNECTINGs heard */
+	char			first[64];	/* address of the first try */
+	char			last[64];	/* ... and of the latest */
 } legs[] = {
-	{ "listening on 127.0.0.1 only", "127.0.0.1", NULL, AF_INET,  0, 0, 0 },
-	{ "listening on ::1 only",	 "::1",       NULL, AF_INET6, 0, 0, 0 },
+	{ "listening on 127.0.0.1 only", "127.0.0.1", NULL, AF_INET,  0, 0, 0,
+	  0, "", "" },
+	{ "listening on ::1 only",	 "::1",       NULL, AF_INET6, 0, 0, 0,
+	  0, "", "" },
 };
 
 static struct lws_context *cx;
@@ -168,9 +179,47 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
 	struct leg *leg = (struct leg *)lws_get_opaque_user_data(wsi);
-	char peer[64];
+	char peer[64], rip[64];
 
 	switch (reason) {
+	case LWS_CALLBACK_CONNECTING:
+		if (!leg)
+			break;
+
+		/*
+		 * The connect() to this address isn't complete, but the
+		 * client knows who it is trying, and says so either way
+		 */
+
+		lws_get_peer_simple(wsi, peer, sizeof(peer));
+		if (lws_get_peer_addresses(wsi, lws_get_socket_fd(wsi), NULL, 0,
+					   rip, sizeof(rip)))
+			rip[0] = '\0';
+
+		if (strcmp(peer, "127.0.0.1") && strcmp(peer, "::1")) {
+			lwsl_err("%s: %s: trying \"%s\", not an address it "
+				 "was given\n", __func__, leg->name, peer);
+			fails++;
+		}
+		if (strcmp(peer, rip)) {
+			lwsl_err("%s: %s: lws_get_peer_addresses() says it is "
+				 "trying \"%s\", lws_get_peer_simple() \"%s\"\n",
+				 __func__, leg->name, rip, peer);
+			fails++;
+		}
+
+		if (!leg->tries++)
+			lws_strncpy(leg->first, peer, sizeof(leg->first));
+		else if (!strcmp(peer, leg->last)) {
+			lwsl_err("%s: %s: tried %s again\n", __func__,
+				 leg->name, peer);
+			fails++;
+		}
+		lws_strncpy(leg->last, peer, sizeof(leg->last));
+
+		lwsl_user("%s: %s: trying %s\n", __func__, leg->name, peer);
+		break;
+
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		if (!leg || leg->done)
 			break;
@@ -192,6 +241,12 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		if ((leg->af == AF_INET6) != !!strchr(peer, ':')) {
 			lwsl_err("%s: %s: connected to %s\n", __func__,
 				 leg->name, peer);
+			fails++;
+		} else if (strcmp(peer, leg->last)) {
+			/* where it said it was trying, as it tried it */
+			lwsl_err("%s: %s: connected to %s, but last heard "
+				 "trying \"%s\"\n", __func__, leg->name, peer,
+				 leg->last);
 			fails++;
 		} else {
 			lwsl_user("%s: %s: connected to %s\n", __func__,
@@ -241,7 +296,7 @@ int main(int argc, const char **argv)
 	struct lws_vhost *vh_cli;
 	const char *p = getenv("LWS_ASYNCDNS_PORT");
 	lws_sockaddr46 sa46;
-	int ns_port, n, ran = 0;
+	int ns_port, n, ran = 0, moved = 0;
 
 	signal(SIGINT, sigint_handler);
 
@@ -386,7 +441,20 @@ int main(int argc, const char **argv)
 				lwsl_err("%s: not connected\n", legs[n].name);
 				fails++;
 			}
+			if (legs[n].tries > 1) {
+				lwsl_user("%s: moved from %s to %s\n",
+					  legs[n].name, legs[n].first,
+					  legs[n].last);
+				moved++;
+			}
 		}
+
+	/* both clients start on the same address: one isn't its server's */
+
+	if (ran == 2 && !moved) {
+		lwsl_err("Neither client heard it was trying a next address\n");
+		fails++;
+	}
 
 	if (!queries) {
 		lwsl_err("The fake nameserver was never asked\n");

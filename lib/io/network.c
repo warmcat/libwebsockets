@@ -212,6 +212,34 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 	return 0;
 }
 
+/*
+ * While a client's connect() is still out, its socket has no peer to ask
+ * getpeername() for, but the address it is trying is known: the peer stack
+ * holds it from just before the connect(), as each address is tried in turn
+ */
+static int
+lws_io_peer_trying(struct lws *wsi, lws_sockaddr46 *sa46)
+{
+#if defined(LWS_WITH_CLIENT)
+	const lws_sockaddr46 *t = &wsi->io->pstack[0].sa46;
+
+	if (lwsi_transport(wsi) == LTS_WAITING_CONNECT &&
+	    (t->sa4.sin_family == AF_INET
+#if defined(LWS_WITH_IPV6)
+	     || t->sa4.sin_family == AF_INET6
+#endif
+	    )) {
+		*sa46 = *t;
+		return 0;
+	}
+#else
+	(void)wsi;
+	(void)sa46;
+#endif
+
+	return 1;
+}
+
 const char *
 lws_get_peer_simple_fd(lws_sockfd_type fd, char *name, size_t namelen)
 {
@@ -278,6 +306,15 @@ lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen)
 		}
 	}
 #endif
+	{
+		lws_sockaddr46 trying;
+
+		if (!lws_io_peer_trying(wsi, &trying)) {
+			lws_sa46_write_numeric_address(&trying, name, namelen);
+			return name;
+		}
+	}
+
 	return lws_get_peer_simple_fd(wsi->io->desc.sockfd, name, namelen);
 }
 
@@ -348,6 +385,14 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 						 name, name_len, rip, rip_len);
 	}
 #endif
+
+	if (fd == wsi->io->desc.sockfd) {
+		lws_sockaddr46 trying;
+
+		if (!lws_io_peer_trying(wsi, &trying))
+			return lws_get_addresses(wsi->a.vhost, &trying,
+						 name, name_len, rip, rip_len);
+	}
 
 #ifdef LWS_WITH_IPV6
 	if (LWS_IPV6_ENABLED(wsi->a.vhost)) {
