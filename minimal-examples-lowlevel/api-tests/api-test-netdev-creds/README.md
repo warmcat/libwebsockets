@@ -16,6 +16,8 @@ in a settings store kept in memory, and checks
  - `lws_netdev_credentials_has()` and `lws_netdev_credentials_remove()`,
    including of the first of them, as they come back from the settings
 
+ - `lws_netdev_credentials_clear()` forgets all of them
+
  - too long SSIDs or passphrases are refused
 
  - many APs, with the longest passphrases, all of whose characters have to

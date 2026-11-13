@@ -25,7 +25,13 @@ list(APPEND SOURCES
 if (LWS_WITH_NETWORK)
 	list(APPEND SOURCES
 		drivers/netdev/netdev.c
-		drivers/netdev/wifi.c)
+		drivers/netdev/wifi.c
+		drivers/netdev/wifi-settings.c)
+
+	if (LWS_WITH_SERVER AND LWS_WITH_SYS_SMD)
+		list(APPEND SOURCES
+			drivers/netdev/wifi-provision.c)
+	endif()
 endif()
 
 if (LWS_ESP_PLATFORM)

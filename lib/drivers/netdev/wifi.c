@@ -175,12 +175,18 @@ lws_netdev_wifi_scan_select(lws_netdev_instance_wifi_t *wnd)
 
 		/*
 		 * Including when none are stored yet: keep scanning, so what
-		 * is around stays known, eg, for the user to pick one to store
+		 * is around stays known, eg, for the user to pick one to store.
+		 *
+		 * While we are an AP as well, scanning takes the radio away
+		 * from our AP's channel, which stalls whoever is talking to us
+		 * on it, eg, giving us credentials: scan less often then.
 		 */
+		int secs = wnd->flags & LNDIW_MODE_AP ? 15 : 3;
 
-		lwsl_notice("%s: nothing usable in scan, redoing in 3s\n", __func__);
+		lwsl_notice("%s: nothing usable in scan, redoing in %ds\n",
+			    __func__, secs);
 		lws_sul_schedule(cx, 0, &wnd->sul_scan, lws_netdev_wifi_scan,
-				 3 * LWS_US_PER_SEC);
+				 (lws_usec_t)secs * LWS_US_PER_SEC);
 	}
 
 	lws_netdev_credentials_release(netdevs);

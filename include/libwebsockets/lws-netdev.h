@@ -69,6 +69,10 @@ typedef struct lws_netdev_ops {
 	/**< NULL, or use name, see lws_netdev_hostname_get(), as the
 	 * hostname the netdev gives when it acquires or renews an address,
 	 * eg, by DHCP, from now on */
+	int (*ap)(struct lws_netdev_instance *nd, const char *ssid,
+		  const char *passphrase);
+	/**< NULL, or be an AP called ssid alongside being a station, or if
+	 * ssid is NULL, stop being one: see lws_netdev_wifi_ap() */
 } lws_netdev_ops_t;
 
 /*
@@ -215,7 +219,9 @@ typedef struct lws_netdev_instance_wifi {
 	lws_sorted_usec_list_t		sul_scan;
 
 	lws_wifi_creds_t		*ap_cred;
-	const char			*ap_ip;
+	char				ap_ipv4[16];
+	/**< while we are an AP (LNDIW_MODE_AP), our address on it, eg,
+	 * "192.168.4.1", else "" */
 
 	const char			*sta_ads;
 
@@ -311,6 +317,17 @@ lws_netdev_credentials_add(lws_netdevs_t *nds, const char *ssid,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_netdev_credentials_remove(lws_netdevs_t *nds, const char *ssid);
+
+/**
+ * lws_netdev_credentials_clear() - forget the credentials for every AP
+ *
+ * \param nds: the netdevs
+ *
+ * Eg, for a "factory reset".  Returns 0 if they were all forgotten, or there
+ * were none, else nonzero.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_netdev_credentials_clear(lws_netdevs_t *nds);
 
 /**
  * lws_netdev_credentials_has() - are credentials stored for an AP
@@ -424,6 +441,33 @@ lws_netdev_hostname_set(lws_netdevs_t *nds, const char *name);
 LWS_VISIBLE LWS_EXTERN int
 lws_netdev_wifi_rssi(lws_netdev_instance_t *nd, int *rssi);
 
+/**
+ * lws_netdev_wifi_ap() - be an AP, as well as a station
+ *
+ * \param nd: the wifi netdev
+ * \param ssid: the SSID of our AP, 1 to 32 characters, or NULL to stop it
+ * \param passphrase: NULL or "" for an open AP, else 8 to 63 characters
+ *
+ * Starts our own AP alongside the station, which goes on scanning and
+ * joining APs it has credentials for, eg, so a phone can join our AP and be
+ * served a page to give us credentials.  Our AP has an address of its own,
+ * eg, 192.168.4.1, given in wnd->ap_ipv4, and gives the stations that join it
+ * addresses by DHCP.  Its subnet is in the routing table, so what talks to
+ * us over it isn't closed as unroutable when the station's routes change.
+ *
+ * While we are an AP, the station scans less often, since it has to leave
+ * our AP's channel to do it.
+ *
+ * SMD NETWORK messages {"type":"apup","if":"<name>","ipv4":"<address>"} and
+ * {"type":"apdown","if":"<name>"} say when it started and stopped.
+ *
+ * Returns 0 if it was started or stopped, else nonzero, eg, the netdev can't
+ * be an AP.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_netdev_wifi_ap(lws_netdev_instance_t *nd, const char *ssid,
+		   const char *passphrase);
+
 LWS_VISIBLE LWS_EXTERN struct lws_netdev_instance *
 lws_netdev_wifi_create_plat(struct lws_context *ctx,
 			    const lws_netdev_ops_t *ops, const char *name,
@@ -446,6 +490,9 @@ LWS_VISIBLE LWS_EXTERN int
 lws_netdev_wifi_rssi_plat(lws_netdev_instance_t *nd, int *rssi);
 LWS_VISIBLE LWS_EXTERN int
 lws_netdev_wifi_hostname_plat(lws_netdev_instance_t *nd, const char *name);
+LWS_VISIBLE LWS_EXTERN int
+lws_netdev_wifi_ap_plat(lws_netdev_instance_t *nd, const char *ssid,
+			const char *passphrase);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_netdev_wifi_connect_plat(lws_netdev_instance_t *wnd, const char *ssid,
@@ -464,7 +511,288 @@ lws_netdev_find(lws_netdevs_t *netdevs, const char *ifname);
 	.scan				= lws_netdev_wifi_scan_plat, \
 	.rssi				= lws_netdev_wifi_rssi_plat, \
 	.hostname			= lws_netdev_wifi_hostname_plat, \
+	.ap				= lws_netdev_wifi_ap_plat, \
 	.destroy			= lws_netdev_wifi_destroy_plat
+
+/*
+ * The wifi settings, as html
+ *
+ * What we know of the APs around us and those we have credentials for, and the
+ * hostname, written as html that is the same whether it is shown on the
+ * device's own display, eg, as a dialog of the strip ui (lws-dlo-ui.h), or
+ * served to a browser by the device, see lws_wifi_provision_create().  Its
+ * links say what to do in the same way for both, see
+ * lws_wifi_settings_href().
+ */
+
+/*
+ * The icons the html uses, by name: whatever shows it provides them, eg, from
+ * contrib/assets/settings and contrib/assets/boot-status.  The signal's are
+ * LWS_WIFI_SETTINGS_ICON_SIG "0.svg" to "4.svg", for none to four bars lit.
+ */
+#define LWS_WIFI_SETTINGS_ICON_KEY	"set-key.svg"	/* we have its passphrase */
+#define LWS_WIFI_SETTINGS_ICON_NET	"set-net.svg"	/* internet was reached */
+#define LWS_WIFI_SETTINGS_ICON_COG	"set-cog.svg"	/* set its passphrase */
+#define LWS_WIFI_SETTINGS_ICON_FORGET	"set-bin.svg"	/* forget it */
+#define LWS_WIFI_SETTINGS_ICON_OK	"set-ok.svg"	/* last join went ok */
+#define LWS_WIFI_SETTINGS_ICON_REFUSED	"set-no.svg"	/* passphrase refused */
+#define LWS_WIFI_SETTINGS_ICON_FAILED	"set-fail.svg"	/* join failed */
+#define LWS_WIFI_SETTINGS_ICON_SIG	"set-sig"
+
+/* what we know of an AP, see lws_netdev_wifi_ap_list() */
+
+typedef struct lws_wifi_ap_info {
+	char				ssid[33];
+	uint8_t				auth;	/* lws_wifi_auth_t, if seen */
+	uint8_t				last_join; /* lws_wifi_join_t */
+	uint8_t				open;	/* needs no passphrase */
+	uint8_t				stored;	/* we have credentials for it */
+	uint8_t				seen;	/* in the scan results */
+	uint8_t				internet; /* was reached through it */
+	uint8_t				bars;	/* signal, 0 if not seen, else
+						 * lws_wifi_rssi_bars() */
+} lws_wifi_ap_info_t;
+
+/* what a link in the settings' html asks for, see lws_wifi_settings_href() */
+
+typedef enum {
+	LWS_WIFI_SETTINGS_ACT_NONE,	/* not one of ours */
+	LWS_WIFI_SETTINGS_ACT_SET,	/* set the passphrase of an AP */
+	LWS_WIFI_SETTINGS_ACT_FORGET,	/* forget an AP's credentials */
+	LWS_WIFI_SETTINGS_ACT_HOSTNAME,	/* edit the hostname */
+} lws_wifi_settings_act_t;
+
+/**
+ * lws_wifi_rssi_bars() - how many of four signal bars an rssi is
+ *
+ * \param rssi: the signal strength in dBm
+ *
+ * Returns 1 to 4: strong enough for anything at -55dBm, barely usable below
+ * -75dBm, so everything showing a signal agrees.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_wifi_rssi_bars(int rssi);
+
+/**
+ * lws_netdev_wifi_scan_sig() - a signature of the scan results
+ *
+ * \param wnd: the wifi netdev, or NULL
+ *
+ * Changes when the APs scanned, or the bars of their signal, change, but not
+ * their order, or their rssi within the same bars, so a list of them only
+ * needs showing again when it does.
+ */
+LWS_VISIBLE LWS_EXTERN uint32_t
+lws_netdev_wifi_scan_sig(const lws_netdev_instance_wifi_t *wnd);
+
+/**
+ * lws_netdev_wifi_ap_list() - the APs we know of
+ *
+ * \param nds: the netdevs
+ * \param wnd: the wifi netdev whose scan results to use, or NULL for none
+ * \param aps: filled with up to max APs
+ * \param max: the most to list
+ *
+ * Lists the networks in the scan results, one per SSID, strongest first, then
+ * those we have credentials for that weren't seen.  Hidden networks can't be
+ * picked, so aren't listed.  Returns how many were listed.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_netdev_wifi_ap_list(lws_netdevs_t *nds,
+			const lws_netdev_instance_wifi_t *wnd,
+			lws_wifi_ap_info_t *aps, int max);
+
+/**
+ * lws_wifi_settings_html() - write the wifi settings as html
+ *
+ * \param w: the html writer
+ * \param aps: the APs, from lws_netdev_wifi_ap_list()
+ * \param count: how many
+ * \param have_wlan: nonzero if there is a wifi netdev, to say it's scanning
+ *		     when there are no APs to show yet
+ * \param hostname: the hostname, from lws_netdev_hostname_get(), or NULL
+ *
+ * A section titled "WLAN", a table of the APs, a row each: its signal, its
+ * SSID over what we know of it, and the links to set its passphrase and to
+ * forget it, and a section titled "Hostname", the hostname as a link to edit
+ * it.  The links' hrefs are relative urls with an argument, eg,
+ * "?set=<ssid>", so a browser asks the page's own url with it, and a dialog
+ * on the device is told them, for lws_wifi_settings_href() to say what they
+ * ask for.  Style it with lws_wifi_settings_css(); it uses the
+ * LWS_WIFI_SETTINGS_ICON_ icons.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_wifi_settings_html(lws_html_w_t *w, const lws_wifi_ap_info_t *aps,
+		       int count, int have_wlan, const char *hostname);
+
+/**
+ * lws_wifi_settings_href() - what a link in the settings' html asks for
+ *
+ * \param href: the link's href, eg, "?set=My%20AP"
+ * \param ssid: set to the SSID it's for, if any
+ * \param ssid_len: the size of ssid, at least 33
+ *
+ * Returns what it asks for, or LWS_WIFI_SETTINGS_ACT_NONE if it's not one of
+ * the settings' links, or what it says isn't a usable SSID.
+ */
+LWS_VISIBLE LWS_EXTERN lws_wifi_settings_act_t
+lws_wifi_settings_href(const char *href, char *ssid, size_t ssid_len);
+
+/* the css for the settings' html */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_wifi_settings_css(void);
+
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SYS_SMD)
+
+/*
+ * Giving a device wifi credentials when it has none it can use
+ *
+ * If it has none, or none it can use, the device becomes an AP of its own,
+ * named for its hostname, eg, "lws-a1b2c3", open by default, with the station
+ * still scanning alongside it.  Whoever joins it can browse to it, eg,
+ * http://192.168.4.1/, and is served the same wifi settings the device shows on
+ * its own display, if it has one (lws_wifi_settings_html()), to pick an AP and
+ * type its passphrase.  When credentials are stored, the device restarts to
+ * join it, with the system's reboot op.  A led the caller names, if any, gives
+ * two short flashes over and over meanwhile, so a device without a display can
+ * be seen to be waiting to be set up.
+ *
+ * It decides at lws_wifi_provision_create():
+ *
+ *  - no credentials are stored, or every AP refused its passphrase the last
+ *    time it was tried: it becomes an AP at once
+ *
+ *  - credentials are stored, but none worked yet: if the station hasn't
+ *    joined one after .join_wait_s, it becomes an AP then
+ *
+ *  - credentials are stored that worked before: it never does, the station
+ *    finds the AP again by itself when it's back
+ *
+ * If the station joins an AP after all while it's an AP, it stops being one.
+ *
+ * A "factory reset": if the button named .reset_button is pressed within
+ * .reset_window_s of lws_wifi_provision_create() and held for .reset_hold_s,
+ * the credentials for every AP are forgotten, the led flashes fast for a
+ * couple of seconds, and the device restarts, to come up as an AP.  Given
+ * .buttons, the button can already be held when we're created, so it can be
+ * pressed as soon as the device starts and held until it resets.
+ *
+ * The device's own settings can be used at the same time, eg, on its display:
+ * when they store credentials, the caller tells us with
+ * lws_wifi_provision_stored(), and the device restarts to join it the same
+ * way.
+ *
+ * The pages are served by plain http/1.1, since browsers only use h2 over TLS,
+ * and a certificate for an address on the device's own AP can't be trusted by
+ * them: so anyone near enough to join the AP can see the passphrase typed in.
+ * Give .ap_passphrase, eg, printed on the device, to have the AP use WPA2.
+ */
+
+typedef enum {
+	LWS_WIFI_PROV_IDLE,	/* the station uses the credentials we have */
+	LWS_WIFI_PROV_AP,	/* we're an AP, serving the settings */
+	LWS_WIFI_PROV_RESET,	/* the reset button forgot the credentials */
+	LWS_WIFI_PROV_REBOOT,	/* about to restart, eg, to join an AP */
+} lws_wifi_provision_state_t;
+
+/* told when the state changes, from the lws event loop */
+typedef void (*lws_wifi_provision_cb_t)(void *opaque,
+					lws_wifi_provision_state_t state);
+
+/* a file served beside the settings, eg, the icons they use */
+
+typedef struct lws_wifi_provision_file {
+	const char			*name;	/* eg, "set-cog.svg", served
+						 * at /set-cog.svg */
+	const void			*data;
+	size_t				len;
+	const char			*mimetype; /* eg, "image/svg+xml" */
+} lws_wifi_provision_file_t;
+
+typedef struct lws_wifi_provision_info {
+	struct lws_context		*cx;
+	lws_netdev_instance_wifi_t	*wnd;
+	/**< the wifi netdev, which must be able to be an AP as well */
+	struct lws_led_state		*lls;
+	/**< NULL, or the leds, one of which is named by .led */
+	const char			*led;
+	/**< NULL, or the name of the led to flash */
+	const char			*reset_button;
+	/**< NULL, or the name of the button, eg, "user", whose SMD
+	 * interaction events, eg, from "bc/user", mean a factory reset when
+	 * it's held, see above */
+	struct lws_button_state		*buttons;
+	/**< NULL, or the button controller .reset_button is on.  Given it, a
+	 * button already held when we're created counts as pressed then, eg,
+	 * one pressed while the device was starting, and one released without
+	 * an "up" event we saw isn't taken as still held */
+	const lws_wifi_provision_file_t	*files;
+	/**< NULL, or files to serve beside the settings, eg, the
+	 * LWS_WIFI_SETTINGS_ICON_ ones they use: they must exist for as long
+	 * as this does.  Without them, the settings work but show no icons */
+	size_t				count_files;
+	const char			*ap_passphrase;
+	/**< NULL for our AP to be open, else 8 to 63 characters for WPA2 */
+	lws_wifi_provision_cb_t		cb;
+	/**< NULL, or told when the state changes */
+	void				*opaque;
+	/**< passed to cb */
+	uint16_t			port;
+	/**< 0 for 80, the port the settings are served on */
+	uint16_t			join_wait_s;
+	/**< 0 for 60, how long credentials that never worked are given */
+	uint16_t			reset_window_s;
+	/**< 0 for 10, how long after starting the reset button can be
+	 * pressed to begin a reset */
+	uint16_t			reset_hold_s;
+	/**< 0 for 5, how long it has to be held */
+} lws_wifi_provision_info_t;
+
+struct lws_wifi_provision;
+
+/**
+ * lws_wifi_provision_create() - become an AP to be given credentials, if needed
+ *
+ * \param i: what to use: copied
+ *
+ * Decides if we need to be an AP to be given credentials, now or after a
+ * while, and watches the reset button, see above.  Call it once the wifi
+ * netdev is up, and the context's system ops have reboot.
+ *
+ * Returns the provisioning object, or NULL if it failed.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws_wifi_provision *
+lws_wifi_provision_create(const lws_wifi_provision_info_t *i);
+
+/* stop serving the settings and being an AP, and free it */
+LWS_VISIBLE LWS_EXTERN void
+lws_wifi_provision_destroy(struct lws_wifi_provision **p);
+
+/* the state, eg, LWS_WIFI_PROV_AP while we're an AP */
+LWS_VISIBLE LWS_EXTERN lws_wifi_provision_state_t
+lws_wifi_provision_state(const struct lws_wifi_provision *p);
+
+/* the SSID of our AP while we're one, else NULL, eg, to show it */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_wifi_provision_ap_ssid(const struct lws_wifi_provision *p);
+
+/* the url of the settings while we're an AP, else NULL, eg, to show it */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_wifi_provision_url(const struct lws_wifi_provision *p);
+
+/**
+ * lws_wifi_provision_stored() - credentials were stored some other way
+ *
+ * \param p: the provisioning object, or NULL
+ *
+ * Eg, on the device's own display.  While we're an AP, the device restarts
+ * after a few seconds to join it, as when they're stored by the served
+ * settings.  Otherwise there's nothing to do: the station joins it by itself.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_wifi_provision_stored(struct lws_wifi_provision *p);
+
+#endif
 
 /*
  * This is for plat / OS level init that is necessary to be able to use

@@ -19,7 +19,8 @@
  *
  *  - they are stored for any BSS of the AP
  *
- *  - they can be removed, one AP at a time, including the first
+ *  - they can be removed, one AP at a time, including the first, and all
+ *    of them at once
  *
  *  - too long SSIDs or passphrases are refused
  *
@@ -450,6 +451,12 @@ main(int argc, const char **argv)
 	}
 	expect(stored(nds, ssid, pp, sizeof(pp)) == 22 && !strcmp(pp, big),
 	       "many stored");
+
+	/* forgetting all of them, eg, for a factory reset */
+
+	expect(!lws_netdev_credentials_clear(nds) &&
+	       stored(nds, "home", pp, sizeof(pp)) == -1 &&
+	       !lws_netdev_credentials_clear(nds), "cleared");
 
 	/* the hostname, with no netdev yet, so no default */
 

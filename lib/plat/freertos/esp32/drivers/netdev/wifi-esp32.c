@@ -80,18 +80,27 @@ typedef struct lws_netdev_instance_wifi_esp32 {
 	esp_event_handler_instance_t		instance_got_ip6;
 #endif
 	esp_netif_t				*netif;
+	esp_netif_t				*netif_ap;
+	/**< created the first time we are asked to be an AP */
 	wifi_config_t				sta_config;
 	lws_sorted_usec_list_t			sul_link_stats;
 } lws_netdev_instance_wifi_esp32_t;
 
 /*
-static wifi_config_t config = {
-	.ap = {
-	    .channel = 6,
-	    .authmode = WIFI_AUTH_OPEN,
-	    .max_connection = 1,
-	} };
-	*/
+ * Our AP, when we are one, is if_idx 1 in the routing table, the station's
+ * is 0
+ */
+#define LWS_ESP32_IF_STA	0
+#define LWS_ESP32_IF_AP		1
+/* how many stations can join our AP at once */
+#define LWS_ESP32_AP_MAX_STA	4
+
+/* the station and our AP, if we are one, or just the station */
+static wifi_mode_t
+lws_esp32_mode(const lws_netdev_instance_wifi_t *wnd)
+{
+	return wnd->flags & LNDIW_MODE_AP ? WIFI_MODE_APSTA : WIFI_MODE_STA;
+}
 
 /*
  * Platform-specific connect / associate
@@ -107,7 +116,8 @@ lws_netdev_wifi_connect_plat(lws_netdev_instance_t *nd, const char *ssid,
 	wnde32->wnd.inst.ops->up(&wnde32->wnd.inst);
 
 	wnde32->wnd.flags |= LNDIW_MODE_STA;
-	esp_wifi_set_mode(WIFI_MODE_STA);
+	/* if we are an AP too, it stays up */
+	esp_wifi_set_mode(lws_esp32_mode(&wnde32->wnd));
 	esp_wifi_set_ps(WIFI_PS_NONE);
 
 #if 0
@@ -311,9 +321,10 @@ lws_esp32_disconnect_reason(unsigned int r)
 
 #if defined(LWS_WITH_ROUTING)
 /*
- * Reflect an address the IP stack has on our interface, if_idx 0, in the lws
- * routing table, as the source of a route to dest / dest_len.  For a default
- * route, dest is the unspecified address of src's family and dest_len 0.
+ * Reflect an address the IP stack has on one of our interfaces, if_idx, in the
+ * lws routing table, as the source of a route to dest / dest_len.  For a
+ * default route, dest is the unspecified address of src's family and dest_len
+ * 0.
  *
  * If we already have exactly that route, it's left alone, since replacing it
  * closes everything that was using it.  Otherwise any route it supersedes is
@@ -325,9 +336,9 @@ lws_esp32_disconnect_reason(unsigned int r)
  */
 
 static int
-lws_esp32_route_set(struct lws_context *ctx, const lws_sockaddr46 *dest,
-		    uint8_t dest_len, const lws_sockaddr46 *src,
-		    const lws_sockaddr46 *gw)
+lws_esp32_route_set(struct lws_context *ctx, int if_idx,
+		    const lws_sockaddr46 *dest, uint8_t dest_len,
+		    const lws_sockaddr46 *src, const lws_sockaddr46 *gw)
 {
 	struct lws_context_per_thread *pt = &ctx->pt[0];
 	int flags = LRR_MATCH_DST | LRR_IGNORE_PRI;
@@ -339,7 +350,7 @@ lws_esp32_route_set(struct lws_context *ctx, const lws_sockaddr46 *dest,
 			      lws_dll2_get_head(&ctx->routing_table)) {
 		rou = lws_container_of(d, lws_route_t, list);
 
-		if (!rou->if_idx && rou->dest_len == dest_len &&
+		if (rou->if_idx == if_idx && rou->dest_len == dest_len &&
 		    !lws_sa46_compare_ads(&rou->dest, dest) &&
 		    !lws_sa46_compare_ads(&rou->src, src) &&
 		    (gw->sa4.sin_family ?
@@ -352,6 +363,7 @@ lws_esp32_route_set(struct lws_context *ctx, const lws_sockaddr46 *dest,
 	} lws_end_foreach_dll(d);
 
 	memset(&robj, 0, sizeof(robj));
+	robj.if_idx = if_idx;
 	robj.dest = *dest;
 	robj.dest_len = dest_len;
 	if (src->sa4.sin_family != AF_INET) {
@@ -367,6 +379,7 @@ lws_esp32_route_set(struct lws_context *ctx, const lws_sockaddr46 *dest,
 		return -1;
 	}
 
+	rou->if_idx = if_idx;
 	rou->dest = *dest;
 	rou->dest_len = dest_len;
 	rou->src = *src;
@@ -416,7 +429,8 @@ lws_esp32_got_ip4(lws_netdev_instance_wifi_esp32_t *wnde32)
 		gw.sa4.sin_family = AF_INET;
 		memcpy(&gw.sa4.sin_addr, &ipi.gw.addr, 4);
 
-		if (lws_esp32_route_set(ctx, &dest, 0, &src, &gw) < 0)
+		if (lws_esp32_route_set(ctx, LWS_ESP32_IF_STA, &dest, 0, &src,
+					&gw) < 0)
 			return;
 	}
 #endif
@@ -497,7 +511,7 @@ lws_esp32_sync_ip6(lws_netdev_instance_wifi_esp32_t *wnde32)
 			lws_route_t *rou = lws_container_of(d, lws_route_t,
 							    list);
 
-			if (!rou->if_idx &&
+			if (rou->if_idx == LWS_ESP32_IF_STA &&
 			    rou->src.sa4.sin_family == AF_INET6 &&
 			    !lws_esp32_ip6_listed(glob, count, &rou->src)) {
 				stale = rou;
@@ -512,6 +526,7 @@ lws_esp32_sync_ip6(lws_netdev_instance_wifi_esp32_t *wnde32)
 			    wnde32->wnd.inst.name);
 
 		memset(&robj, 0, sizeof(robj));
+		robj.if_idx = LWS_ESP32_IF_STA;
 		robj.src = stale->src;
 		_lws_route_remove(pt, &robj, LRR_MATCH_SRC | LRR_IGNORE_PRI);
 	} while (1);
@@ -524,8 +539,10 @@ lws_esp32_sync_ip6(lws_netdev_instance_wifi_esp32_t *wnde32)
 	unspec.sa6.sin6_family = AF_INET6;
 
 	for (m = 0; m < count; m++) {
-		r1 = lws_esp32_route_set(ctx, &glob[m], 128, &glob[m], &gw);
-		r2 = lws_esp32_route_set(ctx, &unspec, 0, &glob[m], &gw);
+		r1 = lws_esp32_route_set(ctx, LWS_ESP32_IF_STA, &glob[m], 128,
+					 &glob[m], &gw);
+		r2 = lws_esp32_route_set(ctx, LWS_ESP32_IF_STA, &unspec, 0,
+					 &glob[m], &gw);
 		if (r1 < 0 || r2 < 0 || (!r1 && !r2))
 			continue;
 
@@ -637,7 +654,7 @@ lws_esp32_link_lost(lws_netdev_instance_wifi_esp32_t *wnde32, void *buf,
 
 #if defined(LWS_WITH_ROUTING)
 	lws_pt_lock(pt, __func__);
-	_lws_route_table_ifdown(pt, 0);
+	_lws_route_table_ifdown(pt, LWS_ESP32_IF_STA);
 	lws_pt_unlock(pt);
 #endif
 }
@@ -1006,6 +1023,165 @@ lws_netdev_wifi_hostname_plat(lws_netdev_instance_t *nd, const char *name)
 	return 0;
 }
 
+/*
+ * Our AP's subnet goes in the routing table, so what talks to us over it isn't
+ * closed as unroutable whenever the station's routes change, or the AP's goes
+ * when we stop being one
+ */
+
+static void
+lws_esp32_ap_route(lws_netdev_instance_wifi_esp32_t *wnde32, int up)
+{
+#if defined(LWS_WITH_ROUTING)
+	struct lws_context *ctx = netdev_instance_to_ctx(&wnde32->wnd.inst);
+	struct lws_context_per_thread *pt = &ctx->pt[0];
+	lws_sockaddr46 dest, src, gw;
+	esp_netif_ip_info_t ipi;
+	uint32_t mask;
+	uint8_t len = 0;
+
+	if (!up) {
+		lws_pt_lock(pt, __func__);
+		_lws_route_table_ifdown(pt, LWS_ESP32_IF_AP);
+		lws_pt_unlock(pt);
+
+		return;
+	}
+
+	if (esp_netif_get_ip_info(wnde32->netif_ap, &ipi) || !ipi.ip.addr)
+		return;
+
+	/* the netmask is contiguous ones from the top */
+	for (mask = ntohl(ipi.netmask.addr); mask & 0x80000000u; mask <<= 1)
+		len++;
+
+	memset(&dest, 0, sizeof(dest));
+	dest.sa4.sin_family = AF_INET;
+	dest.sa4.sin_addr.s_addr = ipi.ip.addr & ipi.netmask.addr;
+
+	memset(&src, 0, sizeof(src));
+	src.sa4.sin_family = AF_INET;
+	src.sa4.sin_addr.s_addr = ipi.ip.addr;
+
+	/* the stations on it are reached directly */
+	memset(&gw, 0, sizeof(gw));
+
+	if (lws_esp32_route_set(ctx, LWS_ESP32_IF_AP, &dest, len, &src,
+				&gw) < 0)
+		lwsl_warn("%s: no route for our AP\n", __func__);
+#endif
+}
+
+static void
+lws_esp32_ap_stopped(lws_netdev_instance_wifi_esp32_t *wnde32)
+{
+#if defined(LWS_WITH_SYS_SMD)
+	struct lws_context *ctx = netdev_instance_to_ctx(&wnde32->wnd.inst);
+#endif
+
+	if (!(wnde32->wnd.flags & LNDIW_MODE_AP))
+		return;
+
+	wnde32->wnd.flags &= (uint8_t)~LNDIW_MODE_AP;
+	wnde32->wnd.ap_ipv4[0] = '\0';
+	/* just the station, also the next time the radio is started */
+	esp_wifi_set_mode(WIFI_MODE_STA);
+	lws_esp32_ap_route(wnde32, 0);
+
+	lwsl_notice("%s: %s: no longer an AP\n", __func__,
+		    wnde32->wnd.inst.name);
+#if defined(LWS_WITH_SYS_SMD)
+	lws_smd_msg_printf(ctx, LWSSMDCL_NETWORK,
+			   "{\"type\":\"apdown\",\"if\":\"%s\"}",
+			   wnde32->wnd.inst.name);
+#endif
+}
+
+/*
+ * Be an AP as well as a station (APSTA), or stop being one.  The station goes
+ * on as it was, scanning or joined.  When the station is joined, our AP has
+ * to be on the same channel, and the radio moves it there.
+ */
+
+int
+lws_netdev_wifi_ap_plat(lws_netdev_instance_t *nd, const char *ssid,
+			const char *passphrase)
+{
+	lws_netdev_instance_wifi_esp32_t *wnde32 =
+					(lws_netdev_instance_wifi_esp32_t *)nd;
+#if defined(LWS_WITH_SYS_SMD)
+	struct lws_context *ctx = netdev_instance_to_ctx(&wnde32->wnd.inst);
+#endif
+	esp_netif_ip_info_t ipi;
+	wifi_config_t c;
+	size_t sl;
+
+	if (!ssid) {
+		if (!(wnde32->wnd.flags & LNDIW_MODE_AP))
+			return 0;
+
+		lws_esp32_ap_stopped(wnde32);
+
+		return 0;
+	}
+
+	if (!wnde32->netif_ap) {
+		/* it has a DHCP server, and an address, 192.168.4.1/24 */
+		wnde32->netif_ap = esp_netif_create_default_wifi_ap();
+		if (!wnde32->netif_ap) {
+			lwsl_err("%s: unable to create AP netif\n", __func__);
+			return 1;
+		}
+	}
+
+	memset(&c, 0, sizeof(c));
+	sl = strlen(ssid);
+	if (sl > sizeof(c.ap.ssid))
+		return 1;
+	memcpy(c.ap.ssid, ssid, sl);
+	c.ap.ssid_len = (uint8_t)sl;
+	c.ap.channel = 1;
+	c.ap.max_connection = LWS_ESP32_AP_MAX_STA;
+	c.ap.authmode = WIFI_AUTH_OPEN;
+	if (passphrase && *passphrase) {
+		lws_strncpy((char *)c.ap.password, passphrase,
+			    sizeof(c.ap.password));
+		c.ap.authmode = WIFI_AUTH_WPA2_PSK;
+	}
+
+	if (esp_wifi_set_mode(WIFI_MODE_APSTA) ||
+	    esp_wifi_set_config(WIFI_IF_AP, &c)) {
+		lws_explicit_bzero(&c, sizeof(c));
+		lwsl_err("%s: unable to configure AP\n", __func__);
+		esp_wifi_set_mode(lws_esp32_mode(&wnde32->wnd));
+
+		return 1;
+	}
+	lws_explicit_bzero(&c, sizeof(c));
+
+	wnde32->wnd.flags |= LNDIW_MODE_AP;
+
+	wnde32->wnd.ap_ipv4[0] = '\0';
+	if (!esp_netif_get_ip_info(wnde32->netif_ap, &ipi))
+		lws_write_numeric_address((void *)&ipi.ip.addr, 4,
+					  wnde32->wnd.ap_ipv4,
+					  sizeof(wnde32->wnd.ap_ipv4));
+	lws_esp32_ap_route(wnde32, 1);
+
+	lwsl_notice("%s: %s: AP %s, %s, at %s\n", __func__, nd->name, ssid,
+		    passphrase && *passphrase ? "WPA2" : "open",
+		    wnde32->wnd.ap_ipv4);
+
+#if defined(LWS_WITH_SYS_SMD)
+	lws_smd_msg_printf(ctx, LWSSMDCL_NETWORK,
+			   "{\"type\":\"apup\",\"if\":\"%s\","
+			   "\"ipv4\":\"%s\"}", nd->name,
+			   wnde32->wnd.ap_ipv4);
+#endif
+
+	return 0;
+}
+
 int
 lws_netdev_wifi_down_plat(struct lws_netdev_instance *nd)
 {
@@ -1023,6 +1199,8 @@ lws_netdev_wifi_down_plat(struct lws_netdev_instance *nd)
 #endif
 
 	lws_sul_cancel(&wnde32->sul_link_stats);
+	/* our AP, if we were one, stops with the radio */
+	lws_esp32_ap_stopped(wnde32);
 	esp_wifi_stop();
 
 	esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP,
@@ -1055,6 +1233,10 @@ lws_netdev_wifi_destroy_plat(struct lws_netdev_instance **pnd)
 	 */
 
 	lws_netdev_wifi_down_plat(*pnd);
+	if (wnde32->netif_ap) {
+		esp_netif_destroy_default_wifi(wnde32->netif_ap);
+		wnde32->netif_ap = NULL;
+	}
 	lws_sul_cancel(&wnde32->sul_link_stats);
 	lws_sul_cancel(&wnde32->wnd.sul_scan);
 	lws_netdev_wifi_scan_empty(&wnde32->wnd);

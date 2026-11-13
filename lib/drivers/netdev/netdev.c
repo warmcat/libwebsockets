@@ -58,9 +58,11 @@ lws_netdev_credentials_settings_set(lws_netdevs_t *nds)
 
 	/*
 	 * Each one, if every character of its ssid and passphrase had to be
-	 * escaped as \uXXXX, and its names, alg, bssid and history
+	 * escaped as \uXXXX, and its names, alg, bssid and history.  The
+	 * serializer only goes on while it has more than about 100 bytes
+	 * left, even for the document with none in it.
 	 */
-	max = 64 + lws_dll2_count(&nds->owner_creds) *
+	max = 256 + lws_dll2_count(&nds->owner_creds) *
 		(6 * (sizeof(((lws_wifi_creds_t *)0)->ssid) +
 		      sizeof(((lws_wifi_creds_t *)0)->passphrase)) + 128);
 
@@ -303,6 +305,30 @@ lws_netdev_credentials_remove(lws_netdevs_t *nds, const char *ssid)
 	return r;
 }
 
+int
+lws_netdev_credentials_clear(lws_netdevs_t *nds)
+{
+	int r;
+
+	lws_netdev_credentials_hold(nds);
+
+	/* their memory goes with the lwsac */
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
+				   lws_dll2_get_head(&nds->owner_creds)) {
+		lws_wifi_creds_t *c = lws_container_of(p, lws_wifi_creds_t,
+						       list);
+
+		lws_explicit_bzero(c->passphrase, sizeof(c->passphrase));
+		lws_dll2_remove(&c->list);
+	} lws_end_foreach_dll_safe(p, p1);
+
+	r = lws_netdev_credentials_settings_set(nds);
+
+	lws_netdev_credentials_release(nds);
+
+	return r;
+}
+
 /*
  * Record how joining the AP went with its credentials, if there are any for
  * it.  They're only stored again if that changed what was stored, so the
@@ -507,6 +533,25 @@ lws_netdev_wifi_rssi(lws_netdev_instance_t *nd, int *rssi)
 		return 1;
 
 	return nd->ops->rssi(nd, rssi);
+}
+
+int
+lws_netdev_wifi_ap(lws_netdev_instance_t *nd, const char *ssid,
+		   const char *passphrase)
+{
+	size_t pl = passphrase ? strlen(passphrase) : 0;
+
+	if (!nd || nd->type != LWSNDTYP_WIFI || !nd->ops->ap)
+		return 1;
+
+	if (!ssid)
+		return nd->ops->ap(nd, NULL, NULL);
+
+	/* WPA2 needs a passphrase of 8 to 63 characters */
+	if (!*ssid || strlen(ssid) > 32 || (pl && (pl < 8 || pl > 63)))
+		return 1;
+
+	return nd->ops->ap(nd, ssid, pl ? passphrase : NULL);
 }
 
 lws_netdev_instance_t *
