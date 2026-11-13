@@ -27,6 +27,15 @@
  * stopped.  It must still be well past timeout_secs, the cut the file sender
  * used to make.
  *
+ * That only holds while the data between them is small, so the server's
+ * send and the client's receive socket buffers are made small and fixed.
+ * Left to the kernel, they can grow to hold several MB in flight between
+ * them: the server sends its last long before a slow client has read up to
+ * where it stops, and after it resumes, the client must read MBs before the
+ * server can send again.  On a loaded host both took the whole 2s between
+ * the client's 4s pause and the server's 6s stall, and the client that
+ * resumed was cut off.
+ *
  * The second does not resume at a set time, because a peer that stops
  * reading may still take a little more, which is progress that renews the
  * watchdog.  On the BSDs and macOS, the sender's persist timer probes the
@@ -59,6 +68,8 @@
 #define STALL_SECS	6
 /* far bigger than loopback's socket buffers, so the server must wait */
 #define FILE_SIZE	((off_t)64 * 1024 * 1024)
+/* the file's runs' socket buffers, so little is in flight, see above */
+#define PIPE_SKTBUF	(64 * 1024)
 /* how much the client reads before it stops reading */
 #define PAUSE_AT	(1024 * 1024)
 /* how long a client that never resumes waits for the server to give up */
@@ -97,7 +108,7 @@ static struct lws *cli_wsi;
 static int port = 7710, fail, done;
 static size_t cur;
 static uint64_t got;
-static lws_usec_t paused_at, cut_at, started_at;
+static lws_usec_t paused_at, resumed_at, cut_at, started_at;
 static uint64_t next_pace;
 static int paused, completed;
 static uint8_t *big;
@@ -105,6 +116,32 @@ static char fixture_dir[64], fixture_path[96];
 
 static void
 sul_connect_cb(lws_sorted_usec_list_t *sul);
+
+/* when, from its first data, a file run stopped, went on and ended */
+static void
+log_timeline(const struct run *r)
+{
+	char res[32], cut[32];
+
+	if (resumed_at)
+		lws_snprintf(res, sizeof(res), "resumed +%lldms",
+			     (long long)((resumed_at - started_at) /
+							LWS_US_PER_MS));
+	else
+		lws_strncpy(res, "never resumed", sizeof(res));
+
+	if (cut_at)
+		lws_snprintf(cut, sizeof(cut), "cut off +%lldms",
+			     (long long)((cut_at - started_at) /
+							LWS_US_PER_MS));
+	else
+		lws_strncpy(cut, "not cut off", sizeof(cut));
+
+	lwsl_err("%s: %s: paused +%lldms, %s, %s, ended +%lldms\n", __func__,
+		 r->name, (long long)((paused_at - started_at) / LWS_US_PER_MS),
+		 res, cut,
+		 (long long)((lws_now_usecs() - started_at) / LWS_US_PER_MS));
+}
 
 static void
 run_end(void)
@@ -124,6 +161,8 @@ run_end(void)
 	} else if (whole != r->want_whole) {
 		lwsl_err("%s: %s: want %s\n", __func__, r->name,
 			 r->want_whole ? "the whole file" : "it cut off");
+		if (!r->paced)
+			log_timeline(r);
 		fail++;
 	} else if (r->paced) {
 		lws_usec_t us = lws_now_usecs() - started_at;
@@ -169,6 +208,7 @@ sul_resume_cb(lws_sorted_usec_list_t *sul)
 		return;
 
 	if (runs[cur].pause_secs || runs[cur].paced || cut_at) {
+		resumed_at = lws_now_usecs();
 		lws_rx_flow_control(cli_wsi, 1);
 		return;
 	}
@@ -185,11 +225,14 @@ static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
-	if (reason == LWS_CALLBACK_CONNECTING && runs[cur].paced) {
+	if (reason == LWS_CALLBACK_CONNECTING) {
 		lws_sockfd_type sfd = (lws_sockfd_type)(intptr_t)in;
-		int rb = BIG_SKTBUF;
+		/*
+		 * small, so the big write can't hide in the kernel, and the
+		 * file's runs hold little in flight
+		 */
+		int rb = runs[cur].paced ? BIG_SKTBUF : PIPE_SKTBUF;
 
-		/* small, so the big write can't hide in the kernel */
 		if (setsockopt(sfd, SOL_SOCKET, SO_RCVBUF, (const char *)&rb,
 			       sizeof(rb)))
 			lwsl_warn("%s: SO_RCVBUF failed\n", __func__);
@@ -265,11 +308,25 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
-/* the server's side: its connection closing while the client stopped reading */
+/*
+ * the server's side: its connections' send buffer, and its connection closing
+ * while the client stopped reading
+ */
 static int
 callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
+	if (reason == LWS_CALLBACK_FILTER_NETWORK_CONNECTION) {
+		lws_sockfd_type sfd = (lws_sockfd_type)(intptr_t)in;
+		int sb = PIPE_SKTBUF;
+
+		if (setsockopt(sfd, SOL_SOCKET, SO_SNDBUF, (const char *)&sb,
+			       sizeof(sb)))
+			lwsl_warn("%s: SO_SNDBUF failed\n", __func__);
+
+		return 0;
+	}
+
 	if (reason == LWS_CALLBACK_CLOSED_HTTP && cli_wsi && paused &&
 	    !runs[cur].want_whole && !cut_at) {
 		cut_at = lws_now_usecs();
@@ -375,6 +432,7 @@ sul_connect_cb(lws_sorted_usec_list_t *sul)
 	got		= 0;
 	next_pace	= PACE_STEP;
 	cut_at		= 0;
+	resumed_at	= 0;
 	paused		= 0;
 	completed	= 0;
 
