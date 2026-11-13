@@ -107,7 +107,9 @@
  *
  * And an h2 connection whose peer keeps taking what it is sent, but whose
  * answer to the validity PING is held up behind it: its WINDOW_UPDATEs keep
- * the connection valid.
+ * the connection valid.  And the other way, one whose peer keeps sending
+ * while its answer to the PING is held up behind that: its DATA keeps the
+ * connection valid.
  *
  * And a peer that finishes while the connection holds its reading behind a
  * partial send, reported the OSX way, a bare POLLHUP in place of the POLLOUT:
@@ -2558,6 +2560,105 @@ h2_validity_busy_half(struct lws_context *cx, struct lws_vhost *vh,
 	lwsl_user("case 51: an h2 peer taking what it is sent stays valid "
 		  "while the PING's answer is late, a silent one is hung up: "
 		  "PASS\n");
+
+	return 0;
+}
+
+/*
+ * 56: as 51, but the peer is the one sending: it uploads a body to us,
+ * slowly, and its answer to our validity PING waits behind the DATA already
+ * in flight, the way it does for a device downloading an image to flash.
+ * The DATA it sends says the connection works as well as the PING's answer
+ * would, and keeps it past the hangup time.  Then when the peer sends
+ * nothing more at all, the next PING goes and the connection is hung up.
+ */
+static int
+h2_validity_rx_half(struct lws_context *cx, struct lws_vhost *vh,
+		    int start_ms)
+{
+	static const char preface[] =
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+		"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
+		"\x00\x00\x00\x04\x01\x00\x00\x00\x00";
+	/* DATA, sid 1, not the end of the body */
+	static const char data[] = "\x00\x00\x02\x00\x00\x00\x00\x00\x01"
+				   "ab";
+	static uint8_t blk[128], fr[256];
+	static struct transport tp;
+	struct lws *wsi;
+	uint8_t *p;
+	int sv[2];
+	size_t n;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) {
+		lwsl_err("socketpair failed\n");
+		return 1;
+	}
+	close(sv[1]);
+	if (tp_register(&tp, sv[0]))
+		return 1;
+	wsi = lws_adopt_socket_vhost(vh, sv[0]);
+	if (!wsi) {
+		lwsl_err("adopt failed\n");
+		return 1;
+	}
+	lws_set_transport(wsi, &tops, &tp);
+
+	feed(cx, &tp, preface, sizeof(preface) - 1);
+
+	/* POST /body-done, content-length 100, the body to follow */
+	p = blk;
+	*p++ = 0x83; /* :method POST */
+	*p++ = 0x86; /* :scheme http */
+	p = hp_int(p, 0x00, 4, 4); /* :path, not indexed */
+	p = hp_str(p, "/body-done", 10, 0);
+	p = hp_int(p, 0x00, 4, 1); /* :authority, not indexed */
+	p = hp_str(p, "sansio-h2", 9, 0);
+	p = hp_int(p, 0x00, 4, 28); /* content-length, not indexed */
+	p = hp_str(p, "100", 3, 0);
+	n = h2_headers(fr, 1, blk, p);
+	fr[4] = 0x04; /* END_HEADERS alone: the body follows */
+	feed(cx, &tp, fr, n);
+
+	/* the validity PING goes, and its answer doesn't come */
+	at(cx, start_ms + VALID_PING_S * 1000 + 500);
+	feed(cx, &tp, NULL, 0);
+	if (!h2_tx_has_ping(&tp)) {
+		lwsl_err("case 56: no validity PING\n");
+		return 1;
+	}
+
+	/* more of the body comes */
+	at(cx, start_ms + 15000);
+	feed(cx, &tp, data, sizeof(data) - 1);
+
+	/* past when the PING's answer was due: still there */
+	at(cx, start_ms + VALID_HUP_S * 1000 + 1000);
+	feed(cx, &tp, NULL, 0);
+	if (tp.closed || tp.shutdown) {
+		lwsl_err("case 56: hung up on a peer sending to us\n");
+		return 1;
+	}
+
+	/* the next PING goes a ping's time after the DATA */
+	tp.tx_len = 0;
+	at(cx, start_ms + 15000 + VALID_PING_S * 1000 + 500);
+	feed(cx, &tp, NULL, 0);
+	if (!h2_tx_has_ping(&tp)) {
+		lwsl_err("case 56: no validity PING after the DATA\n");
+		return 1;
+	}
+
+	/* and with nothing from the peer, it is hung up */
+	at(cx, start_ms + 15000 + VALID_HUP_S * 1000 + 1000);
+	feed(cx, &tp, NULL, 0);
+	if (!tp.closed && !tp.shutdown) {
+		lwsl_err("case 56: not hung up on a silent peer\n");
+		return 1;
+	}
+
+	lwsl_user("case 56: an h2 peer sending to us stays valid while the "
+		  "PING's answer is late, a silent one is hung up: PASS\n");
 
 	return 0;
 }
@@ -6297,6 +6398,9 @@ main(int argc, const char **argv)
 	}
 	at(cx, 400000);
 	if (h2_validity_busy_half(cx, vh_h2v, 400000))
+		goto bail;
+	at(cx, 450000);
+	if (h2_validity_rx_half(cx, vh_h2v, 450000))
 		goto bail;
 #endif
 

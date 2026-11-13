@@ -1810,6 +1810,18 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		}
 #endif
 
+		/*
+		 * The peer is sending us DATA for a stream it has open: the
+		 * connection is valid, as a PING's ack would say.  That ack
+		 * can't say it in time while the peer keeps us busy: it waits
+		 * behind the DATA already in flight to us, which while we
+		 * consume it slowly, eg, writing a download to flash, can
+		 * take longer to reach us than the gap between the validity
+		 * ping and the hangup.  It's the same as a WINDOW_UPDATE
+		 * confirming it when we are the one sending.
+		 */
+		lws_validity_confirmed(wsi);
+
 		break;
 
 	case LWS_H2_FRAME_TYPE_PRIORITY:
