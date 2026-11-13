@@ -18,13 +18,23 @@
  * to both.  Which of them the client tries first is the platform's and the
  * routing table's choice: ctest runs the test once for each, so that one of
  * them always has the client refused first.  Either way the request must be
- * served over h3, with no fallback to tcp, inside a second and a half, less
- * than the h3 grace, and so well before any retransmission to the refusing
- * address could have helped.
+ * served over h3, with no fallback to tcp.
+ *
+ * The client hears LWS_CALLBACK_CONNECTING for each address it tries, so a
+ * second one is the move, and lws_get_peer_simple() then says where to.  The
+ * move must come inside 400ms of the start, before the client's first PTO
+ * (500ms) could have resent anything to the refusing address, and be to the
+ * address the server listens on.  The run whose first address is the
+ * server's has no move, and says so.
+ *
+ * With --reject-move, the client's callback returns nonzero for the move,
+ * which must close the connection instead: a run that moves must not be
+ * served, one that doesn't must still be.
  *
  * A host with no ipv6 loopback can't bind "::1": the test is skipped there.
  *
- * When it isn't served in time, both ends' connections are dumped with
+ * When the move is late, or it isn't served in time, both ends'
+ * connections are dumped with
  * lws_quic_dump(), which in a build with LWS_WITH_QUIC_TRACE includes when
  * each side sent and received each packet, and when its PTOs fired, to show
  * where the time went.
@@ -36,17 +46,18 @@
 #include <signal.h>
 
 #define QNA_TIMEOUT_S	10
-#define QNA_WITHIN_MS	1500
+/* less than LWS_QUIC_DEFAULT_PTO_US, the client's first PTO */
+#define QNA_MOVE_WITHIN_MS	400
 #define QNA_SKIP	77
 
 static struct lws_context *context;
 /* each end's request, for the dump: NULL once gone */
 static struct lws *srv_wsi, *cli_wsi;
 static lws_sorted_usec_list_t sul_watchdog;
-static lws_usec_t us_start, us_done;
-static char body[64];
+static lws_usec_t us_start, us_done, us_moved;
+static char body[64], peer_first[64], peer_moved[64];
 static size_t body_len;
-static int port = 7695, completed, timed_out;
+static int port = 7695, completed, timed_out, connectings, reject_move;
 
 /* keep what fits of what came, with room for the NUL */
 
@@ -143,6 +154,26 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	int lenx = (int)sizeof(buf) - LWS_PRE;
 
 	switch (reason) {
+	case LWS_CALLBACK_CONNECTING:
+		/* one for each address it tries: the second is the move */
+		if (connectings++ == 0) {
+			lws_get_peer_simple(wsi, peer_first, sizeof(peer_first));
+			break;
+		}
+		if (connectings > 2)
+			/* there are only two addresses to try */
+			break;
+		us_moved = lws_now_usecs();
+		lws_get_peer_simple(wsi, peer_moved, sizeof(peer_moved));
+		lwsl_user("%s: moved from %s to %s after %dms\n", __func__,
+			  peer_first, peer_moved,
+			  (int)((us_moved - us_start) / LWS_US_PER_MS));
+		if (reject_move) {
+			lwsl_user("%s: rejecting the move\n", __func__);
+			return -1;
+		}
+		break;
+
 	case LWS_CALLBACK_WSI_DESTROY:
 		if (wsi == cli_wsi)
 			cli_wsi = NULL;
@@ -160,8 +191,9 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		us_done = lws_now_usecs();
 		completed = 1;
-		/* both ends are still there to say why it took so long */
-		if (us_done - us_start > QNA_WITHIN_MS * LWS_US_PER_MS)
+		/* both ends are still there to say why the move was late */
+		if (us_moved &&
+		    us_moved - us_start > QNA_MOVE_WITHIN_MS * LWS_US_PER_MS)
 			dump_ends();
 		lws_default_loop_exit(context);
 		break;
@@ -218,9 +250,12 @@ int main(int argc, const char **argv)
 
 	if (lws_cmdline_option(argc, argv, "--help")) {
 		lwsl_user("%s [-p <port>] --cert <file> --key <file> "
-			  "[--bind <literal>] [--address <name>] [-d <level>]\n"
+			  "[--bind <literal>] [--address <name>] "
+			  "[--reject-move] [-d <level>]\n"
 			  "  --bind: the server's only quic address (::1)\n"
-			  "  --address: what the client asks for (localhost)\n",
+			  "  --address: what the client asks for (localhost)\n"
+			  "  --reject-move: the client refuses to move on to "
+			  "the next address\n",
 			  argv[0]);
 		return 0;
 	}
@@ -237,6 +272,7 @@ int main(int argc, const char **argv)
 		bind_ads = p;
 	if ((p = lws_cmdline_option(argc, argv, "--address")))
 		ads = p;
+	reject_move = !!lws_cmdline_option(argc, argv, "--reject-move");
 
 	if (!cert || !key) {
 		lwsl_err("--cert and --key are required\n");
@@ -328,13 +364,31 @@ int main(int argc, const char **argv)
 
 	if (timed_out)
 		lwsl_err("FAIL: not served inside %ds\n", QNA_TIMEOUT_S);
-	else if (!completed || strcmp(body, "served"))
+	else if (!connectings)
+		lwsl_err("FAIL: the client never heard CONNECTING\n");
+	else if (us_moved && strcmp(peer_moved, bind_ads))
+		lwsl_err("FAIL: moved to %s, the server is on %s\n",
+			 peer_moved, bind_ads);
+	else if (!us_moved && strcmp(peer_first, bind_ads))
+		lwsl_err("FAIL: served by %s with no move, the server is "
+			 "on %s\n", peer_first, bind_ads);
+	else if (us_moved && reject_move) {
+		if (completed)
+			lwsl_err("FAIL: served after the move was rejected\n");
+		else {
+			lwsl_user("the rejected move closed it\n");
+			result = 0;
+		}
+	} else if (!completed || strcmp(body, "served"))
 		lwsl_err("FAIL: not served ('%s')\n", body);
-	else if (us_done - us_start > QNA_WITHIN_MS * LWS_US_PER_MS)
-		lwsl_err("FAIL: served after %dms, want inside %dms\n",
-			 (int)((us_done - us_start) / LWS_US_PER_MS),
-			 QNA_WITHIN_MS);
+	else if (us_moved &&
+		 us_moved - us_start > QNA_MOVE_WITHIN_MS * LWS_US_PER_MS)
+		lwsl_err("FAIL: moved after %dms, want inside %dms\n",
+			 (int)((us_moved - us_start) / LWS_US_PER_MS),
+			 QNA_MOVE_WITHIN_MS);
 	else {
+		if (!us_moved)
+			lwsl_user("%s was the server's: no move\n", peer_first);
 		lwsl_user("served over h3 in %dms\n",
 			  (int)((us_done - us_start) / LWS_US_PER_MS));
 		result = 0;
