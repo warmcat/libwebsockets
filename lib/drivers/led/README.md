@@ -147,6 +147,8 @@ exported sequencer symbol|description
 ---|---
 lws_pwmseq_sine_endless_slow|continuous 100% sine, 1.5s cycle 
 lws_pwmseq_sine_endless_fast|continuous 100% sine, 0.75s cycle 
+lws_pwmseq_double_blink_endless|continuous two short flashes then dark, 1.6s cycle, eg, asking to be set up
+lws_pwmseq_blink_fast_endless|continuous on / off, 0.2s cycle, eg, acknowledging a reset
 lws_pwmseq_linear_wipe|single 0 - 100% ramp over 0.3s
 lws_pwmseq_sine_up|single 0 - 100% using sine curve over 0.3s
 lws_pwmseq_sine_down|single 100% - 0 using sine curve over 0.3s

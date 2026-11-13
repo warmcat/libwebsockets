@@ -93,6 +93,30 @@ lws_led_func_linear(lws_led_seq_phase_t n)
 }
 
 
+/*
+ * Two short flashes, then dark for most of the cycle: unlike a steady or
+ * breathing light, it reads as asking for something
+ */
+
+lws_led_intensity_t
+lws_led_func_double_blink(lws_led_seq_phase_t n)
+{
+	/* each flash and the gap between them is 1/12 of the cycle */
+	unsigned int slot = (unsigned int)n / (LWS_LED_FUNC_PHASE / 12);
+
+	return (lws_led_intensity_t)((slot == 0 || slot == 2) ?
+				       LWS_LED_MAX_INTENSITY : 0);
+}
+
+/* on for the first half of the cycle, off for the second */
+
+lws_led_intensity_t
+lws_led_func_square(lws_led_seq_phase_t n)
+{
+	return (lws_led_intensity_t)(n < LWS_LED_FUNC_PHASE / 2 ?
+				       LWS_LED_MAX_INTENSITY : 0);
+}
+
 static lws_led_intensity_t
 lws_led_func_static(lws_led_seq_phase_t n)
 {
@@ -153,4 +177,18 @@ const lws_led_sequence_def_t lws_pwmseq_sine_endless_fast = {
 	.ledphase_offset	= 0, /* already at 0 amp at 0 phase */
 	.ledphase_total		= LWS_SEQ_LEDPHASE_TOTAL_ENDLESS,
 	.ms			= 750
+};
+
+const lws_led_sequence_def_t lws_pwmseq_double_blink_endless = {
+	.func			= lws_led_func_double_blink,
+	.ledphase_offset	= 0,
+	.ledphase_total		= LWS_SEQ_LEDPHASE_TOTAL_ENDLESS,
+	.ms			= 1600
+};
+
+const lws_led_sequence_def_t lws_pwmseq_blink_fast_endless = {
+	.func			= lws_led_func_square,
+	.ledphase_offset	= 0,
+	.ledphase_total		= LWS_SEQ_LEDPHASE_TOTAL_ENDLESS,
+	.ms			= 200
 };

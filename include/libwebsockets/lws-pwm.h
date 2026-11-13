@@ -55,11 +55,17 @@ LWS_VISIBLE LWS_EXTERN lws_led_intensity_t
 lws_led_func_linear(lws_led_seq_phase_t n);
 LWS_VISIBLE LWS_EXTERN lws_led_intensity_t
 lws_led_func_sine(lws_led_seq_phase_t n);
+LWS_VISIBLE LWS_EXTERN lws_led_intensity_t
+lws_led_func_double_blink(lws_led_seq_phase_t n);
+LWS_VISIBLE LWS_EXTERN lws_led_intensity_t
+lws_led_func_square(lws_led_seq_phase_t n);
 
 /* canned sequences that can work out of the box */
 
 extern const lws_led_sequence_def_t lws_pwmseq_sine_endless_slow,
 				    lws_pwmseq_sine_endless_fast,
+				    lws_pwmseq_double_blink_endless,
+				    lws_pwmseq_blink_fast_endless,
 				    lws_pwmseq_linear_wipe,
 				    lws_pwmseq_sine_up, lws_pwmseq_sine_down,
 				    lws_pwmseq_static_on,
