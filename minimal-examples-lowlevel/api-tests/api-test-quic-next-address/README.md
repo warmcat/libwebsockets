@@ -16,7 +16,18 @@ The h3 server in the process listens on one literal loopback address,
 of the two the client tries first is the platform's and the routing table's
 choice, so ctest runs the test once with the server on each: in one of the
 runs the client is refused first.  Either way the request must be served over
-h3, with no fallback to tcp, inside 1.5s, less than the h3 grace.
+h3, with no fallback to tcp.
+
+The client hears `LWS_CALLBACK_CONNECTING` for each address it tries, as a tcp
+client does, so a second one is the move, and `lws_get_peer_simple()` then
+says where to.  The move must come inside 400ms of the start, before the
+client's first PTO (500ms) could have resent anything to the refusing
+address, and be to the address the server listens on.  The run whose first
+address is the server's has no move, and says so.
+
+With `--reject-move`, the client's callback returns nonzero for the move,
+which must close the connection instead: a run that moves must not be served,
+one that doesn't must still be.  ctest runs each family both ways.
 
 A host with no ipv6 loopback can't bind `::1`, and the `-v6` run is skipped
 there.
@@ -33,6 +44,7 @@ Option|Meaning
 -p <port>|The server's quic port (default 7695)
 --bind <literal>|The server's only quic address (default ::1)
 --address <name>|What the client asks for (default localhost)
+--reject-move|The client refuses to move on to the next address
 --cert <file>|The server's certificate
 --key <file>|The server's key
 --help|Show the options
