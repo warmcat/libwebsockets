@@ -265,10 +265,10 @@ typed, eg, to store a hostname whether or not Done was pressed.
 static void
 my_html(void *opaque, lws_dlo_ui_html_t *h)
 {
-	lws_dlo_ui_html_printf(h, "<table><tr><td>Host</td><td>"
+	lws_html_w_printf(h, "<table><tr><td>Host</td><td>"
 				  "<a href=\"edit:host\">");
-	lws_dlo_ui_html_text(h, hostname);	/* shown as text */
-	lws_dlo_ui_html_printf(h, "</a></td></tr></table>");
+	lws_html_w_text(h, hostname, (size_t)-1);	/* shown as text */
+	lws_html_w_printf(h, "</a></td></tr></table>");
 }
 
 static void

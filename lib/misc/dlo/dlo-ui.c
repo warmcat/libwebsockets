@@ -279,106 +279,6 @@ struct lws_dlo_ui {
 };
 
 /*
- * The html writer: everything is appended at p, up to end.  Once something
- * didn't fit, nothing more is written and the document is refused, rather
- * than a truncated one being shown
- */
-
-struct lws_dlo_ui_html {
-	char			*p;
-	char			*end;
-	char			full;
-};
-
-typedef struct lws_dlo_ui_html ui_w_t;
-
-static void
-ui_vprintf(ui_w_t *w, const char *fmt, va_list ap)
-{
-	size_t room = lws_ptr_diff_size_t(w->end, w->p);
-	int n;
-
-	if (w->full)
-		return;
-
-	n = vsnprintf(w->p, room, fmt, ap);
-	if (n < 0 || (size_t)n >= room) {
-		w->full = 1;
-		return;
-	}
-
-	w->p += n;
-}
-
-static void
-ui_printf(ui_w_t *w, const char *fmt, ...) LWS_FORMAT(2);
-
-static void
-ui_printf(ui_w_t *w, const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	ui_vprintf(w, fmt, ap);
-	va_end(ap);
-}
-
-void
-lws_dlo_ui_html_printf(lws_dlo_ui_html_t *h, const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	ui_vprintf(h, fmt, ap);
-	va_end(ap);
-}
-
-/*
- * What the caller gave us goes in the html as text, never as markup: escape
- * what html gives meaning to, and drop control characters
- */
-
-static void
-ui_text(ui_w_t *w, const char *s, size_t max)
-{
-	size_t n;
-
-	for (n = 0; n < max && s[n] && !w->full; n++) {
-		unsigned char c = (unsigned char)s[n];
-
-		switch (c) {
-		case '&':
-			ui_printf(w, "&amp;");
-			break;
-		case '<':
-			ui_printf(w, "&lt;");
-			break;
-		case '>':
-			ui_printf(w, "&gt;");
-			break;
-		case '"':
-			ui_printf(w, "&quot;");
-			break;
-		case '\'':
-			ui_printf(w, "&#39;");
-			break;
-		default:
-			if (c < 0x20 || c == 0x7f)
-				c = '?';
-			ui_printf(w, "%c", c);
-			break;
-		}
-	}
-}
-
-void
-lws_dlo_ui_html_text(lws_dlo_ui_html_t *h, const char *s)
-{
-	if (s)
-		ui_text(h, s, (size_t)-1);
-}
-
-/*
  * An icon is named in an attribute: only allow names that can't break out
  * of it or name anything outside the dlo filesystem
  */
@@ -803,7 +703,7 @@ static const char * const ui_css =
 /* where the capsule's icons are in it */
 
 static void
-ui_status_css(const struct lws_dlo_ui *ui, ui_w_t *w)
+ui_status_css(const struct lws_dlo_ui *ui, lws_html_w_t *w)
 {
 	int ch = ui->cap_y1 - ui->cap_y0, cp = ui_status_pad(ui),
 	    ih = ch - 2 * cp, x = ih / 4 + cp, n, g, bw, bh, ow, oh, ot, nw,
@@ -812,7 +712,7 @@ ui_status_css(const struct lws_dlo_ui *ui, ui_w_t *w)
 	if (ui->cap_x1 == ui->cap_x0)
 		return;
 
-	ui_printf(w, "#s { left: %dpx; top: %dpx; width: %dpx; height: %dpx;"
+	lws_html_w_printf(w, "#s { left: %dpx; top: %dpx; width: %dpx; height: %dpx;"
 		     " border-radius: %dpx }", ui->cap_x0, ui->cap_y0,
 		     ui->cap_x1 - ui->cap_x0, ch, ch / 2);
 
@@ -827,7 +727,7 @@ ui_status_css(const struct lws_dlo_ui *ui, ui_w_t *w)
 			bh = (ih * (n + 1)) / LWS_DLO_UI_WLAN_BARS;
 			if (bh < 1)
 				bh = 1;
-			ui_printf(w, "#sb%d { left: %dpx; top: %dpx;"
+			lws_html_w_printf(w, "#sb%d { left: %dpx; top: %dpx;"
 				     " width: %dpx; height: %dpx }", n,
 				     x + n * (bw + g), cp + ih - bh, bw, bh);
 		}
@@ -847,13 +747,13 @@ ui_status_css(const struct lws_dlo_ui *ui, ui_w_t *w)
 	if (fw < 0)
 		fw = 0;
 
-	ui_printf(w, "#sbo { left: %dpx; top: %dpx; width: %dpx; height: %dpx }"
+	lws_html_w_printf(w, "#sbo { left: %dpx; top: %dpx; width: %dpx; height: %dpx }"
 		     "#sbn { left: %dpx; top: %dpx; width: %dpx; height: %dpx }"
 		     "#sbi { left: %dpx; top: %dpx; width: %dpx; height: %dpx }",
 		     x, ot, ow, oh, x + ow, ot + oh / 4, nw, oh - 2 * (oh / 4),
 		     x + 1, ot + 1, ow - 2, oh - 2);
 	if (ui->st_batt)
-		ui_printf(w, "#%s { left: %dpx; top: %dpx; width: %dpx;"
+		lws_html_w_printf(w, "#%s { left: %dpx; top: %dpx; width: %dpx;"
 			     " height: %dpx }", ui->st_chg ? "sbc" : "sbf",
 			     x + 2, ot + 2, fw, oh - 4);
 }
@@ -861,35 +761,35 @@ ui_status_css(const struct lws_dlo_ui *ui, ui_w_t *w)
 /* the capsule, inside the title strip */
 
 static void
-ui_status_html(const struct lws_dlo_ui *ui, ui_w_t *w)
+ui_status_html(const struct lws_dlo_ui *ui, lws_html_w_t *w)
 {
 	int n;
 
 	if (ui->cap_x1 == ui->cap_x0)
 		return;
 
-	ui_printf(w, "<div id=\"s\">");
+	lws_html_w_printf(w, "<div id=\"s\">");
 
 	if (ui->st_wlan != LWS_DLO_UI_STATUS_NONE)
 		for (n = 0; n < LWS_DLO_UI_WLAN_BARS; n++)
-			ui_printf(w, "<div class=\"sb%s\" id=\"sb%d\"></div>",
+			lws_html_w_printf(w, "<div class=\"sb%s\" id=\"sb%d\"></div>",
 				  n < ui->st_wlan ? " so" : "", n);
 
 	if (ui->st_batt != LWS_DLO_UI_STATUS_NONE) {
-		ui_printf(w, "<div id=\"sbo\"></div><div id=\"sbi\"></div>");
+		lws_html_w_printf(w, "<div id=\"sbo\"></div><div id=\"sbi\"></div>");
 		if (ui->st_batt)
-			ui_printf(w, "<div id=\"%s\"></div>",
+			lws_html_w_printf(w, "<div id=\"%s\"></div>",
 				  ui->st_chg ? "sbc" : "sbf");
-		ui_printf(w, "<div id=\"sbn\"></div>");
+		lws_html_w_printf(w, "<div id=\"sbn\"></div>");
 	}
 
-	ui_printf(w, "</div>");
+	lws_html_w_printf(w, "</div>");
 }
 
 /* the edit page's strips, after the title strip */
 
 static void
-ui_html_edit(struct lws_dlo_ui *ui, ui_w_t *w)
+ui_html_edit(struct lws_dlo_ui *ui, lws_html_w_t *w)
 {
 	int y0, y1, ky0, ky1, x0, x1, n, vis, end, start;
 	char t[LWS_DLO_UI_EDIT_MAX + 2];
@@ -898,14 +798,14 @@ ui_html_edit(struct lws_dlo_ui *ui, ui_w_t *w)
 	ui_strip_band(ui, UI_STRIP_EDIT, &y0, &y1);
 	ui_strip_band(ui, UI_STRIP_KEYS, &ky0, &ky1);
 
-	ui_printf(w, "#e { top: %dpx; width: %dpx; height: %dpx }"
+	lws_html_w_printf(w, "#e { top: %dpx; width: %dpx; height: %dpx }"
 		     "#k { top: %dpx; width: %dpx; height: %dpx }",
 		     y0, ui->w, y1 - y0, ky0, ui->w, ky1 - ky0);
 
 	/* the edit box, across what can be seen of its strip */
 
 	ui_span(ui, y0, y1, &x0, &x1);
-	ui_printf(w, "#et { left: %dpx; top: %dpx; width: %dpx; height: %dpx;"
+	lws_html_w_printf(w, "#et { left: %dpx; top: %dpx; width: %dpx; height: %dpx;"
 		     " font-size: %dpx }", x0 + ui->pad, ui->pad,
 		     x1 - x0 - 2 * ui->pad, y1 - y0 - 2 * ui->pad, ui->fs_row);
 
@@ -914,22 +814,22 @@ ui_html_edit(struct lws_dlo_ui *ui, ui_w_t *w)
 	 * a drag only moves #kb's dlo, without laying it out again
 	 */
 
-	ui_printf(w, "#kb { position: absolute; left: %dpx; top: %dpx;"
+	lws_html_w_printf(w, "#kb { position: absolute; left: %dpx; top: %dpx;"
 		     " width: %dpx; height: %dpx }.k { font-size: %dpx }",
 		     ui->kx, ui->ky, (UI_KB_HALVES * ui->row_h) / 2,
 		     ui_kb_rows(ui) * ui->row_h, ui->fs_row);
 	for (n = 0; n < ui->nkeys; n++) {
 		kp = &ui->keys[n];
-		ui_printf(w, "#k%d { left: %dpx; top: %dpx; width: %dpx;"
+		lws_html_w_printf(w, "#k%d { left: %dpx; top: %dpx; width: %dpx;"
 			     " height: %dpx }", n, kp->x + ui->pad,
 			     kp->y + ui->pad, kp->w - 2 * ui->pad,
 			     ui->row_h - 2 * ui->pad);
 	}
 
-	ui_printf(w, "</style></head><body><div id=\"ui\"><div id=\"t\">"
+	lws_html_w_printf(w, "</style></head><body><div id=\"ui\"><div id=\"t\">"
 		     "<div id=\"tt\">");
-	ui_text(w, ui->edit_title, sizeof(ui->edit_title));
-	ui_printf(w, "</div>");
+	lws_html_w_text(w, ui->edit_title, sizeof(ui->edit_title));
+	lws_html_w_printf(w, "</div>");
 	ui_status_html(ui, w);
 
 	/*
@@ -948,11 +848,11 @@ ui_html_edit(struct lws_dlo_ui *ui, ui_w_t *w)
 		t[n++ - start] = '_';
 	t[n - start] = '\0';
 
-	ui_printf(w, "</div><div id=\"e\"><div id=\"et\">"
+	lws_html_w_printf(w, "</div><div id=\"e\"><div id=\"et\">"
 		     "<div class=\"x\">");
-	ui_text(w, t, sizeof(t));
+	lws_html_w_text(w, t, sizeof(t));
 	lws_explicit_bzero(t, sizeof(t));
-	ui_printf(w, "</div></div></div><div id=\"k\"><div id=\"kb\">");
+	lws_html_w_printf(w, "</div></div></div><div id=\"k\"><div id=\"kb\">");
 
 	for (n = 0; n < ui->nkeys && !w->full; n++) {
 		const char *cap;
@@ -968,18 +868,18 @@ ui_html_edit(struct lws_dlo_ui *ui, ui_w_t *w)
 		if (kp->k->act == K_SHOW && ui->show)
 			cap = "Hide";
 
-		ui_printf(w, "<div class=\"k%s%s%s\" id=\"k%d\">"
+		lws_html_w_printf(w, "<div class=\"k%s%s%s\" id=\"k%d\">"
 			     "<div class=\"x\">",
 			  kp->k->act == K_CHR ? "" : " ks",
 			  (kp->k->act == K_SHIFT &&
 			   ui->layer == UI_LAYER_UPPER) ||
 			  (kp->k->act == K_SHOW && ui->show) ? " ka" : "",
 			  ui->nav && n == ui->kcur ? " kc" : "", n);
-		ui_text(w, cap, 8);
-		ui_printf(w, "</div></div>");
+		lws_html_w_text(w, cap, 8);
+		lws_html_w_printf(w, "</div></div>");
 	}
 
-	ui_printf(w, "</div></div></div></body></html>");
+	lws_html_w_printf(w, "</div></div></div></body></html>");
 }
 
 static int
@@ -989,16 +889,14 @@ ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 	    x0, x1, y0, n, first, last, ry, ix0,
 	    ix1, round = ui->i.lds->disp->ic.round;
 	lws_dlo_ui_row_t row;
-	ui_w_t w;
+	lws_html_w_t w;
 
-	w.p = buf;
-	w.end = buf + len;
-	w.full = 0;
+	lws_html_w_init(&w, buf, len);
 
-	ui_printf(&w, "<!doctype html><html><head><meta charset=\"utf-8\">"
+	lws_html_w_printf(&w, "<!doctype html><html><head><meta charset=\"utf-8\">"
 		      "<style>%s%s", ui_css, ui->css ? ui->css : "");
 
-	ui_printf(&w, "#ui { width: %dpx; height: %dpx }"
+	lws_html_w_printf(&w, "#ui { width: %dpx; height: %dpx }"
 		      "#t { top: 0; width: %dpx; height: %dpx }",
 		      ui->w, ui->h, ui->w, ui->title_h);
 
@@ -1007,7 +905,7 @@ ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 	ui_title_span(ui, &x0, &x1);
 	if (x1 < x0)
 		x1 = x0;
-	ui_printf(&w, "#tt { left: %dpx; top: %dpx; width: %dpx; height: %dpx;"
+	lws_html_w_printf(&w, "#tt { left: %dpx; top: %dpx; width: %dpx; height: %dpx;"
 		      " font-size: %dpx }", x0, ui->title_h - tl - ui->pad,
 		      x1 - x0, tl, ui->fs_title);
 	ui_status_css(ui, &w);
@@ -1027,34 +925,34 @@ ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 		 */
 		ui_panel_geom(ui, &x0, &x1, &vh);
 		if (ui->dlg_css)
-			ui_printf(&w, "%s", ui->dlg_css);
-		ui_printf(&w, "#p { top: %dpx; width: %dpx; height: %dpx }"
+			lws_html_w_printf(&w, "%s", ui->dlg_css);
+		lws_html_w_printf(&w, "#p { top: %dpx; width: %dpx; height: %dpx }"
 			      "#pc { left: %dpx; top: 0; width: %dpx;"
 			      " font-size: %dpx }</style></head><body>"
 			      "<div id=\"ui\"><div id=\"t\"><div id=\"tt\">",
 			      ui->title_h, ui->w, vh, x0,
 			      x1 - x0, ui->fs_row);
-		ui_text(&w, ui->title, sizeof(ui->title));
-		ui_printf(&w, "</div>");
+		lws_html_w_text(&w, ui->title, sizeof(ui->title));
+		lws_html_w_printf(&w, "</div>");
 		ui_status_html(ui, &w);
-		ui_printf(&w, "</div><div id=\"p\"><div id=\"pc\">");
+		lws_html_w_printf(&w, "</div><div id=\"p\"><div id=\"pc\">");
 		ui->dlg.html(ui->dlg.opaque, &w);
-		ui_printf(&w, "</div></div></div></body></html>");
+		lws_html_w_printf(&w, "</div></div></div></body></html>");
 		goto done;
 	}
 
 	if (ui->page_strips == UI_PAGE_FRAME) {
 		/* below the title strip, the body is the caller's */
-		ui_printf(&w, "</style></head><body><div id=\"ui\">"
+		lws_html_w_printf(&w, "</style></head><body><div id=\"ui\">"
 			      "<div id=\"t\"><div id=\"tt\">");
-		ui_text(&w, ui->title, sizeof(ui->title));
-		ui_printf(&w, "</div>");
+		lws_html_w_text(&w, ui->title, sizeof(ui->title));
+		lws_html_w_printf(&w, "</div>");
 		ui_status_html(ui, &w);
-		ui_printf(&w, "</div></div></body></html>");
+		lws_html_w_printf(&w, "</div></div></body></html>");
 		goto done;
 	}
 
-	ui_printf(&w, "#l { top: %dpx; width: %dpx; height: %dpx }",
+	lws_html_w_printf(&w, "#l { top: %dpx; width: %dpx; height: %dpx }",
 		      ui->title_h, ui->w, lh);
 
 	/*
@@ -1070,7 +968,7 @@ ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 	 */
 
 	if (round)
-		ui_printf(&w, ".r { justify-content: flex-start }");
+		lws_html_w_printf(&w, ".r { justify-content: flex-start }");
 
 	first = ui->top / ui->row_h;
 	last = (ui->top + lh + ui->row_h - 1) / ui->row_h;
@@ -1091,44 +989,41 @@ ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 				x0 = ix0 + ui->pad;
 		}
 
-		ui_printf(&w, "#r%d { left: %dpx; top: %dpx; width: %dpx;"
+		lws_html_w_printf(&w, "#r%d { left: %dpx; top: %dpx; width: %dpx;"
 			      " height: %dpx; font-size: %dpx }", n, x0, ry,
 			      x1 - x0, ui->row_h, ui->fs_row);
 	}
 
-	ui_printf(&w, ".i { width: %dpx; height: %dpx; margin-right: %dpx }"
+	lws_html_w_printf(&w, ".i { width: %dpx; height: %dpx; margin-right: %dpx }"
 		      ".i img { width: 100%%; height: 100%% }</style></head>"
 		      "<body><div id=\"ui\"><div id=\"t\"><div id=\"tt\">",
 		      ui->icon, ui->icon, ui->pad * 2);
-	ui_text(&w, ui->title, sizeof(ui->title));
-	ui_printf(&w, "</div>");
+	lws_html_w_text(&w, ui->title, sizeof(ui->title));
+	lws_html_w_printf(&w, "</div>");
 	ui_status_html(ui, &w);
-	ui_printf(&w, "</div><div id=\"l\">");
+	lws_html_w_printf(&w, "</div><div id=\"l\">");
 
 	for (n = first; n < last && !w.full; n++) {
 		memset(&row, 0, sizeof(row));
 		if (ui->i.row(ui->i.opaque, n, &row))
 			continue;
 
-		ui_printf(&w, "<div class=\"r%s%s\" id=\"r%d\">",
+		lws_html_w_printf(&w, "<div class=\"r%s%s\" id=\"r%d\">",
 			  row.state == LWS_DLO_UI_ROW_DIM ? " d" :
 			  (row.state == LWS_DLO_UI_ROW_FOCUS ? " f" : ""),
 			  ui->nav && n == ui->cursor ? " c" : "", n);
 		if (ui_icon_name_ok(row.icon))
-			ui_printf(&w, "<div class=\"i\"><img src=\"%s\">"
+			lws_html_w_printf(&w, "<div class=\"i\"><img src=\"%s\">"
 				      "</div>", row.icon);
-		ui_printf(&w, "<div class=\"x\">");
-		ui_text(&w, row.text, sizeof(row.text));
-		ui_printf(&w, "</div></div>");
+		lws_html_w_printf(&w, "<div class=\"x\">");
+		lws_html_w_text(&w, row.text, sizeof(row.text));
+		lws_html_w_printf(&w, "</div></div>");
 	}
 
-	ui_printf(&w, "</div></div></body></html>");
+	lws_html_w_printf(&w, "</div></div></body></html>");
 
 done:
-	if (w.full)
-		return -1;
-
-	return lws_ptr_diff(w.p, buf);
+	return lws_html_w_len(&w, buf);
 }
 
 static void

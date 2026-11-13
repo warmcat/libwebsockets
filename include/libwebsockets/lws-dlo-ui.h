@@ -199,10 +199,12 @@ typedef int (*lws_dlo_ui_done_cb_t)(void *opaque, const char *text);
 
 /*
  * Writing the html of a dialog's panel, see lws_dlo_ui_dialog_t .html: the
- * caller's markup with lws_dlo_ui_html_printf(), and anything that isn't the
- * caller's own, eg, an SSID, with lws_dlo_ui_html_text(), which escapes it.
+ * caller's markup with lws_html_w_printf(), and anything that isn't the
+ * caller's own, eg, an SSID, with lws_html_w_text(), which escapes it.  If
+ * the html becomes longer than lws_dlo_ui_dialog_t .html_max, the rest isn't
+ * written, and the panel isn't shown.
  */
-typedef struct lws_dlo_ui_html lws_dlo_ui_html_t;
+typedef lws_html_w_t lws_dlo_ui_html_t;
 
 /* write the panel's html, see lws_dlo_ui_dialog() */
 typedef void (*lws_dlo_ui_dialog_html_cb_t)(void *opaque, lws_dlo_ui_html_t *h);
@@ -452,33 +454,6 @@ lws_dlo_ui_dialog(struct lws_dlo_ui *ui, const lws_dlo_ui_dialog_t *d);
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_dlo_ui_dialog_changed(struct lws_dlo_ui *ui);
-
-/**
- * lws_dlo_ui_html_printf() - write the caller's own markup to the panel
- *
- * \param h: the panel's html, given to lws_dlo_ui_dialog_t .html
- * \param fmt: printf format
- *
- * Only for the caller's own markup: anything from elsewhere, eg, an SSID, or
- * a name the user typed, must be written with lws_dlo_ui_html_text().  If
- * the html becomes longer than lws_dlo_ui_dialog_t .html_max, the rest isn't
- * written, and the panel isn't shown.
- */
-LWS_VISIBLE LWS_EXTERN void
-lws_dlo_ui_html_printf(lws_dlo_ui_html_t *h, const char *fmt, ...)
-	LWS_FORMAT(2);
-
-/**
- * lws_dlo_ui_html_text() - write text to the panel, as text
- *
- * \param h: the panel's html
- * \param s: the text, eg, an SSID anyone nearby can choose
- *
- * What html gives meaning to is escaped, and control characters are replaced,
- * so it's only ever shown as text.
- */
-LWS_VISIBLE LWS_EXTERN void
-lws_dlo_ui_html_text(lws_dlo_ui_html_t *h, const char *s);
 
 /**
  * lws_dlo_ui_frame() - show the frame page, the title strip over a body

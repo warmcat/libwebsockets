@@ -2389,3 +2389,81 @@ lws_sigbits(uintptr_t u);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_wol(struct lws_context *ctx, const char *ip_or_NULL, uint8_t *mac_6_bytes);
+
+/*
+ * Writing html into a buffer
+ *
+ * Markup that is the caller's own goes in with lws_html_w_printf(), anything
+ * from elsewhere, eg, an SSID anyone nearby can choose, with lws_html_w_text()
+ * or lws_html_w_urlarg(), which escape it.  Once something didn't fit, nothing
+ * more is written and .full is set, so a truncated document is never used.
+ */
+
+typedef struct lws_html_w {
+	char			*p;	/* where the next is written */
+	char			*end;	/* the end of the buffer */
+	char			full;	/* something didn't fit */
+} lws_html_w_t;
+
+/**
+ * lws_html_w_init() - start writing html into a buffer
+ *
+ * \param w: the writer
+ * \param buf: the buffer
+ * \param len: its size
+ *
+ * What is written is always NUL-terminated.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_html_w_init(lws_html_w_t *w, char *buf, size_t len);
+
+/**
+ * lws_html_w_printf() - write the caller's own markup
+ *
+ * \param w: the writer
+ * \param fmt: printf format
+ *
+ * Only for the caller's own markup: anything from elsewhere must be written
+ * with lws_html_w_text() or lws_html_w_urlarg().
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_html_w_printf(lws_html_w_t *w, const char *fmt, ...) LWS_FORMAT(2);
+
+/**
+ * lws_html_w_text() - write text, as text
+ *
+ * \param w: the writer
+ * \param s: the text, or NULL for none
+ * \param max: the most of s to write, eg, the size of the array it's in
+ *
+ * What html gives meaning to, including both kinds of quote, is escaped, so it
+ * can go in an element or in a quoted attribute, and control characters are
+ * replaced with '?', so it's only ever shown as text.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_html_w_text(lws_html_w_t *w, const char *s, size_t max);
+
+/**
+ * lws_html_w_urlarg() - write text as the value of a url argument
+ *
+ * \param w: the writer
+ * \param s: the text, or NULL for none
+ * \param max: the most of s to write
+ *
+ * Everything except a-z, A-Z, 0-9, '-', '_', '.' and '~' is %-encoded, so it
+ * can go in a quoted href, eg, href="?set=<s>", and comes back as it was from
+ * lws_urldecode().
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_html_w_urlarg(lws_html_w_t *w, const char *s, size_t max);
+
+/**
+ * lws_html_w_len() - how much html was written
+ *
+ * \param w: the writer
+ * \param buf: the buffer given to lws_html_w_init()
+ *
+ * Returns the length of the html, or -1 if something didn't fit.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_html_w_len(const lws_html_w_t *w, const char *buf);

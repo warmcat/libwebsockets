@@ -208,7 +208,7 @@ aps_update(lhp_settings_t *s)
 static void
 img(lws_dlo_ui_html_t *h, const char *name)
 {
-	lws_dlo_ui_html_printf(h, "<img src=\"%s\">", name);
+	lws_html_w_printf(h, "<img src=\"%s\">", name);
 }
 
 /*
@@ -226,14 +226,14 @@ dlg_html(void *opaque, lws_dlo_ui_html_t *h)
 
 	aps_update(s);
 
-	lws_dlo_ui_html_printf(h, "<div class=\"s\">WLAN</div>");
+	lws_html_w_printf(h, "<div class=\"s\">WLAN</div>");
 
 	if (!s->ap_count)
 		/* there's nothing to pick, but say why */
-		lws_dlo_ui_html_printf(h, "<div class=\"d\">%s</div>",
+		lws_html_w_printf(h, "<div class=\"d\">%s</div>",
 				       s->wnd ? "Scanning..." : "No WLAN");
 	else
-		lws_dlo_ui_html_printf(h, "<table>");
+		lws_html_w_printf(h, "<table>");
 
 	for (n = 0; n < s->ap_count; n++) {
 		a = &s->aps[n];
@@ -242,17 +242,17 @@ dlg_html(void *opaque, lws_dlo_ui_html_t *h)
 		 * Its signal first, all the bars unlit if it wasn't seen.
 		 * Those we have credentials for but can't see are dimmed.
 		 */
-		lws_dlo_ui_html_printf(h, "<tr%s><td class=\"g\"><img "
+		lws_html_w_printf(h, "<tr%s><td class=\"g\"><img "
 				       "class=\"g\" src=\"set-sig%d.svg\">"
 				       "</td><td><div>",
 				       a->seen ? "" : " class=\"d\"",
 				       (int)a->bars);
-		lws_dlo_ui_html_text(h, a->ssid);
-		lws_dlo_ui_html_printf(h, "</div><div class=\"st\">");
+		lws_html_w_text(h, a->ssid, sizeof(a->ssid));
+		lws_html_w_printf(h, "</div><div class=\"st\">");
 		if (a->stored && !a->open)
 			img(h, "set-key.svg");
 		if (a->seen)
-			lws_dlo_ui_html_printf(h, "%s ", lws_wifi_auth_name(
+			lws_html_w_printf(h, "%s ", lws_wifi_auth_name(
 						(lws_wifi_auth_t)a->auth));
 
 		/* how the last try to join it went */
@@ -272,29 +272,29 @@ dlg_html(void *opaque, lws_dlo_ui_html_t *h)
 
 		if (a->internet)
 			img(h, "set-net.svg");
-		lws_dlo_ui_html_printf(h, "</div></td><td>");
+		lws_html_w_printf(h, "</div></td><td>");
 		/* an open AP that's stored has no passphrase to set */
 		if (!a->open || !a->stored)
-			lws_dlo_ui_html_printf(h, "<a class=\"i\" href=\"set:%d\">"
+			lws_html_w_printf(h, "<a class=\"i\" href=\"set:%d\">"
 					       "<img src=\"set-cog.svg\"></a>", n);
 		if (a->stored)
-			lws_dlo_ui_html_printf(h, "<a class=\"i\" "
+			lws_html_w_printf(h, "<a class=\"i\" "
 					       "href=\"forget:%d\"><img "
 					       "src=\"set-bin.svg\"></a>", n);
-		lws_dlo_ui_html_printf(h, "</td></tr>");
+		lws_html_w_printf(h, "</td></tr>");
 	}
 
 	if (s->ap_count)
-		lws_dlo_ui_html_printf(h, "</table>");
+		lws_html_w_printf(h, "</table>");
 
 	if (lws_netdev_hostname_get(lws_netdevs_from_ctx(s->cx), hn,
 				    sizeof(hn)) < 0)
 		lws_strncpy(hn, "-", sizeof(hn));
 
-	lws_dlo_ui_html_printf(h, "<div class=\"s\">Hostname</div>"
+	lws_html_w_printf(h, "<div class=\"s\">Hostname</div>"
 				  "<a class=\"e\" href=\"host\">");
-	lws_dlo_ui_html_text(h, hn);
-	lws_dlo_ui_html_printf(h, "</a>");
+	lws_html_w_text(h, hn, sizeof(hn));
+	lws_html_w_printf(h, "</a>");
 }
 
 /* the AP a link is for, eg, "set:3" for prefix "set:", or -1 */

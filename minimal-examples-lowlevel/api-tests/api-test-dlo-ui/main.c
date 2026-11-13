@@ -319,16 +319,16 @@ dlg_html(void *opaque, lws_dlo_ui_html_t *h)
 {
 	int n;
 
-	lws_dlo_ui_html_printf(h, "<div><table>");
+	lws_html_w_printf(h, "<div><table>");
 	for (n = 0; n < DLG_APS; n++)
-		lws_dlo_ui_html_printf(h, "<tr><td><a href=\"ap:%d\">AP %d</a>"
+		lws_html_w_printf(h, "<tr><td><a href=\"ap:%d\">AP %d</a>"
 				       "</td><td>WPA2</td><td>"
 				       "<a href=\"cog:%d\">set</a></td></tr>",
 				       n, n, n);
-	lws_dlo_ui_html_printf(h, "</table></div><div>");
+	lws_html_w_printf(h, "</table></div><div>");
 	/* markup in it is shown as text */
-	lws_dlo_ui_html_text(h, "<Host> &");
-	lws_dlo_ui_html_printf(h, "</div><a href=\"edit:host\">lws-2c96fc</a>");
+	lws_html_w_text(h, "<Host> &", (size_t)-1);
+	lws_html_w_printf(h, "</div><a href=\"edit:host\">lws-2c96fc</a>");
 }
 
 static void
