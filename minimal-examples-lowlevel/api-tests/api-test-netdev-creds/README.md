@@ -13,7 +13,8 @@ in a settings store kept in memory, and checks
 
  - they are stored for any BSS of the AP
 
- - `lws_netdev_credentials_has()` and `lws_netdev_credentials_remove()`
+ - `lws_netdev_credentials_has()` and `lws_netdev_credentials_remove()`,
+   including of the first of them, as they come back from the settings
 
  - too long SSIDs or passphrases are refused
 

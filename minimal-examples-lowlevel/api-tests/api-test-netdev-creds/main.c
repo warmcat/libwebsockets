@@ -19,7 +19,7 @@
  *
  *  - they are stored for any BSS of the AP
  *
- *  - they can be removed, one AP at a time
+ *  - they can be removed, one AP at a time, including the first
  *
  *  - too long SSIDs or passphrases are refused
  *
@@ -407,6 +407,15 @@ main(int argc, const char **argv)
 	expect(!lws_netdev_credentials_has(nds, "office \"2\"") &&
 	       stored(nds, "home", pp, sizeof(pp)) == 2 &&
 	       !strcmp(pp, "newpassphrase"), "office removed");
+
+	/* the first of them too, as they come back from the settings */
+
+	expect(!lws_netdev_credentials_remove(nds, "home") &&
+	       !lws_netdev_credentials_has(nds, "home") &&
+	       stored(nds, "caf\xc3\xa9", pp, sizeof(pp)) == 1,
+	       "first removed");
+	expect(!lws_netdev_credentials_add(nds, "home", "newpassphrase"),
+	       "add home again");
 
 	/* too long */
 

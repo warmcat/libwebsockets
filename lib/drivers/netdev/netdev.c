@@ -151,10 +151,17 @@ lws_netdev_credentials_settings_get(lws_netdevs_t *nds)
 	}
 
 	/*
-	 * Forcibly set the state of the nds creds owner to the synthesized
-	 * one in the ac, and keep the ac for as long as we keep the creds out
+	 * Move the credentials to our list from the one synthesized in the
+	 * ac: each knows the owner it's on, so the list can't just be copied,
+	 * or removing one later would change the ac's list, not ours.  Keep
+	 * the ac for as long as we keep the creds out.
 	 */
-	nds->owner_creds = ((lws_netdevs_t *)a.dest)->owner_creds;
+	lws_dll2_owner_clear(&nds->owner_creds);
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1, lws_dll2_get_head(
+			&((lws_netdevs_t *)a.dest)->owner_creds)) {
+		lws_dll2_remove(p);
+		lws_dll2_add_tail(p, &nds->owner_creds);
+	} lws_end_foreach_dll_safe(p, p1);
 	nds->ac_creds = a.ac;
 
 	/*
