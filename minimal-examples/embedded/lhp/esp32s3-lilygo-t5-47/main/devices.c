@@ -22,11 +22,12 @@
  *  - T547_ROUTING_WATCH: no panel at all, but a Waveshare
  *    ESP32-S3-Touch-LCD-1.28 (ESP32-S3R2, 2MB quad PSRAM), with the signals
  *    on gpios it doesn't use, so the timing and the driver can be checked on
- *    a scope before the LilyGo boards are to hand.  The signals worth
- *    watching are on its 12-pin GPIO_OUT header.  It's laid out like V2.4.
+ *    a scope without a panel.  The signals worth watching are on its
+ *    12-pin GPIO_OUT header.  It's laid out like V2.4.
  *
- * The watch routing is the default for now.  The real boards need
- * sdkconfig changed for their 8MB octal PSRAM, see the README.
+ * V2.4 is the default.  sdkconfig is for the LilyGo boards' 8MB octal
+ * PSRAM; the watch routing needs it changed for the watch's 2MB quad PSRAM,
+ * see the README.
  *
  * On the LilyGo boards, there's a GT911 touch panel over the display, on
  * its own i2c bus.  The watch's gpios for that are used for the panel
@@ -41,7 +42,7 @@
 #define T547_ROUTING_V24	2
 
 #if !defined(T547_ROUTING)
-#define T547_ROUTING		T547_ROUTING_WATCH
+#define T547_ROUTING		T547_ROUTING_V24
 #endif
 
 /*

@@ -16,11 +16,12 @@ selected by `T547_ROUTING` near the top of the file:
 
 Routing|What it is
 ---|---
-`T547_ROUTING_WATCH` (default)|No panel: a Waveshare ESP32-S3-Touch-LCD-1.28, with the signals put on gpios it doesn't use, to check the driver and its timing on a scope
+`T547_ROUTING_WATCH`|No panel: a Waveshare ESP32-S3-Touch-LCD-1.28, with the signals put on gpios it doesn't use, to check the driver and its timing on a scope
 `T547_ROUTING_V23`|The LilyGo V2.3 board.  XLE, SPV, XOE, MODE1, the supply enables and the board power hold are on the 4094
-`T547_ROUTING_V24`|The LilyGo V2.4 board.  As V2.3, but XLE is on GPIO48 and SPV on GPIO45
+`T547_ROUTING_V24` (default)|The LilyGo V2.4 board.  As V2.3, but XLE is on GPIO48 and SPV on GPIO45
 
-The watch routing is the default until the LilyGo boards are to hand.
+V2.4 is the default.  If your board is V2.3, as printed on its silkscreen,
+set `T547_ROUTING` to `T547_ROUTING_V23` in `main/devices.c`.
 
 ### Watch routing signals
 
@@ -125,13 +126,16 @@ The clear's bursts are all 0x55 or 0xAA, so D0 doesn't change during them.
 Triggering on a positive D0 pulse shorter than 100ns catches the pattern's
 first row instead.
 
-## sdkconfig for the LilyGo boards
+## sdkconfig for the watch routing
 
-`sdkconfig` is set up for the watch's 2MB quad PSRAM.  The LilyGo boards
-have 8MB octal PSRAM, so before building for V2.3 or V2.4, set
-`CONFIG_SPIRAM_MODE_OCT=y` (and unset `CONFIG_SPIRAM_MODE_QUAD`), eg, with
-`idf.py menuconfig`, Component config -> ESP PSRAM.  Their user button is
-GPIO21; GPIO0 is the 4094 strobe once we're running.
+`sdkconfig` is set up for the LilyGo boards' 8MB octal PSRAM.  The watch has
+2MB quad PSRAM, so before building for the watch routing, set
+`CONFIG_SPIRAM_MODE_QUAD=y` (and unset `CONFIG_SPIRAM_MODE_OCT`), with
+`CONFIG_SPIRAM_SPEED_40M`, eg, with `idf.py menuconfig`, Component config ->
+ESP PSRAM.
+
+The LilyGo boards' user button is GPIO21; GPIO0 is the 4094 strobe once
+we're running.
 
 ## Building
 
