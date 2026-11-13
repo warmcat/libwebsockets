@@ -97,6 +97,18 @@ static int quiet;
 static uint32_t max_idle_ms;		/* --max-idle, 0 for the default */
 static struct lws *server_stream;	/* the server's stream of the connection */
 static struct lws *client_stream;	/* the client's */
+
+/* how far each side got: the relay's windows key off it too */
+static size_t client_sent = 0;
+static size_t client_rx = 0;
+static uint32_t client_hash = 5381; /* djb2 init */
+static int client_done = 0;
+
+static size_t server_sent = 0;
+static size_t server_rx = 0;
+static uint32_t server_hash = 5381; /* djb2 init */
+static int server_done = 0;
+
 static lws_usec_t server_estab_us, server_last_rx_us;
 static lws_sorted_usec_list_t sul_quiet;
 static char quiet_over;	/* the verdict is in: later closes are teardown */
@@ -407,8 +419,9 @@ static const char * const test_key =
  * connection is established, so the handshake is long confirmed.  From the
  * first datagram the relay sees from the client after its first write, the
  * relay loses everything the client sends for RELAY_DEAF_LOSS_US, the start of
- * its stream data with it, and everything the server sends the client for
- * RELAY_DEAF_US, as a run of corrupted packets each way would.  The window
+ * its stream data with it, and everything the server sends the client until
+ * the server has some of the stream, as a run of corrupted packets each way
+ * would.  The window
  * opens on the datagram, not the write: the datagram goes out on a later
  * service pass, and a host that stalls between the two would otherwise see
  * the window close before anything of the client's reached it.  The server
@@ -421,10 +434,18 @@ static const char * const test_key =
  * stream.  A client whose probes are PINGs, or new data behind the hole, never
  * fills it while it is deaf; when a request is what was lost, the server
  * waiting for it has nothing to say, and the client dies of its PTO count.
+ *
+ * So the client stays deaf until the server has the start of the stream, and
+ * the server has it only from the client's probes, since nothing else told
+ * the client to send it again.  How soon the first probe goes depends on the
+ * RTT the client measured, which on a slow host includes the server's
+ * handshake crypto: RELAY_DEAF_MAX_US is only a ceiling, long enough for a
+ * few probes however slow, that a client whose probes never fill the hole
+ * reaches.
  */
 #define RELAY_DEAF_AT_US	(300 * LWS_US_PER_MS)
 #define RELAY_DEAF_LOSS_US	(50 * LWS_US_PER_MS)
-#define RELAY_DEAF_US		(1500 * LWS_US_PER_MS)
+#define RELAY_DEAF_MAX_US	(8 * LWS_US_PER_SEC)
 
 /*
  * With --lost-finished, for RELAY_LF_US from the first, the relay loses the
@@ -686,6 +707,7 @@ static struct {
 	lws_usec_t		deaf_start;
 	char			deaf;
 	char			deaf_armed; /* the client made its first write */
+	char			deaf_over; /* the client may hear the server */
 
 	/* --lost-finished */
 	lws_sorted_usec_list_t	sul_lf;
@@ -1049,7 +1071,7 @@ relay_deaf_start(void)
 {
 	relay.deaf_start = lws_now_usecs();
 	lws_sul_schedule(context, 0, &relay.sul_deaf, deaf_check_cb,
-			 RELAY_DEAF_US);
+			 RELAY_DEAF_MAX_US);
 }
 
 static void
@@ -1067,10 +1089,21 @@ relay_deaf(struct lws *wsi, struct relay_dir *d, const uint8_t *in, size_t len)
 
 	if (relay.deaf_start) {
 		t = lws_now_usecs() - relay.deaf_start;
-		if (t < (d == &relay.dir[0] ? RELAY_DEAF_LOSS_US :
-					      RELAY_DEAF_US)) {
+		if (d == &relay.dir[0] && t < RELAY_DEAF_LOSS_US) {
 			d->dropped++;
 			return;
+		}
+		/*
+		 * The client hears nothing until the server has some of the
+		 * stream: only its probes could have got it there
+		 */
+		if (d == &relay.dir[1] && !relay.deaf_over) {
+			if (!server_rx) {
+				d->dropped++;
+				return;
+			}
+			lws_sul_cancel(&relay.sul_deaf);
+			deaf_check_cb(NULL);
 		}
 	}
 
@@ -1391,16 +1424,6 @@ static struct lws_protocols relay_protocols[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
-static size_t client_sent = 0;
-static size_t client_rx = 0;
-static uint32_t client_hash = 5381; /* djb2 init */
-static int client_done = 0;
-
-static size_t server_sent = 0;
-static size_t server_rx = 0;
-static uint32_t server_hash = 5381; /* djb2 init */
-static int server_done = 0;
-
 static lws_usec_t last_rx_us;
 static char early_1rtt_failed, deaf_failed, lost_finished_failed;
 
@@ -1446,8 +1469,12 @@ early_1rtt_check_cb(lws_sorted_usec_list_t *sul)
 static void
 deaf_check_cb(lws_sorted_usec_list_t *sul)
 {
-	lwsl_user("deaf: the relay lost %u of the client's datagrams and %u of "
-		  "the server's\n", relay.dir[0].dropped, relay.dir[1].dropped);
+	relay.deaf_over = 1;
+
+	lwsl_user("deaf: after %dms, the relay lost %u of the client's "
+		  "datagrams and %u of the server's\n",
+		  (int)((lws_now_usecs() - relay.deaf_start) / LWS_US_PER_MS),
+		  relay.dir[0].dropped, relay.dir[1].dropped);
 
 	if (!relay.dir[0].dropped) {
 		lwsl_err("deaf: none of the client's datagrams were lost, "
@@ -1464,6 +1491,10 @@ deaf_check_cb(lws_sorted_usec_list_t *sul)
 
 	lwsl_err("deaf: the server had none of the stream: the client's PTO "
 		 "probes didn't send again what it lost\n");
+	if (client_stream) {
+		lwsl_err("client's side:\n");
+		lws_quic_dump(client_stream);
+	}
 	deaf_failed = 1;
 }
 
@@ -2183,7 +2214,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_PMTU_OUTAGE] = { "--pmtu-outage", "Partway through the server's transfer, the relay loses everything for 100ms, which both sides must not take for a black hole (needs --pmtu)" },
 	[LWS_SW_BLACKHOLE] = { "--blackhole", "Once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, and both sides must go back to 1280 (needs --relay)" },
 	[LWS_SW_LAG]	= { "--lag",	"Partway through the server's transfer, the relay starts delaying everything both ways by 500ms, far longer than the RTT each side measured, and both sides must carry on at the new RTT (needs --relay)" },
-	[LWS_SW_DEAF]	= { "--deaf",	"The relay loses the client's first stream data, and everything the server sends it for 1.5s, so no ack says it was lost, and the client's PTO probes must send it again (needs --relay)" },
+	[LWS_SW_DEAF]	= { "--deaf",	"The relay loses the client's first stream data, and everything the server sends it until the server has some of the stream, so no ack says it was lost, and the client's PTO probes must send it again within 8s (needs --relay)" },
 	[LWS_SW_LOST_FINISHED] = { "--lost-finished", "For 800ms the relay loses the client's Finished but not its acks, and the server, its flight acked, must not probe with nothing in flight (needs --relay)" },
 	[LWS_SW_LOST_CLOSE] = { "--lost-close", "The relay loses the server's CONNECTION_CLOSE when it reaps the quiet connection, and the client writes after: the server must answer with a Stateless Reset, which the client must close on (needs --relay and --quiet conn)" },
 	[LWS_SW_ONE_BURST] = { "--one-burst", "The server's Handshake flight must come in the same burst as its Initial, not wait for the client to send again (needs --relay)" },

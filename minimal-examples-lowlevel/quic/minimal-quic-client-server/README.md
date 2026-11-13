@@ -35,7 +35,7 @@ arrived.
 |--stall-confirm|With `--stall`, after the stall the relay holds just the datagrams bigger than an IP MTU of 1280 carries, both ways, for 1.5s, see below|
 |--blackhole|With `--relay`, once each side sends bigger packets than an IP MTU of 1280 carries, the relay loses them all, see below|
 |--lag|With `--relay`, partway through the server's transfer the relay starts delaying everything both ways by 500ms, see below|
-|--deaf|With `--relay`, the relay loses the client's first stream data, and everything the server sends it for 1.5s, see below|
+|--deaf|With `--relay`, the relay loses the client's first stream data, and everything the server sends it until the server has some of the stream, see below|
 |--lost-close|With `--relay` and `--quiet conn`, the relay loses the server's CONNECTION_CLOSE when it reaps the connection, the client writes after it, and the server's Stateless Reset must close it, see below|
 |--lost-finished|With `--relay`, for 800ms the relay loses the client's Finished but not its acks, and the server must not probe with nothing in flight, see below|
 |--one-burst|With `--relay`, the server's Handshake flight must come in the same burst as its Initial, see below|
@@ -350,15 +350,17 @@ times what its data fills through the lag.
 With `--deaf`, the client holds its writes until 300ms after its connection is
 established.  From the first datagram the relay sees from the client after
 that write, it loses everything the client sends for 50ms, the start of its
-stream data with it, and everything the server sends the client for 1.5s, as a
-run of corrupted packets each way would.  The server
+stream data with it, and everything the server sends the client until the
+server has some of the stream, as a run of corrupted packets each way would.
+The server
 acks what gets through from the client after that, but the client hears none of
 it, so no ack tells it what it sent was lost (RFC 9002 6.1), and the server,
 missing the start of the stream, has nothing to deliver.  Only the client's PTO
 can get the data there: each probe must carry the oldest of what is unacked,
-not just a PING (RFC 9002 6.2.4).  By the time the client hears from the server
-again, the server must have had some of the stream, and the transfer must
-complete.
+not just a PING (RFC 9002 6.2.4).  The server must have some of the stream
+within 8s, and the transfer must complete.  When the first probe goes depends
+on the RTT the client measured, so the window isn't a fixed time: on a slow
+host, the server's handshake crypto alone makes the RTT long.
 
 A side whose probes are only PINGs, or new data behind the gap, never fills it
 while it hears nothing.  When what was lost is a request, eg, h3's, the server
