@@ -34,14 +34,30 @@ extern struct lws_dlo_ui *sui;
 typedef int (*lhp_battery_cb_t)(int *percent, int *charging);
 extern lhp_battery_cb_t plat_battery;
 
+/*
+ * A board sets these in init_plat_devices() to the name of a led in its led
+ * controller, flashed while the device is an AP waiting to be given wifi
+ * credentials, and of a button in its button controller, which held soon
+ * after starting forgets the wifi credentials, see lws_wifi_provision_create().
+ * They're NULL on boards without them.
+ */
+extern const char *plat_status_led, *plat_reset_button;
+
 extern int
 init_plat_devices(struct lws_context *);
 extern void
 deinit_plat_devices(struct lws_context *);
 extern int
 display_completion_cb(lws_display_state_t *lds, int a);
+/*
+ * The board shows the demo's phase on its led, see show_demo_phase() in its
+ * devices.c; lhp_demo_phase() is how the rest of the example asks for it, so
+ * the led is left alone while it's flashing for being an AP to be set up
+ */
 extern void
 show_demo_phase(int phase);
+extern void
+lhp_demo_phase(int phase);
 extern void
 next_carousel(lws_sorted_usec_list_t *sul);
 /*

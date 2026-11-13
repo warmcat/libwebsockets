@@ -38,7 +38,9 @@ list, eg, the 64px high heltec OLED, it scrolls as the boot moves on.
 
 If no wifi credentials are stored, once a scan has found some APs, the
 settings are shown instead, once, to set the passphrase of one, see
-"Settings" below.  When its credentials are stored, the wifi netdev, which
+"Settings" below.  If there are none we can use, the device is also an AP to be set
+up from a browser meanwhile, see "Setting up wifi" below, and the setup row
+says which AP to join and what to browse.  When its credentials are stored, the wifi netdev, which
 keeps scanning while it isn't joined, joins the AP when it next sees it, and
 the boot list is shown again; pressing the "Settings" title goes back too.  While the boot list is up, pressing its "Boot" title shows the
 settings.
@@ -304,39 +306,53 @@ chosen from the start.
 On boards that can show the settings, press the cog of the AP and type its
 passphrase on the device, see "Settings" above.
 
-Other boards can't do that yet.  Edit ./main/devices.c in your
-platform-specific subdir, enable this section and set your wifi SSID and
-passphrase in the `xxx` strings.  This will store the information on flash
-on the device.
+Every board, with a display or not, can also be set up from a browser: when
+it has no wifi credentials it can use, it becomes an open AP of its own,
+named for its hostname, eg, `lws-a1b2c3`, and serves the same settings, made
+by the same `lws_wifi_settings_html()`, at `http://192.168.4.1/`.  The boot
+list's setup row says which AP to join and where to browse, as do the
+settings on the display.  This is `lws_wifi_provision_create()` in the
+library, see `include/libwebsockets/lws-netdev.h`; `main.c` creates it for
+any board with wifi.
 
-Boot once with that and then remove your information and disable the code
-section again and rebuild.
+|Credentials stored|Becomes an AP|
+|---|---|
+|none|at once|
+|only ones the AP refused|at once|
+|one that joined, or reached the internet, before|never, it keeps trying them|
+|only ones not tried yet, or that failed to join|if it hasn't joined in 60s|
 
-```
-#if 0
-	/*
-	 * This is a temp hack to bootstrap the settings to contain the test
-	 * AP ssid and passphrase for one time, so the settings can be stored
-	 * while there's no UI atm
-	 */
-	{
-		lws_wifi_creds_t creds;
+It keeps scanning and trying to join as a station meanwhile, so if an AP it
+has credentials for comes back, it joins it and stops being an AP.  When
+credentials are stored, from the browser or on the display, the device
+restarts to join that AP.
 
-		memset(&creds, 0, sizeof(creds));
+A board can name a led in `init_plat_devices()`, `plat_status_led`, which
+double-blinks while it is an AP waiting to be set up.  Boards with a "red"
+led use it, the wrover kit its blue one; it also shows the demo's fetching
+and rendering, which `lhp_demo_phase()` in `main.c` leaves alone meanwhile.  The
+240x240 round board has no led but its backlight, so it has none.
 
-		lws_strncpy(creds.ssid, "xxx", sizeof(creds.ssid));
-		lws_strncpy(creds.passphrase, "xxx", sizeof(creds.passphrase));
-		lws_dll2_add_tail(&creds.list, &netdevs->owner_creds);
+It can also name a button, `plat_reset_button`, every board here uses its
+"user" one, to forget the stored credentials, a "factory reset".  On most
+of these boards, eg, the 240x240 round watch, that's the BOOT button, on
+GPIO0: press RESET (or power it up), then straight after, press BOOT and
+hold it for 5s.  The status led, if any, blinks fast and the device
+restarts with no credentials, so it becomes an AP to be set up again.
 
-		if (lws_netdev_credentials_settings_set(netdevs)) {
-			lwsl_err("%s: failed to write bootstrap creds\n",
-					__func__);
-			return 1;
-		}
-	}
-#endif
-```
+BOOT can't be held *through* RESET: GPIO0 is a strapping pin, and low as the
+chip comes out of reset it starts the ROM's download mode instead of the
+firmware.  But it can be pressed as soon as RESET is let go, and kept held
+while the firmware starts: `main.c` gives the provisioning the button
+controller (`.buttons`), so it sees, by `lws_button_is_down()`, a button
+already held when it starts, which sends no event.  It can also be pressed
+any time in the first 10s after that.
 
+The device's AP has no passphrase and the page is plain http/1.1 (browsers
+only use h2 over tls), so the passphrase given is in the clear on that AP,
+to anyone in range at that time.  The page is served with the strict CSP
+headers lws applies for `LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE`.
+There is no captive portal DNS, so the browser has to be pointed at the URL.
 
 ## Building
 

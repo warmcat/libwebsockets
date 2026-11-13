@@ -222,6 +222,14 @@ lhp_boot_text(const lhp_boot_t *b, lhp_boot_stage_t s, lhp_boot_stage_t f,
 
 	switch (s) {
 	case LHP_BOOT_SETUP:
+		if (b->own_ap[0]) {
+			/* we're an AP, to be set up from a browser */
+			bw_printf(w, "Join ");
+			bw_text(w, b->own_ap, sizeof(b->own_ap));
+			bw_printf(w, ", browse ");
+			bw_text(w, b->own_ip, sizeof(b->own_ip));
+			break;
+		}
 		/* the AP we will look for, from what is stored */
 		if (!b->ap[0]) {
 			bw_printf(w, reached ? "Configured" : "Not configured");

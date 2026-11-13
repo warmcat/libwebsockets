@@ -113,7 +113,7 @@ relayout_browse(lws_sorted_usec_list_t *sul)
 	memset(&box, 0, sizeof(box));
 	box.w = rs->lds->disp->ic.wh_px[0];
 	rs->lds->disp->blit(rs->lds, NULL, &box, NULL);
-	show_demo_phase(LWS_LHPCD_PHASE_IDLE);
+	lhp_demo_phase(LWS_LHPCD_PHASE_IDLE);
 }
 
 /*
@@ -275,7 +275,7 @@ render(lws_sorted_usec_list_t *sul)
 
 		rs->lds->disp->blit(rs->lds, (uint8_t *)rs, &box, NULL);
 
-		show_demo_phase(LWS_LHPCD_PHASE_RENDERING);
+		lhp_demo_phase(LWS_LHPCD_PHASE_RENDERING);
 
 #if defined(LWS_WITH_ALLOC_METADATA_LWS)
 		_lws_alloc_metadata_dump_lws(lws_alloc_metadata_dump_stdout, NULL);
@@ -381,7 +381,7 @@ render(lws_sorted_usec_list_t *sul)
 	if (!rs->retained)
 		lws_display_list_destroy(rs->lds->ctx, &rs->displaylist);
 
-	show_demo_phase(LWS_LHPCD_PHASE_IDLE);
+	lhp_demo_phase(LWS_LHPCD_PHASE_IDLE);
 }
 
 /*
@@ -464,7 +464,7 @@ render_band(lws_sorted_usec_list_t *sul)
 	line_free(rs);
 	redraw = 0;
 
-	show_demo_phase(LWS_LHPCD_PHASE_IDLE);
+	lhp_demo_phase(LWS_LHPCD_PHASE_IDLE);
 }
 
 int
@@ -473,7 +473,7 @@ init_browse(struct lws_context *cx, lws_display_render_state_t *rs,
 {
 	int n;
 
-        show_demo_phase(LWS_LHPCD_PHASE_FETCHING);
+        lhp_demo_phase(LWS_LHPCD_PHASE_FETCHING);
 
 	/*
 	 * The page before may still be on its way, eg, the carousel or a link
@@ -622,7 +622,7 @@ redraw_damage(lws_display_render_state_t *rs)
 	upd.start = lws_now_usecs();
 
 	rs->lds->display_busy = 1;
-	show_demo_phase(LWS_LHPCD_PHASE_RENDERING);
+	lhp_demo_phase(LWS_LHPCD_PHASE_RENDERING);
 	lws_sul_schedule(rs->lds->ctx, 0, &rs->sul, render_band, 1);
 
 	return 0;

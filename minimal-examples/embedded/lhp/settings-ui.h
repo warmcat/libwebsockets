@@ -9,7 +9,10 @@
  * The settings of the system the application runs on, shown as a dialog of
  * the strip ui (lws-dlo-ui.h), titled "Settings".  It's an example of a
  * dialog of the application's own: html, and what to do when its links are
- * pressed.  It has
+ * pressed.  The html is lws_wifi_settings_html(), the same the device serves
+ * to a browser while it's an AP of its own to be given credentials, see
+ * lws_wifi_provision_create(), and its links are understood the same way,
+ * by lws_wifi_settings_href().  It has
  *
  *  - "WLAN": a table of the APs, kept up to date while it's shown: the ones
  *    scanned, strongest first, then any we have credentials for that aren't
@@ -33,6 +36,9 @@
  *
  * Pressing the title closes the settings, as does the caller, eg, when the
  * status capsule is pressed again.
+ *
+ * The caller can give a note to show above them, eg, that the device is an
+ * AP to be set up from a browser too.
  *
  * Nothing here is platform-specific: the caller gives us the strip ui and the
  * wifi netdev, and passes on the ui's title and done callbacks while the
@@ -64,51 +70,32 @@ typedef enum {
  */
 typedef void (*lhp_settings_exit_cb_t)(void *opaque);
 
-typedef struct lhp_settings_ap {
-	char				ssid[33];
-	uint8_t				auth;	/* lws_wifi_auth_t, if seen */
-	uint8_t				last_join; /* lws_wifi_join_t */
-	uint8_t				open;	/* needs no passphrase */
-	uint8_t				stored;	/* we have credentials for it */
-	uint8_t				seen;	/* in the scan results */
-	uint8_t				internet; /* was reached through it */
-	uint8_t				bars;	/* signal, 0 if not seen, else
-						 * lhp_rssi_bars() */
-} lhp_settings_ap_t;
+/*
+ * Credentials were stored for an AP.  As for the exit callback, it's called
+ * from inside the ui's callbacks.
+ */
+typedef void (*lhp_settings_stored_cb_t)(void *opaque);
 
 typedef struct lhp_settings {
 	struct lws_context		*cx;
 	struct lws_dlo_ui		*ui;
 	lws_netdev_instance_wifi_t	*wnd;
 	lhp_settings_exit_cb_t		exit_cb;
+	lhp_settings_stored_cb_t	stored_cb;
 	void				*opaque;
 
-	/*
-	 * The APs as they were when the dialog's html was last written: the
-	 * links on it say which by their index here
-	 */
-	lhp_settings_ap_t		aps[LHP_SET_AP_MAX];
+	/* the APs as they were when the dialog's html was last written */
+	lws_wifi_ap_info_t		aps[LHP_SET_AP_MAX];
 	int				ap_count;
 	uint32_t			scan_sig;
 
 	char				ssid[33]; /* the AP being edited */
+	char				note[96]; /* shown above them, if any */
 
 	uint8_t				shown;
 	uint8_t				editing; /* lhp_settings_edit_t */
 	uint8_t				flags;	/* LHP_SET_FL_* */
 } lhp_settings_t;
-
-/**
- * lhp_rssi_bars() - how many of four signal bars an rssi is
- *
- * \param rssi: the signal strength in dBm
- *
- * Returns 1 to 4: strong enough for anything at -55dBm, barely usable below
- * -75dBm.  The status capsule's wlan icon and the settings' list of APs both
- * show it, so they agree.
- */
-int
-lhp_rssi_bars(int rssi);
 
 /* lhp_settings_open() flags */
 
@@ -123,7 +110,8 @@ lhp_rssi_bars(int rssi);
  * \param cx: the lws context
  * \param wnd: the wifi netdev, for its scan results, or NULL
  * \param exit_cb: told when the user closes the settings
- * \param opaque: passed to exit_cb
+ * \param stored_cb: NULL, or told when credentials were stored for an AP
+ * \param opaque: passed to the callbacks
  *
  * Registers the icons the dialog uses in the dlo filesystem.  Returns 0, or
  * nonzero if it couldn't, after which lhp_settings_deinit() is still called.
@@ -131,7 +119,8 @@ lhp_rssi_bars(int rssi);
 int
 lhp_settings_init(lhp_settings_t *s, struct lws_context *cx,
 		  lws_netdev_instance_wifi_t *wnd,
-		  lhp_settings_exit_cb_t exit_cb, void *opaque);
+		  lhp_settings_exit_cb_t exit_cb,
+		  lhp_settings_stored_cb_t stored_cb, void *opaque);
 
 /* the settings are finished with: closes them, and unregisters the icons */
 void
@@ -170,6 +159,20 @@ lhp_settings_exit(lhp_settings_t *s);
 /* are the settings being shown */
 int
 lhp_settings_shown(const lhp_settings_t *s);
+
+/*
+ * A note to show above the settings, or NULL for none, eg, that the device
+ * can be set up from a browser too.  If they're shown, they're shown again.
+ */
+void
+lhp_settings_note(lhp_settings_t *s, const char *note);
+
+/*
+ * The icons the settings use, the LWS_WIFI_SETTINGS_ICON_ ones, eg, for the
+ * settings served to a browser, see lws_wifi_provision_info_t .files
+ */
+const lws_wifi_provision_file_t *
+lhp_settings_icons(size_t *count);
 
 /* the scan results changed: the APs are shown again if they are different */
 void

@@ -53,6 +53,9 @@ typedef struct lhp_boot {
 	lws_netdev_instance_wifi_t	*wnd;	/* NULL, or wifi, for the APs */
 
 	char				ap[33];	 /* the first stored AP's SSID */
+	char				own_ap[33]; /* while we're an AP to be
+						     * set up, its SSID */
+	char				own_ip[16]; /* and our address on it */
 	char				ipv4[16];
 	char				ipv6[48];
 

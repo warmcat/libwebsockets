@@ -17,7 +17,17 @@
  * use what is built in, a font and the stage icons, from the dlo filesystem.
  * If no wifi credentials are stored, once a scan has found some APs, the
  * settings dialog (see settings-ui.c) lists them instead, for the user to set
- * the passphrase of one.  Once the system is OPERATIONAL and
+ * the passphrase of one.
+ *
+ * If there are no wifi credentials we can use, the device also becomes an AP
+ * of its own, named for its hostname, and serves the same settings to a
+ * browser on it, eg, http://192.168.4.1/, and a led the board names flashes
+ * meanwhile: so boards without a display, or a way to use the settings on it,
+ * can be set up too.  Once credentials are stored either way, it restarts to
+ * join the AP.  Holding the button the board names for a few seconds soon
+ * after starting forgets the credentials, see lws_wifi_provision_create().
+ *
+ * Once the system is OPERATIONAL and
  * the first update check has told us we're on the latest firmware (or failed,
  * or there's no OTA), the boot list is replaced by the frame: the same title
  * strip, saying which page is shown, over the application html.
@@ -60,6 +70,7 @@
 struct lws_context *cx;
 struct lws_touch_state *tcs;
 lhp_battery_cb_t plat_battery;
+const char *plat_status_led, *plat_reset_button;
 
 /* how long we wait after OPERATIONAL for the first update check to end */
 #define BOOT_OTA_WAIT_US	(90 * LWS_US_PER_SEC)
@@ -151,6 +162,8 @@ static uint8_t flip;
 
 struct lws_dlo_ui *sui;
 static lhp_settings_t settings;
+/* becomes an AP to be given credentials, if we have none we can use */
+static struct lws_wifi_provision *prov;
 
 /* the generated page in the dlo filesystem that is being shown, if any */
 static char *page;
@@ -387,6 +400,60 @@ settings_exit(void *opaque)
 	lws_sul_schedule(cx, 0, &sul_settings, settings_exit_cb, 1);
 }
 
+/*
+ * Credentials were stored on the display: if we're an AP to be given them,
+ * we restart to join it, as when they're stored from a browser
+ */
+
+static void
+settings_stored(void *opaque)
+{
+	lws_wifi_provision_stored(prov);
+}
+
+/*
+ * The boards show the demo's phase on the same led that's flashed while we're
+ * an AP to be set up, or forgetting the credentials: then that's left alone
+ */
+
+void
+lhp_demo_phase(int phase)
+{
+	if (plat_status_led &&
+	    lws_wifi_provision_state(prov) != LWS_WIFI_PROV_IDLE)
+		return;
+
+	show_demo_phase(phase);
+}
+
+/*
+ * Whether we're an AP to be set up from a browser changed: the boot list and
+ * the settings say so while we are
+ */
+
+static void
+prov_state(void *opaque, lws_wifi_provision_state_t state)
+{
+	const char *ssid = lws_wifi_provision_ap_ssid(prov),
+		   *url = lws_wifi_provision_url(prov);
+	char note[96];
+
+	lwsl_notice("%s: %d\n", __func__, (int)state);
+
+	boot.own_ap[0] = boot.own_ip[0] = '\0';
+	note[0] = '\0';
+
+	if (ssid && url && wnd) {
+		lws_strncpy(boot.own_ap, ssid, sizeof(boot.own_ap));
+		lws_strncpy(boot.own_ip, wnd->ap_ipv4, sizeof(boot.own_ip));
+		lws_snprintf(note, sizeof(note), "Or join %s and browse %s",
+			     ssid, url);
+	}
+
+	lhp_settings_note(&settings, note);
+	boot_changed();
+}
+
 /* the strip ui's callbacks: while the settings are shown, they're theirs */
 
 static int
@@ -461,7 +528,7 @@ status_update(void)
 
 	if (wnd)
 		st.wlan = (int8_t)(lws_netdev_wifi_rssi(&wnd->inst, &rssi) ?
-						0 : lhp_rssi_bars(rssi));
+						0 : lws_wifi_rssi_bars(rssi));
 
 	if (plat_battery && !plat_battery(&pc, &chg)) {
 		st.battery = (int8_t)(pc < 0 ? 0 : (pc > 100 ? 100 : pc));
@@ -990,7 +1057,7 @@ display_completion_cb(lws_display_state_t *lds, int a)
 		 * from cold, whatever the panel's memory came up with
 		 */
 		lws_display_state_active(lds);
-		show_demo_phase(LWS_LHPCD_PHASE_IDLE);
+		lhp_demo_phase(LWS_LHPCD_PHASE_IDLE);
 		page_drop();
 
 		/* the strip ui draws anything that changed meanwhile */
@@ -1451,6 +1518,8 @@ teardown(uint32_t heap_before)
 {
 	uint32_t heap_after;
 
+	lws_wifi_provision_destroy(&prov);
+
 	/* a touch board kept what it displayed to resolve presses against */
 	lws_display_list_destroy(cx, &rs.displaylist);
 	lws_display_render_free_ids(&rs);
@@ -1559,7 +1628,8 @@ app_main(void)
 		goto spin;
 
 	/* the settings, shown on the strip ui when asked for */
-	if (lhp_settings_init(&settings, cx, wnd, settings_exit, NULL))
+	if (lhp_settings_init(&settings, cx, wnd, settings_exit,
+			      settings_stored, NULL))
 		goto spin;
 
 	/* the boot overlay, shown when the display is ready */
@@ -1569,7 +1639,32 @@ app_main(void)
 	lhp_boot_set(&boot, LHP_BOOT_SETUP, boot_have_creds());
 	boot_dirty = 1;
 
-	show_demo_phase(LWS_LHPCD_PHASE_IDLE);
+	/*
+	 * If we have no wifi credentials we can use, we become an AP to be
+	 * given them from a browser, as well as on the display
+	 */
+
+	if (wnd) {
+		lws_wifi_provision_info_t pi;
+
+		memset(&pi, 0, sizeof(pi));
+		pi.cx			= cx;
+		pi.wnd			= wnd;
+		pi.lls			= lls;
+		pi.led			= plat_status_led;
+		pi.reset_button		= plat_reset_button;
+		pi.buttons		= bcs;
+		/* the settings' icons, served beside them */
+		pi.files		= lhp_settings_icons(&pi.count_files);
+		pi.cb			= prov_state;
+
+		prov = lws_wifi_provision_create(&pi);
+		if (!prov)
+			lwsl_warn("%s: can't be set up from a browser\n",
+				  __func__);
+	}
+
+	lhp_demo_phase(LWS_LHPCD_PHASE_IDLE);
 
 	/* the lws event loop */
 

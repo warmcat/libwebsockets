@@ -241,6 +241,9 @@ init_plat_devices(struct lws_context *cx)
 {
 	lws_netdevs_t *netdevs = lws_netdevs_from_ctx(cx);
 
+	/* held soon after starting, the button forgets the wifi credentials */
+	plat_reset_button = "user";
+
 	si = lws_settings_init(&sett, (void *)"nvs");
 	if (!si) {
 		lwsl_err("%s: failed to create settings instance\n", __func__);

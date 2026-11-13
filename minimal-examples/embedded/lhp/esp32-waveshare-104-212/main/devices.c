@@ -199,35 +199,17 @@ init_plat_devices(struct lws_context *cx)
 {
 	lws_netdevs_t *netdevs = lws_netdevs_from_ctx(cx);
 
+	/* held soon after starting, the button forgets the wifi credentials */
+	plat_reset_button = "user";
+	/* ... and the led flashes while we're an AP to be set up */
+	plat_status_led = "red";
+
 	si = lws_settings_init(&sett, (void *)"nvs");
 	if (!si) {
 		lwsl_err("%s: failed to create settings instance\n", __func__);
 		return 1;
 	}
 	netdevs->si = si;
-
-#if 0
-	/*
-	 * This is a temp hack to bootstrap the settings to contain the test
-	 * AP ssid and passphrase for one time, so the settings can be stored
-	 * while there's no UI atm
-	 */
-	{
-		lws_wifi_creds_t creds;
-
-		memset(&creds, 0, sizeof(creds));
-
-		lws_strncpy(creds.ssid, "xx", sizeof(creds.ssid));
-		lws_strncpy(creds.passphrase, "xxx", sizeof(creds.passphrase));
-		lws_dll2_add_tail(&creds.list, &netdevs->owner_creds);
-
-		if (lws_netdev_credentials_settings_set(netdevs)) {
-			lwsl_err("%s: failed to write bootstrap creds\n",
-					__func__);
-			return 1;
-		}
-	}
-#endif
 
 	lws_font_register(cx, fira_c_r_10, sizeof(fira_c_r_10));
 	lws_font_register(cx, fira_c_r_12, sizeof(fira_c_r_12));
