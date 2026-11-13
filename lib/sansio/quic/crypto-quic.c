@@ -1382,6 +1382,34 @@ error_handling:
 		}
 #endif
 
+#if defined(LWS_WITH_CLIENT)
+		/*
+		 * A client's streams waited on the connection under its connect
+		 * timeout, which bounds a peer that never answers.  It is up
+		 * now, and the transport's idle timeout bounds it from here:
+		 * left on a stream, eg, a raw QUIC one that sets no deadline
+		 * of its own, the connect timeout closed it however much was
+		 * still coming on it.  An h3 request that went out in 0-RTT
+		 * already waits on its response instead, and keeps that.
+		 */
+		{
+			/* orig_wsi is stream 0 now, or the nwsi it went to */
+			struct lws *nwsi = lws_get_quic_network_wsi(orig_wsi);
+
+			if (nwsi && nwsi->quic.qn &&
+			    !nwsi->quic.qn->is_server)
+				lws_start_foreach_dll(struct lws_dll2 *, d,
+					lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
+					struct lws *w = lws_container_of(d,
+							struct lws, mux.sibling_list);
+
+					if (w->pending_timeout ==
+					    PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE)
+						lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
+				} lws_end_foreach_dll(d);
+		}
+#endif
+
 		if (orig_wsi->role_ops) {
 			enum lws_callback_reasons cb = (enum lws_callback_reasons)orig_wsi->role_ops->adoption_cb[lwsi_role_server(orig_wsi)];
 			if (cb && orig_wsi->a.protocol && orig_wsi->a.protocol->callback)
