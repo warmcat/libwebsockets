@@ -931,9 +931,9 @@ epdd_stats(epdd_priv_t *priv)
 	if (!epdd_get(&priv->rst_ready))
 		return;
 
-#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 	if (r->passes)
-		lwsl_notice("%s: %u passes in %dms, scans %d / %d / %dus "
+		lwsl_info("%s: %u passes in %dms, scans %d / %d / %dus "
 			    "(min / avg / max); rows %u driven, %u skipped, "
 			    "%u latched none; px %u to black, %u to white; "
 			    "%u updates, %u clears; settled %dms after "
