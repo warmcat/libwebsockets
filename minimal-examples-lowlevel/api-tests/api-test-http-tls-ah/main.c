@@ -60,12 +60,37 @@ static lws_sorted_usec_list_t sul_watchdog, sul_get;
 static const char *server_addr = "127.0.0.1";
 static int port = 7681, result = 1, finished, h2;
 
+/*
+ * Where the GET got to, so a failure says so even in a build without lws'
+ * own logs: when each happened, from the silent connection connecting
+ */
+enum {
+	TAH_M_GET_START,	/* the client started the GET */
+	TAH_M_SRV_REQ,		/* the server had the request */
+	TAH_M_SRV_SENT,		/* the server sent its answer */
+	TAH_M_CLI_STATUS,	/* the client had the response status */
+
+	TAH_M_COUNT
+};
+
+static const char * const milestones[] = {
+	"client started the GET", "server had the request",
+	"server sent its answer", "client had the status"
+};
+
 static struct {
 	lws_usec_t	silent_up;	/* the silent connection connected */
-	lws_usec_t	get_start;	/* the https GET was started */
+	lws_usec_t	m[TAH_M_COUNT];
 	int		answered;
 	int		status;
 } st;
+
+static void
+milestone(int m)
+{
+	if (!st.m[m])
+		st.m[m] = lws_now_usecs();
+}
 
 static void
 finish(int ok, const char *why)
@@ -77,8 +102,18 @@ finish(int ok, const char *why)
 	result = !ok;
 	if (ok)
 		lwsl_user("%s: %s\n", __func__, why);
-	else
+	else {
+		int n;
+
 		lwsl_err("%s: FAIL: %s\n", __func__, why);
+		for (n = 0; n < TAH_M_COUNT; n++)
+			if (st.m[n])
+				lwsl_user("  %s at %dms\n", milestones[n],
+					  (int)((st.m[n] - st.silent_up) /
+							LWS_US_PER_MS));
+			else
+				lwsl_user("  %s: never\n", milestones[n]);
+	}
 
 	lws_default_loop_exit(context);
 }
@@ -96,6 +131,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
+		milestone(TAH_M_SRV_REQ);
 		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
 						"text/plain", 2, &p, end) ||
 		    lws_finalize_write_http_header(wsi, start, &p, end))
@@ -109,6 +145,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		memcpy(start, "ok", 2);
 		if (lws_write(wsi, start, 2, LWS_WRITE_HTTP_FINAL) != 2)
 			return -1;
+		milestone(TAH_M_SRV_SENT);
 
 		if (lws_http_transaction_completed(wsi))
 			return -1;
@@ -201,6 +238,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		/* an h2 stream is not the wsi with the connection */
 		mux = lws_get_network_wsi(wsi) != wsi;
+		milestone(TAH_M_CLI_STATUS);
 		st.status = (int)lws_http_client_http_response(wsi);
 		lwsl_user("%s: status %d, on %s\n", __func__, st.status,
 			  mux ? "h2" : "h1");
@@ -217,7 +255,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
-		ms = (lws_now_usecs() - st.get_start) / LWS_US_PER_MS;
+		ms = (lws_now_usecs() - st.m[TAH_M_GET_START]) /
+							LWS_US_PER_MS;
 
 		if (st.status != HTTP_STATUS_OK) {
 			lws_snprintf(why, sizeof(why), "GET answered %d",
@@ -261,7 +300,7 @@ start_get(lws_sorted_usec_list_t *sul)
 	i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
 				  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 
-	st.get_start = lws_now_usecs();
+	milestone(TAH_M_GET_START);
 	if (!lws_client_connect_via_info(&i))
 		finish(0, "the https GET could not be started");
 }
