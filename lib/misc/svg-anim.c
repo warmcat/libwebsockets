@@ -720,7 +720,7 @@ svg_anim_open(lws_svg_t *ctx)
 	if (ap->raw[SVG_AR_KEYTIMES] && ap->calc != SVG_CALC_PACED) {
 		nkt = vlist(ap->raw[SVG_AR_KEYTIMES], w->kt, nk,
 			    LWS_SVG_MAX_VALUES, 1, 1);
-		if (nkt != nv || w->kt[0])
+		if (nkt < 1 || nkt != nv || w->kt[0])
 			goto bail;
 		for (i = 0; i < nkt; i++)
 			if (nk[i] != 1 || w->kt[i] < 0 ||

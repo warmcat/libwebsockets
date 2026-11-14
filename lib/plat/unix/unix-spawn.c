@@ -1756,10 +1756,14 @@ lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 	 * threaded, which only share out cpu.  So we move ourselves down into
 	 * a leaf of our cgroup, leaving it with no processes of its own, and
 	 * then it can hand what it has to the children made beside the leaf.
+	 *
+	 * It's 0755 like the children's cgroups and those systemd makes: a
+	 * cgroup dir holds no secrets, others can only read its stats, and
+	 * writing its control files is governed by their own modes.
 	 */
 
 	lws_snprintf(path, sizeof(path), "%s/lws", parent);
-	if (mkdir(path, 0755) && errno != EEXIST) {
+	if (mkdir(path, 0755) && errno != EEXIST) { // NOSONAR
 		/*
 		 * No cgroup to move into, eg, the cgroup fs is read-only to
 		 * us: we stay where we are, and children get threaded cgroups
