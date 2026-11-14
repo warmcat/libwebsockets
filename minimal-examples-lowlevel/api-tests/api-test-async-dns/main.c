@@ -1751,6 +1751,7 @@ bail:
 #define SF_PROMPT_US		(100 * LWS_US_PER_MS)
 #define SF_DEADLINE_US		(5 * LWS_US_PER_SEC)
 #define SF_MAX_CPU_US		(100 * LWS_US_PER_MS) /* a spin uses ~all */
+#define SF_TRIES		3 /* on new ports, if another socket took ours */
 
 static const char * const sf_names[] = { "sf1.invalid", "sf2.invalid",
 					 "sf3.invalid" };
@@ -1763,7 +1764,7 @@ static lws_sorted_usec_list_t sul_sf, sul_sf_deadline;
 static lws_usec_t sf_issued;
 static uint16_t sf_port;
 static int sf_fd = -1, sf_fail, sf_failed, sf_resolved, sf_completed;
-static int sf_later_issued, sf_later_resolved;
+static int sf_later_issued, sf_later_resolved, sf_port_taken;
 
 static struct lws *
 sf_cb(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
@@ -1801,29 +1802,43 @@ static void
 sf_nameserver_up(void)
 {
 	struct sockaddr_in sin;
+	int e;
 
 	if (sf_fd >= 0)
 		return;
 
 	sf_fd = socket(AF_INET, SOCK_DGRAM, 0);
-	if (sf_fd < 0)
+	if (sf_fd < 0) {
+		e = errno;
 		goto bail;
+	}
 
 	memset(&sin, 0, sizeof(sin));
 	sin.sin_family		= AF_INET;
 	sin.sin_addr.s_addr	= htonl(INADDR_LOOPBACK);
 	sin.sin_port		= htons(sf_port);
 
-	if (!bind(sf_fd, (struct sockaddr *)&sin, sizeof(sin)) &&
-	    fcntl(sf_fd, F_SETFL, O_NONBLOCK) >= 0)
-		return;
+	/*
+	 * The port was free when we chose it, but until now nothing held it:
+	 * a socket bound meanwhile to the wildcard address and a random port,
+	 * like the resolver's own or those of other tests, may have it
+	 */
+
+	if (bind(sf_fd, (struct sockaddr *)&sin, sizeof(sin))) {
+		e = errno;
+		sf_port_taken = e == EADDRINUSE;
+	} else {
+		if (fcntl(sf_fd, F_SETFL, O_NONBLOCK) >= 0)
+			return;
+		e = errno;
+	}
 
 	close(sf_fd);
 	sf_fd = -1;
 
 bail:
-	lwsl_err("%s: can't bring the nameserver up on %u\n", __func__,
-		 sf_port);
+	lwsl_err("%s: can't bring the nameserver up on %u: errno %d\n",
+		 __func__, sf_port, e);
 	sf_finish(1);
 }
 
@@ -1951,7 +1966,7 @@ sf_run(void)
 	lwsl_user("*** resolver send-failure leg\n");
 
 	sf_fail = sf_failed = sf_resolved = sf_completed = 0;
-	sf_later_issued = sf_later_resolved = 0;
+	sf_later_issued = sf_later_resolved = sf_port_taken = 0;
 
 	/* a loopback port that refuses, until the nameserver comes up on it */
 
@@ -2686,7 +2701,13 @@ main(int argc, const char **argv)
 		 * one, instead of leaving it to spin the loop
 		 */
 
-		sf_run();
+		for (n = 0; n < SF_TRIES; n++) {
+			sf_run();
+			if (!sf_port_taken)
+				break;
+			lwsl_user("Resolver send-failure leg: port taken, "
+				  "again on another\n");
+		}
 
 		/*
 		 * A name with fewer dots than ndots is tried under the
