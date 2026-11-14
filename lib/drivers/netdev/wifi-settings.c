@@ -34,8 +34,9 @@
  * Small icons, in the dialog's text size or a bit bigger to press, with a line
  * around and between the APs' rows so they read as one list.  Each AP's row is
  * three cells, so it fits a small display: its signal, its SSID over a smaller
- * line of what we know about it, then the icons to press.  The hostname is
- * shaded, like an editbox.
+ * line of what we know about it, then the icons to press.  When the SSID and
+ * its line are a link, it's a block, so all of the cell can be pressed.  The
+ * hostname is shaded, like an editbox.
  */
 
 static const char settings_css[] =
@@ -52,7 +53,8 @@ static const char settings_css[] =
 	"a.i { display: inline-block; padding: 2px }"
 	"a.i img { width: 24px; height: 24px }"
 	"a.e { display: block; background-color: #e4e8ec; padding: 3px 4px;"
-		" margin: 2px 0 8px 0 }";
+		" margin: 2px 0 8px 0 }"
+	"a.n { display: block }";
 
 const char *
 lws_wifi_settings_css(void)
@@ -227,8 +229,21 @@ lws_wifi_settings_html(lws_html_w_t *w, const lws_wifi_ap_info_t *aps,
 		 */
 		lws_html_w_printf(w, "<tr%s><td class=\"g\"><img class=\"g\" "
 				  "src=\"" LWS_WIFI_SETTINGS_ICON_SIG "%d.svg\">"
-				  "</td><td><div>", a->seen ? "" : " class=\"d\"",
+				  "</td><td>", a->seen ? "" : " class=\"d\"",
 				  (int)(a->bars > 4 ? 4 : a->bars));
+
+		/*
+		 * With no passphrase of ours for it, there's nothing to lose by
+		 * pressing its name: it does what its cog does.  One we have
+		 * isn't replaced so easily, only by its cog.
+		 */
+		if (!a->stored) {
+			lws_html_w_printf(w, "<a class=\"n\" href=\"?set=");
+			lws_html_w_urlarg(w, a->ssid, 32);
+			lws_html_w_printf(w, "\">");
+		}
+
+		lws_html_w_printf(w, "<div>");
 		lws_html_w_text(w, a->ssid, sizeof(a->ssid));
 		lws_html_w_printf(w, "</div><div class=\"st\">");
 		if (a->stored && !a->open)
@@ -254,7 +269,8 @@ lws_wifi_settings_html(lws_html_w_t *w, const lws_wifi_ap_info_t *aps,
 
 		if (a->internet)
 			img(w, LWS_WIFI_SETTINGS_ICON_NET);
-		lws_html_w_printf(w, "</div></td><td>");
+		lws_html_w_printf(w, "</div>%s</td><td>",
+				  a->stored ? "" : "</a>");
 		/* an open AP that's stored has no passphrase to set */
 		if (!a->open || !a->stored)
 			link_icon(w, "set", a->ssid, LWS_WIFI_SETTINGS_ICON_COG);

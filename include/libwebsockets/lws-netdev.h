@@ -539,6 +539,21 @@ lws_netdev_find(lws_netdevs_t *netdevs, const char *ifname);
 #define LWS_WIFI_SETTINGS_ICON_FAILED	"set-fail.svg"	/* join failed */
 #define LWS_WIFI_SETTINGS_ICON_SIG	"set-sig"
 
+/*
+ * The most html lws_wifi_settings_html() writes for an AP's row: its signal,
+ * every icon, and a 32-character SSID whose every character needs escaping,
+ * eg, &quot;, in its text, and %-encoding in its links.  Allow this much for
+ * each AP listed, and some more for the rest.
+ */
+#define LWS_WIFI_SETTINGS_AP_HTML_MAX	800
+
+/*
+ * The most links an AP's row has: its SSID and its cog to set its passphrase
+ * if we have no credentials for it, else its cog and its bin to forget it.
+ * The hostname is one more.
+ */
+#define LWS_WIFI_SETTINGS_AP_LINKS	2
+
 /* what we know of an AP, see lws_netdev_wifi_ap_list() */
 
 typedef struct lws_wifi_ap_info {
@@ -615,7 +630,9 @@ lws_netdev_wifi_ap_list(lws_netdevs_t *nds,
  * A section titled "WLAN", a table of the APs, a row each: its signal, its
  * SSID over what we know of it, and the links to set its passphrase and to
  * forget it, and a section titled "Hostname", the hostname as a link to edit
- * it.  The links' hrefs are relative urls with an argument, eg,
+ * it.  The SSID of an AP we have no credentials for is a link to set its
+ * passphrase as well, the same as its cog.  The links' hrefs are relative
+ * urls with an argument, eg,
  * "?set=<ssid>", so a browser asks the page's own url with it, and a dialog
  * on the device is told them, for lws_wifi_settings_href() to say what they
  * ask for.  Style it with lws_wifi_settings_css(); it uses the
@@ -691,6 +708,17 @@ lws_wifi_settings_css(void);
  * lws_wifi_provision_stored(), and the device restarts to join it the same
  * way.
  *
+ * Built with LWS_ROLE_WS, the browser keeps a websocket open to us while it
+ * shows the settings, and the list of APs is sent again on it when it
+ * changes, eg, when a scan finds another AP, so it stays live without
+ * reloading.  The script that does it is served as wifi.js: the pages have no
+ * inline script or style, so they work with the strict CSP lws serves them
+ * with.
+ *
+ * The caller can give .header_html and .css for the top of every page, eg,
+ * the product's name, a picture of it and its maker's logo, with the images
+ * among .files.
+ *
  * The pages are served by plain http/1.1, since browsers only use h2 over TLS,
  * and a certificate for an address on the device's own AP can't be trusted by
  * them: so anyone near enough to join the AP can see the passphrase typed in.
@@ -758,6 +786,14 @@ typedef struct lws_wifi_provision_info {
 	uint16_t			dns_port;
 	/**< 0 for 53, the port the captive dns answers on, with
 	 * LWS_WITH_SYS_CAPTIVE_DNS */
+	const char			*header_html;
+	/**< NULL, or html that goes at the top of every page, eg, the
+	 * product's name and logo, whose images are given in .files.  It is
+	 * the caller's own markup, used as it is: never put anything in it
+	 * from elsewhere.  It must exist for as long as this does */
+	const char			*css;
+	/**< NULL, or css for .header_html, served after the settings' own.
+	 * It must exist for as long as this does */
 } lws_wifi_provision_info_t;
 
 struct lws_wifi_provision;

@@ -18,10 +18,25 @@ It checks
  - `lws_wifi_settings_href()` understands the settings' links, and refuses
    SSIDs that are empty or too long
 
+ - an AP's row of the settings' html at its biggest, its SSID all
+   characters that need escaping, with every icon, fits in
+   `LWS_WIFI_SETTINGS_AP_HTML_MAX` and has no more than
+   `LWS_WIFI_SETTINGS_AP_LINKS` links; its SSID is a link to set its
+   passphrase only if no credentials are stored for it
+
  - with no credentials, it becomes an AP at once, named for the hostname,
    eg, "lws-a1b2c3", and serves the settings: the APs scanned, escaped, with
    their links, the settings' css, the icons given to it, and 404 for
    anything else
+
+ - the header html and css given to it are at the top of every page and in
+   the css, and the image it uses, given as a file, is served
+
+ - with `LWS_ROLE_WS`, the settings' page loads `wifi.js`, which is served;
+   a websocket to us with the `lws-wifi-settings` subprotocol, from a page
+   of another host, is refused, and from ours is sent the settings at once,
+   again when a scan finds another AP, and not when one finds nothing
+   different
 
  - built with `LWS_WITH_SYS_CAPTIVE_DNS`, while it's an AP, asked over UDP
    on `--dns-port` for the address of what a phone checks for internet

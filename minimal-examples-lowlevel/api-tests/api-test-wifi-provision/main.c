@@ -16,9 +16,19 @@
  *  - lws_wifi_settings_href() understands the settings' links, and refuses
  *    SSIDs that are too long
  *
+ *  - an AP's row of the settings' html, at its biggest, is no more than
+ *    LWS_WIFI_SETTINGS_AP_HTML_MAX with no more than
+ *    LWS_WIFI_SETTINGS_AP_LINKS links, and the SSID is a link only if we have
+ *    no credentials for it
+ *
  *  - with no credentials, it becomes an AP at once, named for the hostname,
- *    and serves the settings: the APs scanned, the settings' css, the icons
- *    given to it, and 404 for anything else
+ *    and serves the settings: the APs scanned, the header and its css given
+ *    to it, the settings' css, the icons given to it, and 404 for anything
+ *    else
+ *
+ *  - with LWS_ROLE_WS, the settings' page loads wifi.js, which is served,
+ *    and a websocket to us is sent the APs at once, and again when they
+ *    change, but not when they don't; one for another host is refused
  *
  *  - with LWS_WITH_SYS_CAPTIVE_DNS, while it's an AP, the captive dns says
  *    what a phone checks for internet with is us
@@ -310,7 +320,13 @@ static const char svg[] = "<svg xmlns=\"http://www.w3.org/2000/svg\"/>";
 
 static const lws_wifi_provision_file_t files[] = {
 	{ "set-cog.svg", svg, sizeof(svg) - 1, "image/svg+xml" },
+	{ "logo.svg", svg, sizeof(svg) - 1, "image/svg+xml" },
 };
+
+/* the product's own, at the top of each page */
+static const char header_html[] =
+	"<div class=\"prod\"><img src=\"logo.svg\">Acme Widget</div>",
+		  header_css[] = ".prod { color: #123456 }";
 
 static void
 prov_start(const char *reset_button, struct lws_button_state *buttons)
@@ -330,6 +346,8 @@ prov_start(const char *reset_button, struct lws_button_state *buttons)
 	i.join_wait_s = 1;
 	i.reset_window_s = 5;
 	i.reset_hold_s = 1;
+	i.header_html = header_html;
+	i.css = header_css;
 
 	memset(states, 0, sizeof(states));
 	prov = lws_wifi_provision_create(&i);
@@ -367,6 +385,22 @@ static const struct req {
 	{ "/", NULL, 200, { "href=\"?set=TestAP\"",
 			    "Open &amp; &lt;AP&gt;",
 			    "href=\"?set=Open%20%26%20%3CAP%3E\"" }, NULL, 0 },
+	/* the header given, and the SSID of an AP not stored is a link */
+	{ "/", NULL, 200, { "<body><div class=\"prod\"><img src=\"logo.svg\">"
+			    "Acme Widget</div><h1>",
+			    "<a class=\"n\" href=\"?set=TestAP\"><div>TestAP",
+			    "<div id=\"w\">" }, NULL, 0 },
+	{ "/?set=TestAP", NULL, 200, { "<div class=\"prod\">", NULL, NULL },
+				NULL, 0 },
+	{ "/logo.svg", NULL, 200, { "<svg", NULL, NULL }, NULL, 0 },
+	{ "/wifi.css", NULL, 200, { ".prod { color: #123456 }", NULL, NULL },
+				NULL, 0 },
+#if defined(LWS_ROLE_WS)
+	{ "/", NULL, 200, { "<script src=\"wifi.js\" defer></script>", NULL,
+			    NULL }, NULL, 0 },
+	{ "/wifi.js", NULL, 200, { "new WebSocket(", "\"lws-wifi-settings\"",
+				   NULL }, NULL, 0 },
+#endif
 	{ "/?set=TestAP", NULL, 200, { "name=\"pass\"",
 				       "name=\"ssid\" value=\"TestAP\"", NULL },
 				NULL, 0 },
@@ -594,8 +628,107 @@ dns_ask(void)
 }
 #endif
 
+#if defined(LWS_ROLE_WS)
+/*
+ * A browser showing the settings: its websocket to us is sent them at once,
+ * then again when they change
+ */
+
+static char ws_msg[16384];
+static size_t ws_len;
+static struct lws *ws_wsi;
+static int ws_msgs, ws_refused, ws_closing, ws_phase;
+
+static void
+scan_remove(uint8_t last)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&wnd.scan)) {
+		lws_wifi_sta_t *w = lws_container_of(d, lws_wifi_sta_t, list);
+
+		if (w->bssid[5] == last) {
+			lws_dll2_remove(d);
+			free(w);
+		}
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+static int
+callback_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	    void *in, size_t len)
+{
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		/* the one for another host is refused */
+		ws_refused++;
+		lws_sul_schedule(cx, 0, &sul_step, next_step, 1);
+		break;
+
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+		ws_wsi = wsi;
+		break;
+
+	case LWS_CALLBACK_CLIENT_RECEIVE:
+		if (lws_is_first_fragment(wsi))
+			ws_len = 0;
+		if (ws_len + len >= sizeof(ws_msg)) {
+			expect(0, "ws message size");
+			return -1;
+		}
+		memcpy(ws_msg + ws_len, in, len);
+		ws_len += len;
+		if (!lws_is_final_fragment(wsi))
+			break;
+		ws_msg[ws_len] = '\0';
+		ws_msgs++;
+		lws_sul_schedule(cx, 0, &sul_step, next_step, 1);
+		break;
+
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		if (ws_closing)
+			return -1;
+		break;
+
+	case LWS_CALLBACK_CLIENT_CLOSED:
+		ws_wsi = NULL;
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+static void
+ws_connect(const char *host)
+{
+	struct lws_client_connect_info i;
+
+	memset(&i, 0, sizeof(i));
+	i.context = cx;
+	i.port = port;
+	i.address = "127.0.0.1";
+	i.path = "/";
+	i.host = host;
+	i.origin = host;
+	i.protocol = "lws-wifi-settings";
+	i.local_protocol_name = "ws";
+	i.alpn = "http/1.1";
+
+	if (!lws_client_connect_via_info(&i)) {
+		lwsl_err("%s: unable to connect\n", __func__);
+		fail = 1;
+		interrupted = 1;
+	}
+}
+#endif
+
 static const struct lws_protocols protocols[] = {
 	{ "client", callback_client, 0, 0, 0, NULL, 0 },
+#if defined(LWS_ROLE_WS)
+	{ "ws", callback_ws, 0, 0, 0, NULL, 0 },
+#endif
 #if defined(LWS_WITH_SYS_CAPTIVE_DNS)
 	{ "dns", callback_dns, 0, 0, 0, NULL, 0 },
 #endif
@@ -635,6 +768,7 @@ request(void)
 
 enum {
 	ST_DNS,			/* the captive dns, while we're an AP */
+	ST_WS,			/* the settings kept live over a websocket */
 	ST_REQUESTS,
 	ST_REBOOTED,		/* credentials stored, expecting a reboot */
 	ST_JOIN_WAIT,		/* credentials that never worked */
@@ -664,6 +798,57 @@ next_step(lws_sorted_usec_list_t *sul)
 			return;
 		}
 		expect(dns_answered, "captive dns answered");
+#endif
+		step = ST_WS;
+		/* fallthru */
+
+	case ST_WS:
+#if defined(LWS_ROLE_WS)
+		switch (ws_phase++) {
+		case 0:
+			/* a page of another host, at our address */
+			ws_connect("example.com");
+			return;
+		case 1:
+			expect(ws_refused == 1 && !ws_msgs,
+			       "ws for another host refused");
+			ws_connect(host_port);
+			return;
+		case 2:
+			/* the settings are sent as soon as it connects */
+			expect(ws_msgs == 1 && !!strstr(ws_msg,
+				"<a class=\"n\" href=\"?set=TestAP\">") &&
+			       !strstr(ws_msg, "NewAP") &&
+			       !strstr(ws_msg, "<html"), "ws: the settings");
+
+			/* a scan finds another AP */
+			scan_add("NewAP", 3, LWS_WIFI_AUTH_WPA2, -60);
+			lws_smd_msg_printf(cx, LWSSMDCL_NETWORK,
+					   "{\"type\":\"priv\",\"if\":\"wl0\","
+					   "\"ev\":1}");
+			return;
+		case 3:
+			expect(ws_msgs == 2 && !!strstr(ws_msg, ">NewAP<"),
+			       "ws: sent again when they change");
+
+			/* a scan that finds nothing different sends nothing */
+			lws_smd_msg_printf(cx, LWSSMDCL_NETWORK,
+					   "{\"type\":\"priv\",\"if\":\"wl0\","
+					   "\"ev\":1}");
+			lws_sul_schedule(cx, 0, &sul_step, next_step,
+					 LWS_US_PER_SEC / 2);
+			return;
+		case 4:
+			expect(ws_msgs == 2, "ws: not sent when they don't");
+
+			/* the requests expect the APs as they were */
+			scan_remove(3);
+			if (ws_wsi) {
+				ws_closing = 1;
+				lws_callback_on_writable(ws_wsi);
+			}
+			break;
+		}
 #endif
 		step = ST_REQUESTS;
 		/* fallthru */
@@ -808,6 +993,57 @@ next_step(lws_sorted_usec_list_t *sul)
 	}
 }
 
+/*
+ * An AP's row at its biggest: every character of its SSID needs escaping and
+ * %-encoding, and it has every icon it can have at once.  Stored, it has the
+ * cog and bin links; not stored, its SSID and cog.
+ */
+
+static void
+test_html_row(void)
+{
+	static char buf[4096];
+	lws_wifi_ap_info_t a;
+	lws_html_w_t w;
+	int none, n, links, stored;
+	const char *p;
+
+	lws_html_w_init(&w, buf, sizeof(buf));
+	lws_wifi_settings_html(&w, NULL, 0, 1, NULL);
+	/* with an AP, there's a table instead of "Scanning..." */
+	none = lws_html_w_len(&w, buf) - (int)strlen("<div class=\"d\">"
+						      "Scanning...</div>") +
+	       (int)strlen("<table></table>");
+
+	for (stored = 0; stored < 2; stored++) {
+		memset(&a, 0, sizeof(a));
+		memset(a.ssid, '"', 32);
+		a.auth = LWS_WIFI_AUTH_ENTERPRISE; /* the longest name */
+		a.last_join = LWS_WIFI_JOIN_FAILED;
+		a.seen = 1;
+		a.internet = 1;
+		a.bars = 4;
+		a.stored = (uint8_t)stored;
+
+		lws_html_w_init(&w, buf, sizeof(buf));
+		lws_wifi_settings_html(&w, &a, 1, 1, NULL);
+		n = lws_html_w_len(&w, buf);
+
+		links = 0;
+		for (p = buf; (p = strstr(p, "href=")); p++)
+			links++;
+		links--; /* the hostname's */
+
+		lwsl_info("%s: stored %d: row %d, links %d\n", __func__,
+			  stored, n - none, links);
+		expect(n > 0 && n - none <= LWS_WIFI_SETTINGS_AP_HTML_MAX,
+		       "biggest AP row fits");
+		expect(links == LWS_WIFI_SETTINGS_AP_LINKS, "AP row links");
+		/* the SSID is a link only if we have no credentials for it */
+		expect((!strstr(buf, "class=\"n\"")) == stored, "SSID link");
+	}
+}
+
 /* the html writer, and the settings' links */
 
 static void
@@ -846,6 +1082,8 @@ test_html(void)
 		       "?set=123456789012345678901234567890123", ssid,
 		       sizeof(ssid)) == LWS_WIFI_SETTINGS_ACT_NONE,
 	       "href refused");
+
+	test_html_row();
 }
 
 static void

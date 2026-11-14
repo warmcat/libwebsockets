@@ -38,10 +38,10 @@
 #define PROV_RESET_ACK_US		(2 * LWS_US_PER_SEC)
 /* the most APs listed, as on the device's own settings */
 #define PROV_AP_MAX			12
-/* the most html an AP's row can be, see lws_wifi_settings_html() */
-#define PROV_AP_ROW_HTML_MAX		640
-#define PROV_PAGE_MAX			((PROV_AP_MAX * PROV_AP_ROW_HTML_MAX) + \
-					 2048)
+/* the settings' html, and room for the rest of the page around it */
+#define PROV_SETTINGS_MAX		((PROV_AP_MAX * \
+					  LWS_WIFI_SETTINGS_AP_HTML_MAX) + 512)
+#define PROV_PAGE_MAX			(PROV_SETTINGS_MAX + 2048)
 /* WPA passphrases are 8 to 63 characters */
 #define PASSPHRASE_MIN			8
 #define PASSPHRASE_MAX			63
@@ -56,7 +56,7 @@ struct lws_wifi_provision {
 	lws_sorted_usec_list_t		sul_hold;	/* reset button held */
 	lws_sorted_usec_list_t		sul_reboot;
 
-	struct lws_protocols		protocols[2];
+	struct lws_protocols		protocols[3];
 	struct lws_http_mount		mount;
 
 	/* scratch for listing the APs, we're single-threaded */
@@ -82,6 +82,20 @@ struct pss {
 	char				post;
 };
 
+#if defined(LWS_ROLE_WS)
+/*
+ * each browser showing the settings, with a websocket to us to be sent the
+ * APs again when they change
+ */
+
+struct pss_ws {
+	uint32_t			sig;	/* of what was sent last */
+	uint8_t				sent;	/* anything was */
+};
+
+#define PROV_WS_PROTOCOL		"lws-wifi-settings"
+#endif
+
 enum {
 	PRM_ACT,
 	PRM_SSID,
@@ -106,6 +120,42 @@ static const char page_css[] =
 	"button { font-size: 1em; padding: 4px 16px; margin-right: 8px }"
 	".err { color: #b00020 }";
 
+#if defined(LWS_ROLE_WS)
+/*
+ * served as wifi.js: keeps the settings' list of APs live, as the device
+ * sends it again over a websocket.  It's html we wrote, its text escaped.
+ */
+
+static const char page_js[] =
+	"(function () {\n"
+	"\t\"use strict\";\n"
+	"\tvar w = document.getElementById(\"w\");\n"
+	"\n"
+	"\tif (!w || !window.WebSocket)\n"
+	"\t\treturn;\n"
+	"\n"
+	"\tfunction connect() {\n"
+	"\t\tvar ws = new WebSocket((location.protocol === \"https:\" ?\n"
+	"\t\t\t\"wss://\" : \"ws://\") + location.host + \"/\",\n"
+	"\t\t\t\"" PROV_WS_PROTOCOL "\");\n"
+	"\n"
+	"\t\tws.onmessage = function (e) {\n"
+	"\t\t\tw.innerHTML = e.data;\n"
+	"\t\t};\n"
+	"\t\t/* eg, it restarted: it may be back */\n"
+	"\t\tws.onclose = function () {\n"
+	"\t\t\tsetTimeout(connect, 5000);\n"
+	"\t\t};\n"
+	"\t}\n"
+	"\n"
+	"\tconnect();\n"
+	"}());\n";
+
+static const lws_wifi_provision_file_t file_js = {
+	"wifi.js", page_js, sizeof(page_js) - 1, "text/javascript"
+};
+#endif
+
 static void
 prov_state(struct lws_wifi_provision *p, lws_wifi_provision_state_t st)
 {
@@ -127,6 +177,26 @@ prov_led(struct lws_wifi_provision *p, const lws_led_sequence_def_t *seq)
 
 static void
 prov_ap_stop(struct lws_wifi_provision *p);
+
+/*
+ * What the settings show may have changed, eg, a scan finished, or something
+ * was stored: each browser showing them is sent them again if they did
+ */
+
+static void
+prov_live(struct lws_wifi_provision *p)
+{
+#if defined(LWS_ROLE_WS)
+	const struct lws_protocols *pr;
+
+	if (!p->vh)
+		return;
+
+	pr = lws_vhost_name_to_protocol(p->vh, PROV_WS_PROTOCOL);
+	if (pr)
+		lws_callback_on_writable_all_protocol_vhost(p->vh, pr);
+#endif
+}
 
 static void
 prov_reboot_cb(lws_sorted_usec_list_t *sul)
@@ -163,19 +233,27 @@ prov_reboot(struct lws_wifi_provision *p, lws_usec_t us)
  * forms on those posting back to it
  */
 
-static const char *
-page_start(lws_html_w_t *w, const char *title)
+static void
+page_start(struct lws_wifi_provision *p, lws_html_w_t *w, const char *title,
+	   int live)
 {
 	lws_html_w_printf(w, "<!doctype html><html><head><meta charset=\"utf-8\">"
 			     "<meta name=\"viewport\" content=\"width=device-"
 			     "width, initial-scale=1\"><title>");
 	lws_html_w_text(w, title, 64);
 	lws_html_w_printf(w, "</title><link rel=\"stylesheet\" "
-			     "href=\"wifi.css\"></head><body><h1>");
+			     "href=\"wifi.css\">");
+#if defined(LWS_ROLE_WS)
+	if (live)
+		lws_html_w_printf(w, "<script src=\"wifi.js\" defer></script>");
+#endif
+	lws_html_w_printf(w, "</head><body>");
+	if (p->i.header_html)
+		/* the caller's own */
+		lws_html_w_printf(w, "%s", p->i.header_html);
+	lws_html_w_printf(w, "<h1>");
 	lws_html_w_text(w, title, 64);
 	lws_html_w_printf(w, "</h1>");
-
-	return title;
 }
 
 static void
@@ -205,8 +283,10 @@ form_end(lws_html_w_t *w, const char *button)
 			     "<a href=\"./\">Back</a></form>", button);
 }
 
+/* the settings as they are now, also what's sent to keep them live */
+
 static void
-page_settings(struct lws_wifi_provision *p, lws_html_w_t *w)
+settings_html(struct lws_wifi_provision *p, lws_html_w_t *w)
 {
 	lws_netdevs_t *nds = lws_netdevs_from_ctx(p->i.cx);
 	char hn[LWS_NETDEV_HOSTNAME_MAX + 1];
@@ -216,9 +296,17 @@ page_settings(struct lws_wifi_provision *p, lws_html_w_t *w)
 		hn[0] = '\0';
 
 	n = lws_netdev_wifi_ap_list(nds, p->i.wnd, p->aps, PROV_AP_MAX);
-
-	page_start(w, "Settings");
 	lws_wifi_settings_html(w, p->aps, n, 1, hn);
+}
+
+static void
+page_settings(struct lws_wifi_provision *p, lws_html_w_t *w)
+{
+	page_start(p, w, "Settings", 1);
+	/* what wifi.js replaces with what we send it */
+	lws_html_w_printf(w, "<div id=\"w\">");
+	settings_html(p, w);
+	lws_html_w_printf(w, "</div>");
 	page_end(w);
 }
 
@@ -235,7 +323,7 @@ page_set(struct lws_wifi_provision *p, lws_html_w_t *w, const char *ssid,
 		if (!strcmp(p->aps[n].ssid, ssid) && p->aps[n].seen)
 			open = p->aps[n].open;
 
-	page_start(w, open ? "Join" : "Passphrase");
+	page_start(p, w, open ? "Join" : "Passphrase", 0);
 	if (err)
 		lws_html_w_printf(w, "<p class=\"err\">%s</p>", err);
 	lws_html_w_printf(w, "<p>");
@@ -260,7 +348,7 @@ page_set(struct lws_wifi_provision *p, lws_html_w_t *w, const char *ssid,
 static void
 page_forget(struct lws_wifi_provision *p, lws_html_w_t *w, const char *ssid)
 {
-	page_start(w, "Forget");
+	page_start(p, w, "Forget", 0);
 	lws_html_w_printf(w, "<p>");
 	lws_html_w_text(w, ssid, 32);
 	lws_html_w_printf(w, "</p>");
@@ -278,7 +366,7 @@ page_host(struct lws_wifi_provision *p, lws_html_w_t *w, const char *err)
 				    sizeof(hn)) < 0)
 		hn[0] = '\0';
 
-	page_start(w, "Hostname");
+	page_start(p, w, "Hostname", 0);
 	if (err)
 		lws_html_w_printf(w, "<p class=\"err\">%s</p>", err);
 	form_start(w, "host", NULL);
@@ -295,7 +383,7 @@ page_host(struct lws_wifi_provision *p, lws_html_w_t *w, const char *err)
 static void
 page_restarting(struct lws_wifi_provision *p, lws_html_w_t *w)
 {
-	page_start(w, "Restarting");
+	page_start(p, w, "Restarting", 0);
 	lws_html_w_printf(w, "<p>Restarting to join ");
 	lws_html_w_text(w, p->joining, sizeof(p->joining));
 	lws_html_w_printf(w, "</p><p>If it can't, it will be at ");
@@ -383,12 +471,27 @@ http_get(struct lws_wifi_provision *p, struct lws *wsi, struct pss *pss,
 		if (!strcmp(path, "wifi.css")) {
 			if (page_alloc(pss, &w))
 				return -1;
-			lws_html_w_printf(&w, "%s%s", lws_wifi_settings_css(),
-					  page_css);
-			pss->len = (size_t)lws_html_w_len(&w, pss->page);
+			lws_html_w_printf(&w, "%s%s%s", lws_wifi_settings_css(),
+					  page_css, p->i.css ? p->i.css : "");
+			r = lws_html_w_len(&w, pss->page);
+			if (r < 0)
+				return lws_return_http_status(wsi,
+					HTTP_STATUS_INTERNAL_SERVER_ERROR,
+					NULL) ? -1 : 0;
+			pss->len = (size_t)r;
 
 			return respond(wsi, pss, HTTP_STATUS_OK, "text/css");
 		}
+
+#if defined(LWS_ROLE_WS)
+		if (!strcmp(path, file_js.name)) {
+			pss->file = &file_js;
+			pss->len = file_js.len;
+
+			return respond(wsi, pss, HTTP_STATUS_OK,
+				       file_js.mimetype);
+		}
+#endif
 
 		for (n = 0; n < p->i.count_files; n++)
 			if (!strcmp(path, p->i.files[n].name)) {
@@ -499,8 +602,10 @@ http_post(struct lws_wifi_provision *p, struct lws *wsi, struct pss *pss)
 
 	if (!strcmp(act, "host")) {
 		/* nothing typed goes back to the default */
-		if (!lws_netdev_hostname_set(nds, host ? host : ""))
+		if (!lws_netdev_hostname_set(nds, host ? host : "")) {
+			prov_live(p);
 			return see_settings(wsi);
+		}
 
 		if (page_alloc(pss, &w))
 			return -1;
@@ -516,6 +621,8 @@ http_post(struct lws_wifi_provision *p, struct lws *wsi, struct pss *pss)
 	if (!strcmp(act, "forget")) {
 		if (lws_netdev_credentials_remove(nds, ssid))
 			lwsl_warn("%s: nothing to forget\n", __func__);
+		else
+			prov_live(p);
 
 		return see_settings(wsi);
 	}
@@ -720,6 +827,95 @@ callback_provision(struct lws *wsi, enum lws_callback_reasons reason,
 
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
+
+#if defined(LWS_ROLE_WS)
+
+/*
+ * The browser showing the settings has a websocket to us: it's sent them when
+ * it connects, then again whenever they're different, as wifi.js shows them
+ */
+
+static int
+callback_settings_ws(struct lws *wsi, enum lws_callback_reasons reason,
+		     void *user, void *in, size_t len)
+{
+	struct pss_ws *pss = (struct pss_ws *)user;
+	struct lws_wifi_provision *p;
+	uint32_t sig = 2166136261u;
+	lws_html_w_t w;
+	char *buf;
+	int n, m;
+
+	switch (reason) {
+	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
+		p = (struct lws_wifi_provision *)lws_vhost_user(
+							lws_get_vhost(wsi));
+		/*
+		 * Only from our own pages: with the captive dns, a page of any
+		 * other host is at our address as well
+		 */
+		if (!p || !for_us(p, wsi)) {
+			lwsl_notice("%s: refusing websocket for another host\n",
+				    __func__);
+			return 1;
+		}
+		break;
+
+	case LWS_CALLBACK_ESTABLISHED:
+		/* they may have changed since the page was served */
+		lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_SERVER_WRITEABLE:
+		p = (struct lws_wifi_provision *)lws_vhost_user(
+							lws_get_vhost(wsi));
+		if (!p || !pss)
+			return -1;
+
+		buf = lws_malloc(LWS_PRE + PROV_SETTINGS_MAX, __func__);
+		if (!buf)
+			return -1;
+
+		lws_html_w_init(&w, buf + LWS_PRE, PROV_SETTINGS_MAX);
+		settings_html(p, &w);
+		n = lws_html_w_len(&w, buf + LWS_PRE);
+		if (n < 0) {
+			lwsl_err("%s: settings too big\n", __func__);
+			lws_free(buf);
+			return -1;
+		}
+
+		/* only if they're different from what was sent last */
+		for (m = 0; m < n; m++)
+			sig = (sig ^ (uint8_t)buf[LWS_PRE + m]) * 16777619u;
+
+		if (pss->sent && sig == pss->sig) {
+			lws_free(buf);
+			break;
+		}
+
+		m = lws_write(wsi, (unsigned char *)buf + LWS_PRE, (size_t)n,
+			      LWS_WRITE_TEXT);
+		lws_free(buf);
+		if (m < n)
+			return -1;
+
+		pss->sig = sig;
+		pss->sent = 1;
+		break;
+
+	case LWS_CALLBACK_RECEIVE:
+		/* there's nothing for the browser to tell us this way */
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+#endif
 
 /*
  * Being an AP, and serving the settings on it
@@ -970,8 +1166,17 @@ prov_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 		return 0;
 	}
 
-	if (!(_class & LWSSMDCL_NETWORK) ||
-	    lws_json_simple_strcmp(buf, len, "\"type\":", "ipacq"))
+	if (!(_class & LWSSMDCL_NETWORK))
+		return 0;
+
+	/*
+	 * Eg, a scan finished, or how joining an AP went: what the settings
+	 * show may be different.  Nothing is sent unless it is.
+	 */
+	if (p->ap)
+		prov_live(p);
+
+	if (lws_json_simple_strcmp(buf, len, "\"type\":", "ipacq"))
 		return 0;
 
 	s = lws_json_simple_find(buf, len, "\"if\":", &al);
@@ -1013,6 +1218,12 @@ lws_wifi_provision_create(const lws_wifi_provision_info_t *i)
 	p->protocols[0].name = "lws-wifi-provision";
 	p->protocols[0].callback = callback_provision;
 	p->protocols[0].per_session_data_size = sizeof(struct pss);
+
+#if defined(LWS_ROLE_WS)
+	p->protocols[1].name = PROV_WS_PROTOCOL;
+	p->protocols[1].callback = callback_settings_ws;
+	p->protocols[1].per_session_data_size = sizeof(struct pss_ws);
+#endif
 
 	p->mount.mountpoint = "/";
 	p->mount.mountpoint_len = 1;
@@ -1107,6 +1318,10 @@ lws_wifi_provision_url(const struct lws_wifi_provision *p)
 void
 lws_wifi_provision_stored(struct lws_wifi_provision *p)
 {
+	/* a browser showing the settings sees the AP is stored */
+	if (p)
+		prov_live(p);
+
 	if (!p || !p->ap || p->state == LWS_WIFI_PROV_REBOOT)
 		/*
 		 * The station joins it by itself, when it next scans, or
