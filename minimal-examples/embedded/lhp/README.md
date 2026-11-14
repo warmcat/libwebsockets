@@ -223,12 +223,19 @@ use, and a row of controls for each edge: `-` and `+` make the inset there a
 px smaller or bigger, moving the line out or in, with how many px it is
 between them.  The inset is right when the line is just seen all the way
 round.  The page is laid out again with each change, on what can be seen then,
-and rows that went into the inset are made white.  Below the controls are the
-size of what can be seen, and where the last touch that wasn't on a control
-landed, on what can be seen and on the display's surface, or that it was in
-the inset; a cross marks it on the page.  If the cross isn't under where it
-was touched, it's the touch panel that isn't where the display is.  Reset
-goes back to the board's inset.
+and rows that went into the inset are made white.  Below the controls is the
+size of what can be seen.  Reset goes back to the board's inset.
+
+For the touch panel, there's a target to touch, a cross in a square.  A touch
+that isn't on a control is marked with a dot where the panel says it landed,
+it's shown where that is on what can be seen and on the display's surface,
+and how far it was from the middle of the target, then the next target is
+shown.  There are six, near the corners and halfway down the sides, or on the
+diagonals of a round display.  Once all six are touched, the mean of how far
+off they were, in x and y, and the worst, are shown, and the next touch starts
+another round.  Touches all off in the same direction mean the touch panel
+isn't where the display is; each is also logged.  Changing the inset starts
+the targets again, since they move with it.
 
 Done stores the inset in the settings, as `lhp.inset`, and it's used instead
 of the board's from then on, including after a reboot.  Then what was shown

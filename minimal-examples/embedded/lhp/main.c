@@ -172,8 +172,8 @@ static const char *page_name;
 
 /* the edges and touch page is shown, see edges-ui.h */
 static char edges_shown;
-/* where the last touch on it landed */
-static lhp_edges_touch_t edges_touch;
+/* the touches on it */
+static lhp_edges_t edges;
 /* the application's page to go back to after it, if there was one */
 static char edges_back[sizeof(lds.current_url)];
 
@@ -441,7 +441,7 @@ edges_show(void)
 		return 1;
 
 	len = lhp_edges_html(html, LHP_EDGES_HTML_MAX, &lds.ic, lds.inset,
-			     &edges_touch);
+			     &edges);
 	if (len < 0) {
 		lwsl_err("%s: edges page too big\n", __func__);
 		free(html);
@@ -510,7 +510,7 @@ edges_open_cb(lws_sorted_usec_list_t *sul)
 		lws_strncpy(edges_back, lds.current_url, sizeof(edges_back));
 
 	sui_drop();
-	memset(&edges_touch, 0, sizeof(edges_touch));
+	lhp_edges_reset(&edges);
 
 	if (lds.disp->clear)
 		lds.disp->clear(&lds);
@@ -1406,35 +1406,32 @@ touch_press(const void *buf, size_t len)
 
 /*
  * A touch press on the edges page: on one of its controls, it does what that
- * says, otherwise it's marked where it landed, to see if that's under where
- * it was touched
+ * says, otherwise it's measured against the target shown, see edges-ui.h
  */
 
 static void
 edges_press(const void *buf, size_t len)
 {
 	lhp_edges_act_t act = LHP_EDGES_ACT_NONE;
+	int sx, sy, x, y, inside;
 	lws_dlo_hit_t *h;
 	uint8_t inset[4];
-	int x, y;
 
 	if (lds.display_busy || rs.html != 2 || sui)
 		/* it's being drawn, or not shown yet, so what's where isn't
 		 * settled */
 		return;
 
-	if (json_coord(buf, len, "\"x\":", &x) ||
-	    json_coord(buf, len, "\"y\":", &y))
+	if (json_coord(buf, len, "\"x\":", &sx) ||
+	    json_coord(buf, len, "\"y\":", &sy))
 		return;
 
-	edges_touch.sx = x;
-	edges_touch.sy = y;
-	edges_touch.inside = !lws_display_visible_xy(&lds, &x, &y);
-	edges_touch.vx = x;
-	edges_touch.vy = y;
+	x = sx;
+	y = sy;
+	inside = !lws_display_visible_xy(&lds, &x, &y);
 
 	memcpy(inset, lds.inset, sizeof(inset));
-	if (edges_touch.inside) {
+	if (inside) {
 		/* the page is all of what can be seen, and isn't dragged */
 		h = lws_display_dl_hit_test(&rs.displaylist, x, y, NULL);
 		if (h && h->url)
@@ -1458,16 +1455,12 @@ edges_press(const void *buf, size_t len)
 
 		lwsl_notice("%s: inset %d, %d, %d, %d\n", __func__,
 			    inset[0], inset[1], inset[2], inset[3]);
-		/* a cross would be where it was on the old inset */
-		edges_touch.valid = 0;
+		/* the targets are laid out on what can be seen now */
+		lhp_edges_reset(&edges);
 		break;
 
 	default:
-		edges_touch.valid = 1;
-		lwsl_notice("%s: touch %d, %d on the surface, %s %d, %d\n",
-			    __func__, edges_touch.sx, edges_touch.sy,
-			    edges_touch.inside ? "seen at" : "in the inset",
-			    edges_touch.vx, edges_touch.vy);
+		lhp_edges_touch(&edges, &lds.ic, sx, sy, x, y, inside);
 		break;
 	}
 

@@ -11,6 +11,7 @@
 
 #include "edges-ui.h"
 #include <string.h>
+#include <stdlib.h>
 
 /* the inset as it's stored in the settings: its four bytes as they are */
 #define EDGES_SETTING		"lhp.inset"
@@ -43,31 +44,149 @@ line(lws_html_w_t *w, const char *id, int x, int y, int lw, int lh)
 			     " height: %dpx }", id, x, y, lw, lh);
 }
 
+/*
+ * The sizes of things on the page.  The controls are as big as they
+ * comfortably can be to press, in the middle, away from the edges.  On a round
+ * display, they're smaller, to stay inside the circle
+ */
+
+typedef struct {
+	int		w, h;	/* what can be seen */
+	int		bs;	/* a button's size, and the targets' */
+	int		fs;	/* the font's */
+	int		tl;	/* a line of text's height */
+	int		gap;
+} sizes_t;
+
+static void
+sizes(const lws_surface_info_t *ic, sizes_t *z)
+{
+	z->w = ic->wh_px[0].whole;
+	z->h = ic->wh_px[1].whole;
+	z->bs = clamp(ic->round ? z->h / 11 : z->h / 9, 16, 56);
+	z->fs = clamp((z->bs * 3) / 5, 10, 24);
+	z->tl = (z->fs * 6) / 5;
+	z->gap = z->bs / 4 > 2 ? z->bs / 4 : 2;
+}
+
+/*
+ * Where target n is on what can be seen: near the corners, a button's size in
+ * from the edges, then halfway down the sides, beside the controls.  On a
+ * round display, the corners can't be seen: they're on the diagonals instead
+ */
+
+static void
+target_xy(const lws_surface_info_t *ic, int n, int *x, int *y)
+{
+	static const int8_t where[LHP_EDGES_TARGETS][2] = {
+		{ -1, -1 }, { 1, -1 }, { 1, 1 }, { -1, 1 }, { -1, 0 }, { 1, 0 }
+	};
+	int cx, cy, dx, dy;
+	sizes_t z;
+
+	sizes(ic, &z);
+	cx = z.w / 2;
+	cy = z.h / 2;
+	dx = cx - z.bs;
+	dy = cy - z.bs;
+	if (ic->round && where[n][1]) {
+		dx = (dx * 3) / 4;
+		dy = (dy * 3) / 4;
+	}
+
+	*x = cx + where[n][0] * dx;
+	*y = cy + where[n][1] * dy;
+}
+
+/* the lines a target is drawn with: a cross, in a square */
+
+static const char * const target_ids[] = {
+	"th", "tv", "st", "sb", "sl", "sr"
+};
+
+/* the integer square root, rounded down */
+
+static int
+isqrt(int v)
+{
+	int r = 0;
+
+	while ((r + 1) * (r + 1) <= v)
+		r++;
+
+	return r;
+}
+
+/* tenths, eg, of a px, as -1.5 */
+
+static void
+tenths(lws_html_w_t *w, int t)
+{
+	lws_html_w_printf(w, "%s%d.%d", t < 0 ? "-" : "+", abs(t) / 10,
+			  abs(t) % 10);
+}
+
+void
+lhp_edges_reset(lhp_edges_t *e)
+{
+	memset(e, 0, sizeof(*e));
+}
+
+void
+lhp_edges_touch(lhp_edges_t *e, const lws_surface_info_t *ic, int sx, int sy,
+		int vx, int vy, int inside)
+{
+	int tx, ty;
+
+	e->sx = sx;
+	e->sy = sy;
+	e->vx = vx;
+	e->vy = vy;
+	e->touched = 1;
+	e->inside = (uint8_t)!!inside;
+	e->off = 0;
+
+	if (!inside) {
+		lwsl_notice("%s: %d, %d on the surface, in the inset\n",
+			    __func__, sx, sy);
+		return;
+	}
+
+	/* it's measured against the target being shown */
+
+	if (e->measured == LHP_EDGES_TARGETS)
+		/* the last round was shown: this starts another */
+		e->measured = 0;
+
+	target_xy(ic, e->target, &tx, &ty);
+	e->dx[e->target] = vx - tx;
+	e->dy[e->target] = vy - ty;
+	e->off = 1;
+
+	lwsl_notice("%s: %d, %d (surface %d, %d): target %d at %d, %d, "
+		    "off %d, %d\n", __func__, vx, vy, sx, sy, e->target + 1,
+		    tx, ty, e->dx[e->target], e->dy[e->target]);
+
+	e->measured++;
+	e->target = (uint8_t)((e->target + 1) % LHP_EDGES_TARGETS);
+}
+
 int
 lhp_edges_html(char *buf, size_t len, const lws_surface_info_t *ic,
-	       const uint8_t inset[4], const lhp_edges_touch_t *t)
+	       const uint8_t inset[4], const lhp_edges_t *e)
 {
-	int w = ic->wh_px[0].whole, h = ic->wh_px[1].whole, bs, fs, gap, lw,
-	    rw, tl, x0, y0, pad, m, n;
+	int lw, rw, x0, y0, pad, m, n, tx, ty, sdx = 0, sdy = 0, worst = 0, d;
 	lws_html_w_t hw;
+	sizes_t z;
 
-	/*
-	 * The controls are as big as they comfortably can be to press, in the
-	 * middle, away from the edges.  On a round display, they're smaller,
-	 * to stay inside the circle
-	 */
-
-	bs = clamp(ic->round ? h / 11 : h / 9, 16, 56);
-	fs = clamp((bs * 3) / 5, 10, 24);
-	gap = bs / 4 > 2 ? bs / 4 : 2;
-	tl = (fs * 6) / 5;
-	pad = (bs - tl) / 2 > 0 ? (bs - tl) / 2 : 0;
+	sizes(ic, &z);
+	pad = (z.bs - z.tl) / 2 > 0 ? (z.bs - z.tl) / 2 : 0;
 	/* the edge's name, then -, how many px, + */
-	lw = fs * 4;
-	rw = lw + 3 * bs + 2 * gap;
-	x0 = (w - rw) / 2 > 2 ? (w - rw) / 2 : 2;
-	/* the edges' rows, the buttons' row, and two lines of text */
-	y0 = (h - (5 * bs + 5 * gap + 2 * tl)) / 2;
+	lw = z.fs * 4;
+	rw = lw + 3 * z.bs + 2 * z.gap;
+	x0 = (z.w - rw) / 2 > 2 ? (z.w - rw) / 2 : 2;
+	/* the edges' rows, the buttons' row, and three lines of text */
+	y0 = (z.h - (5 * z.bs + 5 * z.gap + 3 * z.tl)) / 2;
 	if (y0 < 2)
 		y0 = 2;
 
@@ -90,41 +209,52 @@ lhp_edges_html(char *buf, size_t len, const lws_surface_info_t *ic,
 		" width: %dpx; height: %dpx; padding-top: %dpx }"
 		".m { left: %dpx } .p { left: %dpx }"
 		".x { left: 0; width: %dpx; height: %dpx }",
-		fs, x0, rw, bs,
-		pad, lw, tl,
-		lw + bs + gap, pad, bs, tl,
-		bs, bs - pad, pad,
-		lw + gap, lw + 2 * (bs + gap),
-		w, tl);
+		z.fs, x0, rw, z.bs,
+		pad, lw, z.tl,
+		lw + z.bs + z.gap, pad, z.bs, z.tl,
+		z.bs, z.bs - pad, pad,
+		lw + z.gap, lw + 2 * (z.bs + z.gap),
+		z.w, z.tl);
 
 	/* the line around the edges of what can be seen */
 
-	line(&hw, "et", 0, 0, w, 1);
-	line(&hw, "eb", 0, h - 1, w, 1);
-	line(&hw, "el", 0, 0, 1, h);
-	line(&hw, "er", w - 1, 0, 1, h);
+	line(&hw, "et", 0, 0, z.w, 1);
+	line(&hw, "eb", 0, z.h - 1, z.w, 1);
+	line(&hw, "el", 0, 0, 1, z.h);
+	line(&hw, "er", z.w - 1, 0, 1, z.h);
 
 	/* the rows, the buttons, and the lines of text below them */
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(edges) + 1; n++)
 		lws_html_w_printf(&hw, "#r%d { top: %dpx }", n,
-				  y0 + n * (bs + gap));
+				  y0 + n * (z.bs + z.gap));
+	n = y0 + 5 * (z.bs + z.gap);
 	lws_html_w_printf(&hw, "#ar { left: 0; width: %dpx }"
 			       "#ad { left: %dpx; width: %dpx }"
-			       "#x0 { top: %dpx } #x1 { top: %dpx }",
-			       (rw - gap) / 2, (rw + gap) / 2, (rw - gap) / 2,
-			       y0 + 5 * (bs + gap), y0 + 5 * (bs + gap) + tl);
+			       "#x0 { top: %dpx } #x1 { top: %dpx }"
+			       "#x2 { top: %dpx }",
+			       (rw - z.gap) / 2, (rw + z.gap) / 2,
+			       (rw - z.gap) / 2, n, n + z.tl, n + 2 * z.tl);
 
-	/* where the last touch landed, if it was on what can be seen */
+	/*
+	 * The target to touch next: a cross in a square, the square a button's
+	 * size, so it's clear what to aim at
+	 */
 
-	m = bs / 2;
-	if (t->valid && t->inside) {
-		line(&hw, "ch", clamp(t->vx - m, 0, w - 1), t->vy,
-		     clamp(t->vx + m, 0, w - 1) - clamp(t->vx - m, 0, w - 1) + 1,
-		     1);
-		line(&hw, "cv", t->vx, clamp(t->vy - m, 0, h - 1), 1,
-		     clamp(t->vy + m, 0, h - 1) - clamp(t->vy - m, 0, h - 1) + 1);
-	}
+	target_xy(ic, e->target, &tx, &ty);
+	m = z.bs / 2;
+	line(&hw, "th", tx - m, ty, 2 * m + 1, 1);
+	line(&hw, "tv", tx, ty - m, 1, 2 * m + 1);
+	line(&hw, "st", tx - m, ty - m, 2 * m + 1, 1);
+	line(&hw, "sb", tx - m, ty + m, 2 * m + 1, 1);
+	line(&hw, "sl", tx - m, ty - m, 1, 2 * m + 1);
+	line(&hw, "sr", tx + m, ty - m, 1, 2 * m + 1);
+
+	/* where the last touch landed, a dot, if it was on what can be seen */
+
+	if (e->touched && e->inside)
+		line(&hw, "d", clamp(e->vx - 2, 0, z.w - 5),
+		     clamp(e->vy - 2, 0, z.h - 5), 5, 5);
 
 	lws_html_w_printf(&hw, "</style></head><body>"
 		"<div class=\"k\" id=\"et\"></div>"
@@ -145,22 +275,49 @@ lhp_edges_html(char *buf, size_t len, const lws_surface_info_t *ic,
 		"<a id=\"ar\" href=\"?reset\">Reset</a>"
 		"<a id=\"ad\" href=\"?done\">Done</a></div>"
 		"<div class=\"x\" id=\"x0\">Seen: %d x %d</div>"
-		"<div class=\"x\" id=\"x1\">", w, h);
+		"<div class=\"x\" id=\"x1\">", z.w, z.h);
 
-	if (!t->valid)
-		lws_html_w_printf(&hw, "Touch to see where it lands");
-	else if (t->inside)
+	if (!e->touched)
+		lws_html_w_printf(&hw, "Touch the middle of the target");
+	else if (e->inside)
 		lws_html_w_printf(&hw, "Touch: %d, %d (surface %d, %d)",
-				  t->vx, t->vy, t->sx, t->sy);
+				  e->vx, e->vy, e->sx, e->sy);
 	else
 		lws_html_w_printf(&hw, "Touch: in the inset (surface %d, %d)",
-				  t->sx, t->sy);
+				  e->sx, e->sy);
+
+	lws_html_w_printf(&hw, "</div><div class=\"x\" id=\"x2\">");
+
+	if (e->measured == LHP_EDGES_TARGETS) {
+		/* all the targets were touched: how far off they were */
+		for (n = 0; n < LHP_EDGES_TARGETS; n++) {
+			sdx += e->dx[n];
+			sdy += e->dy[n];
+			d = isqrt(e->dx[n] * e->dx[n] + e->dy[n] * e->dy[n]);
+			if (d > worst)
+				worst = d;
+		}
+		lws_html_w_printf(&hw, "Mean off ");
+		tenths(&hw, (sdx * 10) / LHP_EDGES_TARGETS);
+		lws_html_w_printf(&hw, ", ");
+		tenths(&hw, (sdy * 10) / LHP_EDGES_TARGETS);
+		lws_html_w_printf(&hw, ", worst %d px", worst);
+	} else if (e->off) {
+		n = (e->target + LHP_EDGES_TARGETS - 1) % LHP_EDGES_TARGETS;
+		lws_html_w_printf(&hw, "Target %d of %d off %d, %d",
+				  e->measured, LHP_EDGES_TARGETS, e->dx[n],
+				  e->dy[n]);
+	} else
+		lws_html_w_printf(&hw, "Target %d of %d", e->measured + 1,
+				  LHP_EDGES_TARGETS);
 
 	lws_html_w_printf(&hw, "</div>");
 
-	if (t->valid && t->inside)
-		lws_html_w_printf(&hw, "<div class=\"k\" id=\"ch\"></div>"
-				       "<div class=\"k\" id=\"cv\"></div>");
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(target_ids); n++)
+		lws_html_w_printf(&hw, "<div class=\"k\" id=\"%s\"></div>",
+				  target_ids[n]);
+	if (e->touched && e->inside)
+		lws_html_w_printf(&hw, "<div class=\"k\" id=\"d\"></div>");
 
 	lws_html_w_printf(&hw, "</body></html>");
 

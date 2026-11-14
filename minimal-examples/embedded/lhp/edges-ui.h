@@ -14,10 +14,16 @@
  * inset in use, with a row of controls for each edge: - and + make the inset
  * there a px smaller or bigger, moving the line out or in, with how many px
  * it is between them.  The inset is right when the line is just seen all the
- * way round.  Below them, the size of what can be seen, and where the last
- * touch that wasn't on a control landed, which is also marked with a cross:
- * if the cross isn't under where it was touched, it's the touch panel that's
- * not where the display is.
+ * way round.  Below them, the size of what can be seen.
+ *
+ * For the touch panel, there's a target to touch, a cross in a square: a
+ * touch that isn't on a control is marked with a dot where the panel says it
+ * landed, and measured against it, then the next target is shown.  There are
+ * LHP_EDGES_TARGETS of them, near the corners and halfway down the sides: once
+ * all are touched, the mean of how far off the touches were, and the worst,
+ * are shown, then the next touch starts another round.  If the touches are all
+ * off in the same direction, it's the touch panel that's not where the display
+ * is.  Each is also logged.
  *
  * The inset found is stored in the settings, and used from then on instead of
  * the board's, see lhp_edges_load().
@@ -34,14 +40,22 @@
 /* the most the page's html can be */
 #define LHP_EDGES_HTML_MAX	4096
 
-/* where a touch landed */
+/* how many targets there are to touch in a round */
+#define LHP_EDGES_TARGETS	6
 
-typedef struct lhp_edges_touch {
-	int		sx, sy;		/* on the display's surface */
-	int		vx, vy;		/* on what can be seen, if .inside */
-	uint8_t		valid;		/* there was one */
-	uint8_t		inside;		/* it was on what can be seen */
-} lhp_edges_touch_t;
+/* the touches on the page, and how far they were from the targets */
+
+typedef struct lhp_edges {
+	int		sx, sy;		/* the last, on the display's surface */
+	int		vx, vy;		/* the last, on what can be seen */
+	/* how far the touch on each target of the round was from it */
+	int		dx[LHP_EDGES_TARGETS], dy[LHP_EDGES_TARGETS];
+	uint8_t		touched;	/* there was one */
+	uint8_t		inside;		/* the last was on what can be seen */
+	uint8_t		off;		/* the last was measured on a target */
+	uint8_t		target;		/* the target to touch next */
+	uint8_t		measured;	/* how many of the round's were */
+} lhp_edges_t;
 
 typedef enum {
 	LHP_EDGES_ACT_NONE,
@@ -57,13 +71,38 @@ typedef enum {
  * \param len: its size
  * \param ic: what can be seen of the display, lws_display_state_t .ic
  * \param inset: the inset in use, left, top, right, bottom
- * \param t: where the last touch landed
+ * \param e: the touches on it
  *
  * Returns the length of the html, or -1 if it didn't fit.
  */
 int
 lhp_edges_html(char *buf, size_t len, const lws_surface_info_t *ic,
-	       const uint8_t inset[4], const lhp_edges_touch_t *t);
+	       const uint8_t inset[4], const lhp_edges_t *e);
+
+/*
+ * Forget the touches, eg, the inset changed, so the targets are somewhere
+ * else.  The first target is shown next.
+ */
+void
+lhp_edges_reset(lhp_edges_t *e);
+
+/**
+ * lhp_edges_touch() - a touch on the page that wasn't on a control
+ *
+ * \param e: the touches on it
+ * \param ic: what can be seen of the display, lws_display_state_t .ic
+ * \param sx: where it was on the display's surface, x
+ * \param sy: and y
+ * \param vx: where it was on what can be seen, if inside, x
+ * \param vy: and y
+ * \param inside: it was on what can be seen, not in the inset
+ *
+ * If it was on what can be seen, it's measured against the target shown,
+ * and the next is shown.
+ */
+void
+lhp_edges_touch(lhp_edges_t *e, const lws_surface_info_t *ic, int sx, int sy,
+		int vx, int vy, int inside);
 
 /**
  * lhp_edges_href() - a link on the page was pressed
