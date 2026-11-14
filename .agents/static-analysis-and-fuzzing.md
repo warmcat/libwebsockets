@@ -72,6 +72,13 @@ It can be run locally with the CodeQL CLI bundle:
    pre-fix code, and evaluated the preprocessor differently between runs.
    Check the issue changelog (CLOSED → OPEN with no source change) before
    re-fixing anything.
+ - Its C findings can be reproduced locally with clang, to check a fix
+   before the next analysis.  S3519 is the clang analyzer's
+   `security.ArrayBound` (same path notes): `clang-21 --analyze -Xclang
+   -analyzer-output=text -Xclang -analyzer-checker=security.ArrayBound`
+   with the file's flags from a build's `compile_commands.json`.  S5281 is
+   `-Wformat-nonliteral`; a printf-like wrapper is cleared by `LWS_FORMAT(n)`
+   on its prototype.
  - S3519 "negative offset" on `container_of(&x->member)` round trips is
    fixed by a helper that takes the containing struct.  S2612 on test
    files: create with owner-only modes.  The api-test `mkdtemp` convention
