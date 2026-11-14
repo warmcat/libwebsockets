@@ -527,11 +527,54 @@ callback_provision(struct lws *wsi, enum lws_callback_reasons reason,
 	int n;
 
 	switch (reason) {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
+	{
+		/* user is the args here, not a pss */
+		struct lws_filter_network_conn_args *fa =
+				(struct lws_filter_network_conn_args *)user;
+		char ads[64];
+
+		/*
+		 * Somebody joined our AP and connected: rare, and the first
+		 * thing to look for when a browser can't reach us
+		 */
+		ads[0] = '\0';
+		if (fa)
+			lws_sa46_write_numeric_address(
+					(lws_sockaddr46 *)&fa->cli_addr,
+					ads, sizeof(ads));
+		lwsl_notice("%s: connection from %s\n", __func__, ads);
+		break;
+	}
+#endif
+
 	case LWS_CALLBACK_HTTP:
 		p = (struct lws_wifi_provision *)lws_vhost_user(
 							lws_get_vhost(wsi));
 		if (!p || !pss)
 			return -1;
+
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+		{
+			char ua[192]; /* a browser's can be long */
+
+			/*
+			 * The path, never the body, which holds the passphrase.
+			 * The user agent tells a browser from the phone's own
+			 * check of whether the network has internet.
+			 */
+			if (lws_hdr_copy(wsi, ua, sizeof(ua),
+					 WSI_TOKEN_HTTP_USER_AGENT) <= 0)
+				ua[0] = '\0';
+			lwsl_notice("%s: %s %s (%s)\n", __func__,
+				    lws_hdr_total_length(wsi,
+					WSI_TOKEN_POST_URI) ? "POST" :
+				    (lws_hdr_total_length(wsi,
+					WSI_TOKEN_HEAD_URI) ? "HEAD" : "GET"),
+				    (const char *)in, ua);
+		}
+#endif
 
 		/* what a transaction before on the connection left, if any */
 		pss_free(pss);
