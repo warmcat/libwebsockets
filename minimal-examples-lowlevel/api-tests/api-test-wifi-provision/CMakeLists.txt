@@ -25,9 +25,11 @@ if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
 	lws_get_free_port(PORT_WIFIPROV)
+	lws_get_free_port(PORT_WIFIPROV_DNS)
 
 	add_test(NAME api-test-wifi-provision
-		 COMMAND lws-api-test-wifi-provision --port ${PORT_WIFIPROV})
+		 COMMAND lws-api-test-wifi-provision --port ${PORT_WIFIPROV}
+			 --dns-port ${PORT_WIFIPROV_DNS})
 	set_tests_properties(api-test-wifi-provision
 			     PROPERTIES
 			     WORKING_DIRECTORY .

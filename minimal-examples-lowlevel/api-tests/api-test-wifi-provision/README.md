@@ -23,6 +23,15 @@ It checks
    their links, the settings' css, the icons given to it, and 404 for
    anything else
 
+ - built with `LWS_WITH_SYS_CAPTIVE_DNS`, while it's an AP, asked over UDP
+   on `--dns-port` for the address of what a phone checks for internet
+   with, the captive dns says it's us
+
+ - a request for another host, eg, `connectivitycheck.gstatic.com` or
+   `detectportal.firefox.com`, is redirected to the settings at our
+   address, with the port, and a form posted to another host isn't acted on;
+   our own address with the port in Host is served
+
  - the page for an AP's link has a form for its passphrase, or a Join button
    for an open AP, and a passphrase that is too short is refused
 
@@ -49,6 +58,7 @@ It checks
 |Option|Meaning|
 |---|---|
 |--port <port>|Port to serve the settings on, default 7681|
+|--dns-port <port>|UDP port for the captive dns, default 5353|
 |--help|Show this help information|
 
 ## build

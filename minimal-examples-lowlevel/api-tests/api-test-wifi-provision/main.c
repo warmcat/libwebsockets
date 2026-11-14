@@ -20,6 +20,13 @@
  *    and serves the settings: the APs scanned, the settings' css, the icons
  *    given to it, and 404 for anything else
  *
+ *  - with LWS_WITH_SYS_CAPTIVE_DNS, while it's an AP, the captive dns says
+ *    what a phone checks for internet with is us
+ *
+ *  - a request for another host, eg, the url a phone or Firefox checks for
+ *    internet with, is redirected to the settings, and a form posted to
+ *    another host isn't acted on
+ *
  *  - the page for an AP's link has a form for its passphrase, and a
  *    passphrase that is too short is refused
  *
@@ -47,12 +54,14 @@
 
 enum {
 	LWS_SW_PORT,
+	LWS_SW_DNS_PORT,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_PORT]	= { "--port",	"Port to serve the settings on" },
-	[LWS_SW_HELP]	= { "--help",	"Show this help information" },
+	[LWS_SW_PORT]	  = { "--port",	    "Port to serve the settings on" },
+	[LWS_SW_DNS_PORT] = { "--dns-port", "UDP port for the captive dns" },
+	[LWS_SW_HELP]	  = { "--help",	    "Show this help information" },
 };
 
 #define BLOBS		4
@@ -68,7 +77,7 @@ static struct {
 static struct lws_context *cx;
 static struct lws_wifi_provision *prov;
 static lws_netdev_instance_wifi_t wnd;
-static int fail, port = 7681, reboots, step, ap_ups, ap_downs,
+static int fail, port = 7681, dns_port = 5353, reboots, step, ap_ups, ap_downs,
 	   states[8], interrupted;
 static char ap_ssid[33];
 
@@ -317,6 +326,7 @@ prov_start(const char *reset_button, struct lws_button_state *buttons)
 	i.count_files = LWS_ARRAY_SIZE(files);
 	i.cb = prov_cb;
 	i.port = (uint16_t)port;
+	i.dns_port = (uint16_t)dns_port;
 	i.join_wait_s = 1;
 	i.reset_window_s = 5;
 	i.reset_hold_s = 1;
@@ -331,35 +341,57 @@ prov_start(const char *reset_button, struct lws_button_state *buttons)
  * the response must have in it
  */
 
+/* our address with the port, as a browser sends it in Host: */
+static char host_port[32];
+
 static const struct req {
 	const char	*path;
 	const char	*post;		/* NULL for GET */
 	int		status;
 	const char	*has[3];
+	const char	*host;		/* NULL for our address */
+	char		to_settings;	/* redirected to them */
 } reqs[] = {
+	/*
+	 * What a phone and Firefox check for internet with, that the captive
+	 * dns made us: they're sent to the settings
+	 */
+	{ "/generate_204", NULL, 302, { NULL, NULL, NULL },
+				"connectivitycheck.gstatic.com", 1 },
+	{ "/canonical.html", NULL, 302, { NULL, NULL, NULL },
+				"detectportal.firefox.com", 1 },
+	{ "/", "act=set&ssid=TestAP&pass=sneaky%20pass", 302,
+				{ NULL, NULL, NULL }, "example.com", 1 },
+	{ "/", NULL, 200, { "href=\"?set=TestAP\"", NULL, NULL },
+				host_port, 0 },
 	{ "/", NULL, 200, { "href=\"?set=TestAP\"",
 			    "Open &amp; &lt;AP&gt;",
-			    "href=\"?set=Open%20%26%20%3CAP%3E\"" } },
+			    "href=\"?set=Open%20%26%20%3CAP%3E\"" }, NULL, 0 },
 	{ "/?set=TestAP", NULL, 200, { "name=\"pass\"",
-				       "name=\"ssid\" value=\"TestAP\"", NULL } },
+				       "name=\"ssid\" value=\"TestAP\"", NULL },
+				NULL, 0 },
 	{ "/?set=Open%20%26%20%3CAP%3E", NULL, 200, { ">Join<",
-		"value=\"Open &amp; &lt;AP&gt;\"", NULL } },
+		"value=\"Open &amp; &lt;AP&gt;\"", NULL }, NULL, 0 },
 	{ "/?host", NULL, 200, { "name=\"host\"", "value=\"lws-a1b2c3\"",
-				 NULL } },
-	{ "/wifi.css", NULL, 200, { "border-collapse", NULL, NULL } },
-	{ "/set-cog.svg", NULL, 200, { "<svg", NULL, NULL } },
-	{ "/nothing", NULL, 404, { NULL, NULL, NULL } },
+				 NULL }, NULL, 0 },
+	{ "/wifi.css", NULL, 200, { "border-collapse", NULL, NULL },
+				NULL, 0 },
+	{ "/set-cog.svg", NULL, 200, { "<svg", NULL, NULL }, NULL, 0 },
+	{ "/nothing", NULL, 404, { NULL, NULL, NULL }, NULL, 0 },
 	{ "/", "act=set&ssid=TestAP&pass=short", 200,
-				{ "8 to 63", NULL, NULL } },
-	{ "/", "act=nonsense&ssid=TestAP", 400, { NULL, NULL, NULL } },
-	{ "/", "act=host&host=Bad_Host", 200, { "class=\"err\"", NULL, NULL } },
-	{ "/", "act=host&host=newname", 303, { NULL, NULL, NULL } },
-	{ "/", NULL, 200, { ">newname<", NULL, NULL } },
+				{ "8 to 63", NULL, NULL }, NULL, 0 },
+	{ "/", "act=nonsense&ssid=TestAP", 400, { NULL, NULL, NULL },
+				NULL, 0 },
+	{ "/", "act=host&host=Bad_Host", 200, { "class=\"err\"", NULL, NULL },
+				NULL, 0 },
+	{ "/", "act=host&host=newname", 303, { NULL, NULL, NULL }, NULL, 0 },
+	{ "/", NULL, 200, { ">newname<", NULL, NULL }, NULL, 0 },
 	{ "/", "act=set&ssid=TestAP&pass=correct%20horse", 200,
-				{ "Restarting to join TestAP", NULL, NULL } },
+				{ "Restarting to join TestAP", NULL, NULL },
+				NULL, 0 },
 };
 
-static char body[16384];
+static char body[16384], location[64];
 static size_t body_len;
 static int req_idx = -1, status;
 
@@ -381,6 +413,19 @@ req_check(void)
 	if (status != r->status)
 		lwsl_err("  got %d\n", status);
 
+	if (r->to_settings) {
+		char pp[64];
+
+		lws_snprintf(what, sizeof(what), "%s %s: to the settings",
+			     r->host, r->path);
+		expect(lws_wifi_provision_url(prov) &&
+		       !strcmp(location, lws_wifi_provision_url(prov)), what);
+		/* a form posted to another host isn't acted on */
+		if (r->post)
+			expect(!!stored_pass("TestAP", pp, sizeof(pp)),
+			       "form for another host not stored");
+	}
+
 	for (n = 0; n < 3 && r->has[n]; n++) {
 		lws_snprintf(what, sizeof(what), "%s: has %s", r->path,
 			     r->has[n]);
@@ -394,7 +439,8 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 {
 	uint8_t buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
 		*end = &buf[sizeof(buf) - 1];
-	const struct req *r = &reqs[req_idx];
+	/* the request in flight, none before the first */
+	const struct req *r = req_idx >= 0 ? &reqs[req_idx] : NULL;
 	char cl[16];
 	int n;
 
@@ -407,7 +453,7 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
-		if (!r->post)
+		if (!r || !r->post)
 			break;
 
 		lws_snprintf(cl, sizeof(cl), "%u", (unsigned int)strlen(r->post));
@@ -426,7 +472,7 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
-		if (!r->post)
+		if (!r || !r->post)
 			break;
 
 		n = lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "%s",
@@ -438,6 +484,9 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		status = (int)lws_http_client_http_response(wsi);
+		if (lws_hdr_copy(wsi, location, sizeof(location),
+				 WSI_TOKEN_HTTP_LOCATION) <= 0)
+			location[0] = '\0';
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
@@ -472,8 +521,84 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
+#if defined(LWS_WITH_SYS_CAPTIVE_DNS)
+/*
+ * While we're an AP, the captive dns answers whoever joined: asked the address
+ * of what a phone checks for internet with, it's us
+ */
+
+static uint8_t dnsq[LWS_PRE + 64];
+static size_t dnsq_len;
+static int dns_answered;
+
+static int
+callback_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	     void *in, size_t len)
+{
+	static const uint8_t lo[] = { 127, 0, 0, 1 };
+	const uint8_t *r = (const uint8_t *)in;
+
+	switch (reason) {
+	case LWS_CALLBACK_RAW_ADOPT:
+		lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_RAW_WRITEABLE:
+		if (lws_write(wsi, dnsq + LWS_PRE, dnsq_len, LWS_WRITE_RAW) !=
+							(int)dnsq_len)
+			return -1;
+		break;
+
+	case LWS_CALLBACK_RAW_RX:
+		/* the same id, one answer, and it ends with our address */
+		expect(len == dnsq_len + 16 && !memcmp(r, dnsq + LWS_PRE, 2) &&
+		       lws_ser_ru16be(r + 6) == 1 &&
+		       !memcmp(r + len - 4, lo, 4), "captive dns answer");
+		dns_answered = 1;
+		lws_sul_schedule(cx, 0, &sul_step, next_step, 1);
+
+		return -1; /* done with this client */
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+static void
+dns_ask(void)
+{
+	static const char name[] = "\x11" "connectivitycheck" "\x07" "gstatic"
+				   "\x03" "com";
+	uint8_t *q = dnsq + LWS_PRE;
+
+	/* id 0x5a5a, recursion desired, one question: A, IN */
+	memset(q, 0, 12);
+	q[0] = q[1] = 0x5a;
+	q[2] = 0x01;
+	q[5] = 1;
+	memcpy(q + 12, name, sizeof(name)); /* with the root's 0 */
+	dnsq_len = 12 + sizeof(name);
+	q[dnsq_len++] = 0;
+	q[dnsq_len++] = 1;
+	q[dnsq_len++] = 0;
+	q[dnsq_len++] = 1;
+
+	if (!lws_create_adopt_udp(lws_get_vhost_by_name(cx, "default"),
+				  "127.0.0.1", dns_port, 0, "dns", NULL, NULL,
+				  NULL, NULL, "dns")) {
+		lwsl_err("%s: unable to make dns client\n", __func__);
+		fail = 1;
+	}
+}
+#endif
+
 static const struct lws_protocols protocols[] = {
 	{ "client", callback_client, 0, 0, 0, NULL, 0 },
+#if defined(LWS_WITH_SYS_CAPTIVE_DNS)
+	{ "dns", callback_dns, 0, 0, 0, NULL, 0 },
+#endif
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -491,7 +616,7 @@ request(void)
 	i.port = port;
 	i.address = "127.0.0.1";
 	i.path = r->path;
-	i.host = i.address;
+	i.host = r->host ? r->host : i.address;
 	i.origin = i.address;
 	i.method = r->post ? "POST" : "GET";
 	i.protocol = protocols[0].name;
@@ -509,6 +634,7 @@ request(void)
 /* what happens after the requests, as the time comes */
 
 enum {
+	ST_DNS,			/* the captive dns, while we're an AP */
 	ST_REQUESTS,
 	ST_REBOOTED,		/* credentials stored, expecting a reboot */
 	ST_JOIN_WAIT,		/* credentials that never worked */
@@ -528,6 +654,20 @@ next_step(lws_sorted_usec_list_t *sul)
 	char pp[64];
 
 	switch (step) {
+	case ST_DNS:
+#if defined(LWS_WITH_SYS_CAPTIVE_DNS)
+		if (!dnsq_len) {
+			dns_ask();
+			/* if it isn't answered by then, it never will be */
+			lws_sul_schedule(cx, 0, &sul_step, next_step,
+					 3 * LWS_US_PER_SEC);
+			return;
+		}
+		expect(dns_answered, "captive dns answered");
+#endif
+		step = ST_REQUESTS;
+		/* fallthru */
+
 	case ST_REQUESTS:
 		if (++req_idx < (int)LWS_ARRAY_SIZE(reqs)) {
 			request();
@@ -570,9 +710,9 @@ next_step(lws_sorted_usec_list_t *sul)
 	case ST_JOIN_WAIT:
 		expect(lws_wifi_provision_state(prov) == LWS_WIFI_PROV_AP &&
 		       ap_ups == 2, "AP when they didn't join");
+		lws_snprintf(pp, sizeof(pp), "http://127.0.0.1:%d/", port);
 		expect(lws_wifi_provision_url(prov) &&
-		       !strcmp(lws_wifi_provision_url(prov),
-			       "http://127.0.0.1/"), "url");
+		       !strcmp(lws_wifi_provision_url(prov), pp), "url");
 
 		/* the station gets an address after all */
 		lws_smd_msg_printf(cx, LWSSMDCL_NETWORK,
@@ -735,6 +875,10 @@ main(int argc, const char **argv)
 	p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw);
 	if (p)
 		port = atoi(p);
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_DNS_PORT].sw);
+	if (p)
+		dns_port = atoi(p);
+	lws_snprintf(host_port, sizeof(host_port), "127.0.0.1:%d", port);
 
 	test_html();
 

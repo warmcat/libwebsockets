@@ -431,14 +431,54 @@ http_get(struct lws_wifi_provision *p, struct lws *wsi, struct pss *pss,
 }
 
 static int
-see_settings(struct lws *wsi)
+redirect(struct lws *wsi, int code, const char *to)
 {
 	uint8_t buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
 		*end = &buf[sizeof(buf) - 1];
 
+	/* it has no body: the transaction is complete, keepalive or not */
+	if (lws_http_redirect(wsi, code, (const uint8_t *)to,
+			      (int)strlen(to), &p, end) < 0 ||
+	    lws_http_transaction_completed(wsi))
+		return -1;
+
+	return 0;
+}
+
+static int
+see_settings(struct lws *wsi)
+{
 	/* the settings again, by GET, so reloading doesn't post it again */
-	return lws_http_redirect(wsi, HTTP_STATUS_SEE_OTHER,
-				 (const uint8_t *)"./", 2, &p, end) < 0 ? -1 : 0;
+	return redirect(wsi, HTTP_STATUS_SEE_OTHER, "./");
+}
+
+/*
+ * Whether the request is for us, by our address, or for some other host that
+ * the captive dns made us, eg, the url a phone checks for internet with.  A
+ * request with no Host, eg, http/1.0, can only be for us.
+ */
+
+static int
+for_us(struct lws_wifi_provision *p, struct lws *wsi)
+{
+	char host[64], *colon;
+	int n;
+
+	if (!p->i.wnd->ap_ipv4[0] ||
+	    !lws_hdr_total_length(wsi, WSI_TOKEN_HOST))
+		return 1;
+
+	n = lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST);
+	if (n <= 0)
+		/* too long to be our address */
+		return 0;
+
+	/* our address is IPv4, any :port is after it */
+	colon = strchr(host, ':');
+	if (colon)
+		*colon = '\0';
+
+	return !strcmp(host, p->i.wnd->ap_ipv4);
 }
 
 /* a form was posted */
@@ -580,6 +620,13 @@ callback_provision(struct lws *wsi, enum lws_callback_reasons reason,
 		pss_free(pss);
 		memset(pss, 0, sizeof(*pss));
 
+		/*
+		 * For another host, eg, a phone checking for internet: what's
+		 * here is the settings, at our own address
+		 */
+		if (!for_us(p, wsi))
+			return redirect(wsi, HTTP_STATUS_FOUND, p->url);
+
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
 			if (strcmp((const char *)in, "/") && *(const char *)in)
 				return lws_return_http_status(wsi,
@@ -682,6 +729,7 @@ static int
 prov_ap_start(struct lws_wifi_provision *p)
 {
 	struct lws_context_creation_info info;
+	unsigned int port;
 
 	if (p->ap)
 		return 0;
@@ -692,11 +740,17 @@ prov_ap_start(struct lws_wifi_provision *p)
 		return 1;
 	}
 
-	lws_snprintf(p->url, sizeof(p->url), "http://%s/", p->i.wnd->ap_ipv4);
+	port = p->i.port ? p->i.port : PROV_PORT_DEFAULT;
+	if (port == 80)
+		lws_snprintf(p->url, sizeof(p->url), "http://%s/",
+			     p->i.wnd->ap_ipv4);
+	else
+		lws_snprintf(p->url, sizeof(p->url), "http://%s:%u/",
+			     p->i.wnd->ap_ipv4, port);
 
 	memset(&info, 0, sizeof(info));
 	info.vhost_name		= "wifi-provision";
-	info.port		= p->i.port ? p->i.port : PROV_PORT_DEFAULT;
+	info.port		= (int)port;
 	/* only on our AP, not wherever the station joins */
 	info.iface		= p->i.wnd->ap_ipv4[0] ? p->i.wnd->ap_ipv4 :
 							  NULL;
@@ -713,6 +767,18 @@ prov_ap_start(struct lws_wifi_provision *p)
 		return 1;
 	}
 
+#if defined(LWS_WITH_SYS_CAPTIVE_DNS)
+	/*
+	 * Every name is us to whoever joins, so their OS's check for internet
+	 * comes to us, and is redirected to the settings: it tells them the
+	 * network wants them to sign in, and shows the settings.  Without it,
+	 * the settings are still at our address, if they know it.
+	 */
+	if (p->i.wnd->ap_ipv4[0] &&
+	    lws_captive_dns_start(p->i.cx, p->i.wnd->ap_ipv4, p->i.dns_port))
+		lwsl_warn("%s: no captive dns\n", __func__);
+#endif
+
 	lwsl_user("%s: join %s, then visit %s\n", __func__, p->ssid, p->url);
 	p->ap = 1;
 
@@ -725,6 +791,11 @@ prov_ap_start(struct lws_wifi_provision *p)
 static void
 prov_ap_stop(struct lws_wifi_provision *p)
 {
+#if defined(LWS_WITH_SYS_CAPTIVE_DNS)
+	if (p->ap)
+		lws_captive_dns_stop(p->i.cx);
+#endif
+
 	if (p->vh) {
 		lws_vhost_destroy(p->vh);
 		p->vh = NULL;

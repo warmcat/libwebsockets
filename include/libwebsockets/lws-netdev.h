@@ -670,6 +670,15 @@ lws_wifi_settings_css(void);
  *
  * If the station joins an AP after all while it's an AP, it stops being one.
  *
+ * Built with LWS_WITH_SYS_CAPTIVE_DNS, it's a captive portal while it's an AP:
+ * lws_captive_dns_start() makes every name our address to whoever joins, and
+ * a request for any other host is redirected to the settings.  So the phone
+ * or laptop that joins finds its check for internet answered by us, and
+ * offers to "sign in to the network", which shows the settings, without
+ * anybody having to know our address.  Without it, they have to browse to
+ * our address themselves, which not every browser does: in testing, Firefox
+ * on Android never connected to it, where Chrome did.
+ *
  * A "factory reset": if the button named .reset_button is pressed within
  * .reset_window_s of lws_wifi_provision_create() and held for .reset_hold_s,
  * the credentials for every AP are forgotten, the led flashes fast for a
@@ -746,6 +755,9 @@ typedef struct lws_wifi_provision_info {
 	 * pressed to begin a reset */
 	uint16_t			reset_hold_s;
 	/**< 0 for 5, how long it has to be held */
+	uint16_t			dns_port;
+	/**< 0 for 53, the port the captive dns answers on, with
+	 * LWS_WITH_SYS_CAPTIVE_DNS */
 } lws_wifi_provision_info_t;
 
 struct lws_wifi_provision;

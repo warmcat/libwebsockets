@@ -352,7 +352,17 @@ The device's AP has no passphrase and the page is plain http/1.1 (browsers
 only use h2 over tls), so the passphrase given is in the clear on that AP,
 to anyone in range at that time.  The page is served with the strict CSP
 headers lws applies for `LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE`.
-There is no captive portal DNS, so the browser has to be pointed at the URL.
+
+While it's an AP, it is also a captive portal: the boards build with
+`LWS_WITH_SYS_CAPTIVE_DNS`, so to whoever joins, every name is the device
+(`lws_captive_dns_start()`), and a request for any other host is redirected to
+the settings.  A phone or laptop that joins checks for internet, eg,
+Android fetches `http://connectivitycheck.gstatic.com/generate_204`, gets the
+redirect, and offers to "sign in to the network", which shows the settings.
+
+Browsing to `http://192.168.4.1/` yourself works too, in most browsers: in
+testing, Firefox on Android never connected to it, where Chrome did.  Use the
+sign-in notification, or another browser.
 
 ## Building
 
