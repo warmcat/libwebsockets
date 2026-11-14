@@ -143,6 +143,9 @@ platform-specific in it.  It's a dialog of the strip ui
 when a link in it is pressed, so it's also an example of how an application
 can make a dialog of its own settings.  It has
 
+ - the product's own header: the maker's logo and name, the model's name
+   and a picture of it, see "Product header" below
+
  - "WLAN": a table of the APs, with a line around and between its rows, kept
    up to date while it's shown: those scanned, strongest first, one row per
    network, then those we have credentials for that aren't in range, dimmed.
@@ -159,6 +162,9 @@ can make a dialog of its own settings.  It has
     - a cog, to set its passphrase, or for an open AP, to add it
     - a bin, to forget it with `lws_netdev_credentials_remove()`, if we have
       credentials for it
+
+   For an AP we have no credentials for, there's nothing to lose by
+   pressing its SSID: all of that cell does what its cog does.
 
  - "Hostname": the hostname, shaded like an editbox, which pressing edits
 
@@ -198,6 +204,31 @@ have a single `user` button, so for now only
 `esp32s3-waveshare-240-240-touch` can show the settings; a board given those
 buttons, and a `settings` one, in its `lws_button_map_t` needs no other
 changes.
+
+## Product header
+
+The settings, on the display and served to a browser, start with the
+product's own header: the maker's logo and name, then the model's name, and
+a picture of the device.  It's made of files in `product/`, embedded in the
+firmware by `product.cmake`, so a product only has to change those:
+
+|File|What it is|
+|---|---|
+|`header.html`|the header's html: `@LHP_MODEL@` in it is the board's model name|
+|`header.css`|its css, after the settings' own (it can't contain `<`)|
+|`logo.svg`|the maker's logo, served as `product-logo.svg`|
+|`device.svg`|a picture of the device, served as `product-device.svg`|
+
+The ones here are placeholders.  A board can have its own of any of them in
+`product/` in its own dir, eg, a picture of that board, which is used
+instead of the common one.  The model name is given by the board's
+`main/CMakeLists.txt`, to `lhp_product()`; it's used as html.
+
+The images are registered in the dlo filesystem for the display, and given
+to `lws_wifi_provision_create()` in `.files` to be served beside the settings,
+with the html and css as its `.header_html` and `.css`.  Everything is
+the firmware's own, so it can be trusted as markup; the settings' html,
+which has the SSIDs anyone nearby can choose in it, is escaped.
 
 ## Application
 
@@ -313,7 +344,14 @@ by the same `lws_wifi_settings_html()`, at `http://192.168.4.1/`.  The boot
 list's setup row says which AP to join and where to browse, as do the
 settings on the display.  This is `lws_wifi_provision_create()` in the
 library, see `include/libwebsockets/lws-netdev.h`; `main.c` creates it for
-any board with wifi.
+any board with wifi.  The page has the same product header as the display,
+see "Product header" above.
+
+While the browser shows the settings, its `wifi.js` keeps a websocket open
+to the device, and the device sends it the list of APs again whenever it's
+different, eg, a scan found another AP, or how joining one went changed:
+the list stays live without reloading the page.  `wifi.js` is served by the
+library, since the strict CSP the pages have allows no inline script.
 
 |Credentials stored|Becomes an AP|
 |---|---|

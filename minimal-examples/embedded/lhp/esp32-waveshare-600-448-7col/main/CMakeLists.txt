@@ -13,5 +13,11 @@ idf_component_register(SRCS
 include(${CMAKE_CURRENT_LIST_DIR}/../../boot-icons.cmake)
 lhp_boot_icons(${CMAKE_CURRENT_BINARY_DIR}/boot-icons.h
 	       ${CMAKE_CURRENT_LIST_DIR}/../libwebsockets)
+
+# the product's own, at the top of the settings, see ../../product.cmake
+include(${CMAKE_CURRENT_LIST_DIR}/../../product.cmake)
+lhp_product(${CMAKE_CURRENT_BINARY_DIR}/product.h
+	    "Waveshare 5.65&quot; 7-colour EPD"
+	    ${CMAKE_CURRENT_LIST_DIR}/..)
 target_include_directories(${COMPONENT_LIB} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 include_directories(../build/libwebsockets)

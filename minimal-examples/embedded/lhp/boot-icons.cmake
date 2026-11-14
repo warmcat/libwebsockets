@@ -19,40 +19,72 @@
 #   cmake -DOUT=<dir>/boot-icons.h -DLWS=<lws tree> -P boot-icons.cmake
 #
 
+# appends the contents of file f to the variable h as the array <var>, followed
+# by a NUL if nul is TRUE, eg, for text used as a string
+
+function(lhp_embed_append f var nul)
+	if (NOT EXISTS ${f})
+		message(FATAL_ERROR "${f} missing")
+	endif()
+	if (NOT CMAKE_SCRIPT_MODE_FILE)
+		set_property(DIRECTORY APPEND PROPERTY
+			     CMAKE_CONFIGURE_DEPENDS ${f})
+	endif()
+
+	file(READ ${f} hex HEX)
+	lhp_hex_append(${var} "${hex}" ${nul})
+
+	set(h "${h}" PARENT_SCOPE)
+endfunction()
+
+# appends hex, a string of hex digits, to the variable h as the array <var>
+
+function(lhp_hex_append var hex nul)
+	if (nul)
+		string(APPEND hex "00")
+	endif()
+
+	string(APPEND h "static const uint8_t ${var}[] = {\n")
+	# twelve bytes to a line
+	string(LENGTH "${hex}" len)
+	set(pos 0)
+	while (pos LESS len)
+		string(SUBSTRING "${hex}" ${pos} 24 line)
+		string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1, "
+		       line "${line}")
+		string(STRIP "${line}" line)
+		string(APPEND h "\t${line}\n")
+		math(EXPR pos "${pos} + 24")
+	endwhile()
+	string(APPEND h "};\n\n")
+
+	set(h "${h}" PARENT_SCOPE)
+endfunction()
+
 # appends the icons <dir>/<set>-<n>-<name>.svg, numbered from 1 in the order
 # of names, to the variable h as arrays <set>_icon_<name>
 
 function(lhp_icons_append dir set names)
 	set(n 1)
 	foreach(name ${names})
-		set(f "${dir}/${set}-${n}-${name}.svg")
-		if (NOT EXISTS ${f})
-			message(FATAL_ERROR "${set} icon ${f} missing")
-		endif()
-		if (NOT CMAKE_SCRIPT_MODE_FILE)
-			set_property(DIRECTORY APPEND PROPERTY
-				     CMAKE_CONFIGURE_DEPENDS ${f})
-		endif()
-
-		file(READ ${f} hex HEX)
-		string(APPEND h "static const uint8_t ${set}_icon_${name}[] = {\n")
-		# twelve bytes to a line
-		string(LENGTH "${hex}" len)
-		set(pos 0)
-		while (pos LESS len)
-			string(SUBSTRING "${hex}" ${pos} 24 line)
-			string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1, "
-			       line "${line}")
-			string(STRIP "${line}" line)
-			string(APPEND h "\t${line}\n")
-			math(EXPR pos "${pos} + 24")
-		endwhile()
-		string(APPEND h "};\n\n")
-
+		lhp_embed_append("${dir}/${set}-${n}-${name}.svg"
+				 ${set}_icon_${name} FALSE)
 		math(EXPR n "${n} + 1")
 	endforeach()
 
 	set(h "${h}" PARENT_SCOPE)
+endfunction()
+
+# writes h to OUT, only if it changed, so nothing rebuilds needlessly
+
+function(lhp_write_if_changed OUT h)
+	set(old "")
+	if (EXISTS ${OUT})
+		file(READ ${OUT} old)
+	endif()
+	if (NOT old STREQUAL h)
+		file(WRITE ${OUT} "${h}")
+	endif()
 endfunction()
 
 function(lhp_boot_icons OUT LWS)
@@ -65,14 +97,7 @@ function(lhp_boot_icons OUT LWS)
 			 "cog;forget;ok;refused;failed;sig0;sig1;sig2;sig3;sig4")
 	lhp_icons_append("${LWS}/contrib/assets/update" update "spinner")
 
-	# only touch it if it changed, so nothing rebuilds needlessly
-	set(old "")
-	if (EXISTS ${OUT})
-		file(READ ${OUT} old)
-	endif()
-	if (NOT old STREQUAL h)
-		file(WRITE ${OUT} "${h}")
-	endif()
+	lhp_write_if_changed(${OUT} "${h}")
 endfunction()
 
 if (CMAKE_SCRIPT_MODE_FILE AND OUT AND LWS)

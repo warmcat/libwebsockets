@@ -37,6 +37,10 @@
  * Pressing the title closes the settings, as does the caller, eg, when the
  * status capsule is pressed again.
  *
+ * Above them is the product's own header: the maker's name and logo, the
+ * model's name and a picture of it, from product/ (see product.cmake), which
+ * the device also serves at the top of the settings it serves to a browser.
+ *
  * The caller can give a note to show above them, eg, that the device is an
  * AP to be set up from a browser too.
  *
@@ -57,11 +61,14 @@ typedef enum {
 } lhp_settings_edit_t;
 
 /*
- * The most APs listed.  Each has up to two links, and the hostname one more:
- * 2 * LHP_SET_AP_MAX + 1 must be no more than the 32 links the ui finds on a
- * dialog
+ * The most APs listed.  Each has up to LWS_WIFI_SETTINGS_AP_LINKS links, and
+ * the hostname one more: LWS_WIFI_SETTINGS_AP_LINKS * LHP_SET_AP_MAX + 1 must
+ * be no more than the 32 links the ui finds on a dialog
  */
 #define LHP_SET_AP_MAX			12
+
+/* the dialog's css, the settings' and the product's: the ui takes up to 2KB */
+#define LHP_SET_CSS_MAX			2048
 
 /*
  * The settings were closed by the user, eg, the title was pressed.  It's
@@ -91,6 +98,7 @@ typedef struct lhp_settings {
 
 	char				ssid[33]; /* the AP being edited */
 	char				note[96]; /* shown above them, if any */
+	char				css[LHP_SET_CSS_MAX];
 
 	uint8_t				shown;
 	uint8_t				editing; /* lhp_settings_edit_t */
@@ -113,7 +121,7 @@ typedef struct lhp_settings {
  * \param stored_cb: NULL, or told when credentials were stored for an AP
  * \param opaque: passed to the callbacks
  *
- * Registers the icons the dialog uses in the dlo filesystem.  Returns 0, or
+ * Registers the images the dialog uses in the dlo filesystem.  Returns 0, or
  * nonzero if it couldn't, after which lhp_settings_deinit() is still called.
  */
 int
@@ -122,7 +130,7 @@ lhp_settings_init(lhp_settings_t *s, struct lws_context *cx,
 		  lhp_settings_exit_cb_t exit_cb,
 		  lhp_settings_stored_cb_t stored_cb, void *opaque);
 
-/* the settings are finished with: closes them, and unregisters the icons */
+/* the settings are finished with: closes them, and unregisters the images */
 void
 lhp_settings_deinit(lhp_settings_t *s);
 
@@ -168,11 +176,21 @@ void
 lhp_settings_note(lhp_settings_t *s, const char *note);
 
 /*
- * The icons the settings use, the LWS_WIFI_SETTINGS_ICON_ ones, eg, for the
- * settings served to a browser, see lws_wifi_provision_info_t .files
+ * The images the settings use, the LWS_WIFI_SETTINGS_ICON_ ones and the
+ * product's, eg, for the settings served to a browser, see
+ * lws_wifi_provision_info_t .files
  */
 const lws_wifi_provision_file_t *
-lhp_settings_icons(size_t *count);
+lhp_settings_files(size_t *count);
+
+/*
+ * The product's html and css at the top of the settings, eg, for the settings
+ * served to a browser, see lws_wifi_provision_info_t .header_html and .css
+ */
+const char *
+lhp_settings_header_html(void);
+const char *
+lhp_settings_header_css(void);
 
 /* the scan results changed: the APs are shown again if they are different */
 void

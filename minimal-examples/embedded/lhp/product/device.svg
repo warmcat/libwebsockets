@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="32" viewBox="0 0 48 32">
+ <!-- placeholder: a picture of the device -->
+ <rect x="1" y="1" width="46" height="30" rx="3" fill="#2a6f4a" stroke="#1d4d33" stroke-width="1.5"/>
+ <rect x="6" y="5" width="28" height="22" rx="1" fill="#dfe6ee" stroke="#505a64"/>
+ <rect x="38" y="6" width="5" height="8" rx="1" fill="#c0c4c8"/>
+ <circle cx="40.5" cy="22" r="2.5" fill="#505a64"/>
+</svg>

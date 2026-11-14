@@ -13,16 +13,22 @@
 #include <string.h>
 
 #include "boot-icons.h"
+#include "product.h"
 
 /*
- * The icons, in the dlo filesystem, since the settings may be shown before
- * there is any network, and served beside them to a browser.  The key and
- * globe are the boot overlay's, meaning the same things here.
+ * The icons, and the product's own images, in the dlo filesystem, since the
+ * settings may be shown before there is any network, and served beside them
+ * to a browser.  The key and globe are the boot overlay's, meaning the same
+ * things here.
  */
 
 #define SVG "image/svg+xml"
 
-static const lws_wifi_provision_file_t icons[] = {
+static const lws_wifi_provision_file_t files[] = {
+	{ "product-logo.svg",		product_logo,
+	  sizeof(product_logo), SVG },
+	{ "product-device.svg",		product_device,
+	  sizeof(product_device), SVG },
 	{ LWS_WIFI_SETTINGS_ICON_KEY,	boot_icon_setup,
 	  sizeof(boot_icon_setup), SVG },
 	{ LWS_WIFI_SETTINGS_ICON_NET,	boot_icon_internet,
@@ -49,23 +55,28 @@ static const lws_wifi_provision_file_t icons[] = {
 	  sizeof(settings_icon_sig4), SVG },
 };
 
-/*
- * The most html an AP's row can be, with its signal, all its icons and an SSID
- * of 32 characters that each need escaping, eg, &quot;, and %-encoding in its
- * links
- */
-#define AP_ROW_HTML_MAX		640
-
 /* WPA passphrases are 8 to 63 characters */
 #define PASSPHRASE_MIN		8
 #define PASSPHRASE_MAX		63
 
 const lws_wifi_provision_file_t *
-lhp_settings_icons(size_t *count)
+lhp_settings_files(size_t *count)
 {
-	*count = LWS_ARRAY_SIZE(icons);
+	*count = LWS_ARRAY_SIZE(files);
 
-	return icons;
+	return files;
+}
+
+const char *
+lhp_settings_header_html(void)
+{
+	return (const char *)product_header_html;
+}
+
+const char *
+lhp_settings_header_css(void)
+{
+	return (const char *)product_header_css;
 }
 
 /*
@@ -82,6 +93,9 @@ dlg_html(void *opaque, lws_dlo_ui_html_t *h)
 	s->scan_sig = lws_netdev_wifi_scan_sig(s->wnd);
 	s->ap_count = lws_netdev_wifi_ap_list(lws_netdevs_from_ctx(s->cx),
 					      s->wnd, s->aps, LHP_SET_AP_MAX);
+
+	/* the product's own, the same as the browser is served */
+	lws_html_w_printf(h, "%s", lhp_settings_header_html());
 
 	if (s->note[0]) {
 		lws_html_w_printf(h, "<div class=\"d\">");
@@ -229,12 +243,20 @@ lhp_settings_init(lhp_settings_t *s, struct lws_context *cx,
 	s->opaque = opaque;
 
 	memset(&f, 0, sizeof(f));
-	for (n = 0; n < LWS_ARRAY_SIZE(icons); n++) {
-		f.name = icons[n].name;
-		f.data = icons[n].data;
-		f.len = icons[n].len;
+	for (n = 0; n < LWS_ARRAY_SIZE(files); n++) {
+		f.name = files[n].name;
+		f.data = files[n].data;
+		f.len = files[n].len;
 		if (!lws_dlo_file_register(cx, &f))
 			return 1;
+	}
+
+	/* the dialog's css is the settings' own, then the product's */
+	if (lws_snprintf(s->css, sizeof(s->css), "%s%s",
+			 lws_wifi_settings_css(), lhp_settings_header_css()) >=
+						(int)sizeof(s->css) - 1) {
+		lwsl_err("%s: css too big\n", __func__);
+		return 1;
 	}
 
 	return 0;
@@ -247,8 +269,8 @@ lhp_settings_deinit(lhp_settings_t *s)
 
 	lhp_settings_close(s);
 
-	for (n = 0; n < LWS_ARRAY_SIZE(icons); n++)
-		lws_dlo_file_unregister_by_name(s->cx, icons[n].name);
+	for (n = 0; n < LWS_ARRAY_SIZE(files); n++)
+		lws_dlo_file_unregister_by_name(s->cx, files[n].name);
 }
 
 void
@@ -265,8 +287,9 @@ lhp_settings_open(lhp_settings_t *s, struct lws_dlo_ui *ui,
 	d.html = dlg_html;
 	d.action = dlg_action;
 	d.opaque = s;
-	d.css = lws_wifi_settings_css();
-	d.html_max = LHP_SET_AP_MAX * AP_ROW_HTML_MAX + 1024;
+	d.css = s->css;
+	d.html_max = LHP_SET_AP_MAX * LWS_WIFI_SETTINGS_AP_HTML_MAX + 1024 +
+		     strlen(lhp_settings_header_html());
 
 	lws_dlo_ui_set_title(ui, "Settings");
 	if (lws_dlo_ui_dialog(ui, &d)) {

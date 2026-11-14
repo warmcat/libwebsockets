@@ -1,0 +1,6 @@
+.ph { display: flex; align-items: center; padding-bottom: 4px; margin-bottom: 4px; border-bottom: 1px solid #b4bcc6 }
+img.pl { width: 32px; height: 32px }
+.pt { flex-grow: 1; padding: 0 6px }
+.pc { font-size: 0.75em; color: #888 }
+.pm { color: #24476b }
+img.pd { width: 48px; height: 32px }

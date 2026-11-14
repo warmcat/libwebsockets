@@ -1654,8 +1654,11 @@ app_main(void)
 		pi.led			= plat_status_led;
 		pi.reset_button		= plat_reset_button;
 		pi.buttons		= bcs;
-		/* the settings' icons, served beside them */
-		pi.files		= lhp_settings_icons(&pi.count_files);
+		/* the settings' images, served beside them */
+		pi.files		= lhp_settings_files(&pi.count_files);
+		/* the product's own, at the top of them, as on the display */
+		pi.header_html		= lhp_settings_header_html();
+		pi.css			= lhp_settings_header_css();
 		pi.cb			= prov_state;
 
 		prov = lws_wifi_provision_create(&pi);
