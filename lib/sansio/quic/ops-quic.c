@@ -7225,8 +7225,16 @@ lws_quic_server_idle_check(struct lws *nwsi)
 
 	if (nwsi->pending_timeout != NO_PENDING_TIMEOUT &&
 	    nwsi->pending_timeout != PENDING_TIMEOUT_UDP_IDLE &&
-	    nwsi->pending_timeout != PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND)
+	    nwsi->pending_timeout != PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND) {
+		/*
+		 * Whatever owns it must close the connection, or call us
+		 * again when it is done: else the connection has no idle
+		 * deadline at all.  Say who, it should be rare
+		 */
+		lwsl_wsi_notice(nwsi, "keepalive left to timeout %d",
+				(int)nwsi->pending_timeout);
 		return;
+	}
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
