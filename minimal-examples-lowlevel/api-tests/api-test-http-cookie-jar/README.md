@@ -30,8 +30,8 @@ It also checks what the jar does with the cookies it stored (issue #3688):
  - `Max-Age` sets the expiry and wins over `Expires`, in both directions
  - `Max-Age=0`, or a negative `Max-Age`, deletes the cookie
  - a `Max-Age` or `Expires` that does not parse is ignored, not the cookie
- - a cookie with `Max-Age=2` stops being sent once it runs out (the test waits
-   2.5s for it)
+ - a cookie with `Max-Age=4` stops being sent once it runs out (the test waits
+   4.5s for it)
  - a single-label host (`myhost`) gets its host-only cookies back, including
    one set with `Domain=myhost`, and `localhost` does not get them
  - so does an IPv6 literal host (`[::1]`), which has no dot either, and

@@ -97,9 +97,13 @@ static const char * const set_age_del[] = {
 	"both=y; Expires=Thu, 01 Jan 2037 00:00:00 GMT; Max-Age=0; Path=/",
 };
 
-/* set on its own, just before the check that it is still sent */
+/*
+ * Set on its own, just before the check that it is still sent.  The jar file
+ * keeps expiries in whole seconds, so it lives for between Max-Age - 1 and
+ * Max-Age seconds: enough for a slow, busy builder to get to the check.
+ */
 static const char * const set_short[] = {
-	"short=5; Max-Age=2; Path=/",
+	"short=5; Max-Age=4; Path=/",
 };
 
 /* for a single-label host: Domain= of the host itself makes it host-only */
@@ -162,9 +166,9 @@ static const struct step {
 	{ "age.example.net",	"/short-set",	NULL, 0 },
 	{ "age.example.net",	"/get",
 		"keep=1 short=5 maxwins=6 badexp=7 badma=8", 0 },
-	/* and once short=5's Max-Age=2 has run out */
+	/* and once short=5's Max-Age=4 has run out */
 	{ "age.example.net",	"/get",
-		"keep=1 maxwins=6 badexp=7 badma=8", 2500 },
+		"keep=1 maxwins=6 badexp=7 badma=8", 4500 },
 
 	/* a single-label host gets its own cookies, and nobody else does */
 	{ "myhost",		"/label-set",	NULL, 0 },
