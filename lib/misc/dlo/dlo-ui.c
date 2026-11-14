@@ -1717,8 +1717,15 @@ lws_dlo_ui_create(const lws_dlo_ui_info_t *info)
 	ui->pad = ui->icon / 16 ? ui->icon / 16 : 1;
 	ui->row_h = ui->icon + 2 * ui->pad;
 
-	/* the title's text is sized as for a rectangular display */
+	/*
+	 * The title's text is sized as for a rectangular display, but its line
+	 * sits at the bottom of the strip, so on a display where the strip
+	 * stopped growing, it's no bigger than fits in it, as the status
+	 * capsule on the same line must be
+	 */
 	ui->fs_title = (ui->h / 8) * 2 / 3;
+	if (ui->fs_title > ((ui->title_h - ui->pad) * 5) / 6)
+		ui->fs_title = ((ui->title_h - ui->pad) * 5) / 6;
 	if (ui->fs_title < 10)
 		ui->fs_title = 10;
 	ui->fs_row = ui->icon >= 32 ? 16 : (ui->icon >= 24 ? 12 : 10);

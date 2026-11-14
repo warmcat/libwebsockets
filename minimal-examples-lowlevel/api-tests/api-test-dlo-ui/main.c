@@ -64,6 +64,10 @@
  *    white with red text, which is drawn instead, and with nothing then drawn
  *    outside the circle at all
  *
+ *  - on a taller rectangular display, where the title strip stops growing,
+ *    the title and the status capsule are sized to fit in it, rather than
+ *    starting above the top of the display
+ *
  *  - destroying the ui gives back all the heap it took.  The context makes
  *    some things the first time they are used, eg, the vhost the secure
  *    streams lhp fetches with use, so all this is done twice, and the heap is
@@ -87,6 +91,9 @@
 #define KB_Y0		(TITLE_H + ROW_H)
 /* the keys are ROW_H apart; the keyboard is 10 keys wide, starting centred */
 #define KB_X0		((W - 10 * ROW_H) / 2)
+/* a taller rectangular display: its title strip stops growing at 40px */
+#define TALL_H		480
+#define TALL_TITLE_H	40
 
 /* the second time, the title strip is white with red text */
 static const char css_red_title[] =
@@ -157,8 +164,8 @@ static int settings_clicks, frame_redraws, body_y;
 /* the title strip as the ui drew it, for the caller drawing it */
 static uint8_t title_band[W * (H / 6) * 3];
 
-/* what the display shows, RGB */
-static uint8_t fb[W * H * 3];
+/* what the display shows, RGB, as tall as the tallest pretend display */
+static uint8_t fb[W * TALL_H * 3];
 /* the dialog's panel band, as it was drawn */
 static uint8_t panel_band[W * (H - TITLE_H) * 3];
 /* the links pressed on the dialog, and the last one's href */
@@ -243,6 +250,19 @@ static const lws_display_t disp_whole = {
 		.wh_mm		= { { 32, 0 }, { 32, 0 } },
 		.type		= LWSSURF_TRUECOLOR32,
 		.round		= 1,
+	},
+};
+
+/* a taller rectangular one */
+
+static const lws_display_t disp_tall = {
+	.blit			= pretend_blit,
+	.name			= "pretend 240 x 480",
+	.ic = {
+		.wh_px		= { { W, 0 }, { TALL_H, 0 } },
+		.wh_mm		= { { 32, 0 }, { 64, 0 } },
+		.type		= LWSSURF_TRUECOLOR32,
+		.band		= 1,
 	},
 };
 
@@ -756,6 +776,40 @@ start(void)
 	}
 
 	lws_dlo_ui_set_title(ui, "AP");
+	lws_dlo_ui_set_list(ui, ROWS, -1);
+
+	return 0;
+}
+
+/* the strip ui on the taller display, in the default theme, with a capsule */
+
+static int
+start_tall(void)
+{
+	lws_dlo_ui_status_t st = { 3, 60, 0 };
+	lws_dlo_ui_info_t ui_info;
+
+	lds.disp = &disp_tall;
+	/* as lws_display_state_init() would */
+	lws_display_set_inset(&lds, disp_tall.inset);
+	memset(fb, 0xff, sizeof(fb));
+	/* there's no circle */
+	unclipped = 1;
+
+	memset(&ui_info, 0, sizeof(ui_info));
+	ui_info.cx = cx;
+	ui_info.lds = &lds;
+	ui_info.row = row_cb;
+	ui_info.status_button = "settings";
+
+	ui = lws_dlo_ui_create(&ui_info);
+	if (!ui) {
+		lwsl_err("tall ui create failed\n");
+		return 1;
+	}
+
+	lws_dlo_ui_set_title(ui, "AP");
+	lws_dlo_ui_set_status(ui, &st);
 	lws_dlo_ui_set_list(ui, ROWS, -1);
 
 	return 0;
@@ -1565,7 +1619,8 @@ next_step(lws_sorted_usec_list_t *sul)
 		}
 
 		if (pass == 2) {
-			finish(1);
+			if (start_tall())
+				finish(0);
 			return;
 		}
 
@@ -1573,6 +1628,34 @@ next_step(lws_sorted_usec_list_t *sul)
 
 		if (start())
 			finish(0);
+		break;
+
+	case 30:
+		if (!updated("tall", 0, TALL_H)) {
+			finish(0);
+			return;
+		}
+
+		/*
+		 * Nothing is drawn over the top of the title strip, as the
+		 * title and capsule are if they start above the display
+		 */
+		if (colour_in(0, 0, W, 1, 0x24, 0x47, 0x6b) != W) {
+			lwsl_err("tall: title strip's top row drawn over\n");
+			finish(0);
+			return;
+		}
+		/* but the title and the capsule are in it */
+		if (!colour_in(W / 2 - 40, 0, W / 2 + 40, TALL_TITLE_H,
+			       0xff, 0xff, 0xff) ||
+		    !capsule_drawn()) {
+			lwsl_err("tall: no title or capsule\n");
+			finish(0);
+			return;
+		}
+
+		lws_dlo_ui_destroy(&ui);
+		finish(1);
 		break;
 	}
 }
