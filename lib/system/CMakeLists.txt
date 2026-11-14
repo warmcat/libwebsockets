@@ -95,6 +95,11 @@ if (LWS_WITH_NETWORK)
 			system/dhcpclient/dhcpc4.c)
 	endif()
 
+	if (LWS_WITH_SYS_CAPTIVE_DNS)
+		list(APPEND SOURCES
+			system/captive-dns/captive-dns.c)
+	endif()
+
 	if (LWS_WITH_OTA)
 		list(APPEND SOURCES
 			system/ota/ota.c)

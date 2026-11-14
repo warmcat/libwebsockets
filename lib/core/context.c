@@ -1940,7 +1940,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		 */
 
 		struct lws_context_creation_info ii;
-		const struct lws_protocols *pp[7], *ccop;
+		const struct lws_protocols *pp[8], *ccop;
 		struct lws_vhost *vh;
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 		extern const struct lws_protocols lws_async_dns_protocol;
@@ -1950,6 +1950,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 #if defined(LWS_WITH_SYS_DHCP_CLIENT)
 		extern const struct lws_protocols lws_system_protocol_dhcpc4;
+#endif
+#if defined(LWS_WITH_SYS_CAPTIVE_DNS)
+		extern const struct lws_protocols lws_system_protocol_captive_dns;
 #endif
 #if defined(LWS_WITH_SYS_WHOIS)
 		extern const struct lws_protocols lws_system_protocol_whois;
@@ -1970,6 +1973,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 #if defined(LWS_WITH_SYS_DHCP_CLIENT)
 		pp[n++] = &lws_system_protocol_dhcpc4;
+#endif
+#if defined(LWS_WITH_SYS_CAPTIVE_DNS)
+		pp[n++] = &lws_system_protocol_captive_dns;
 #endif
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL) && !defined(LWS_PLAT_ANDROID) && defined(LWS_WITH_NETWORK)
 		pp[n++] = &lws_system_protocol_stdin;

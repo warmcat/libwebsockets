@@ -511,6 +511,71 @@ lws_dhcpc_status(struct lws_context *context, lws_sockaddr46 *sa46);
 LWS_EXTERN LWS_VISIBLE int
 lws_ntpc_trigger(struct lws_context *context);
 
+#if defined(LWS_WITH_SYS_CAPTIVE_DNS)
+/**
+ * lws_captive_dns_start() - answer every name with one address, on it
+ *
+ * \param context: the lws_context
+ * \param ads: the numeric address to listen on, and to answer every name with,
+ *	       eg, "192.168.4.1" for a device that is an AP of its own
+ * \param port: the UDP port to listen on, 0 for 53
+ *
+ * A captive portal: whoever joins a network we serve, eg, our own wifi AP, and
+ * is given us as their DNS server, finds every name is us.  The OS of a phone
+ * or laptop checks whether the network has internet by fetching a well-known
+ * url, and when what it gets back is our page and not the answer it expects,
+ * it tells the user the network wants them to sign in, and shows our page.
+ * So the http server on \p ads should redirect requests for any other host to
+ * its own pages.  See lws_wifi_provision_create(), which does both.
+ *
+ * Queries for the A record (or, with an IPv6 \p ads, the AAAA record) of any
+ * name are answered with \p ads.  Other types, eg, AAAA for an IPv4 \p ads,
+ * are answered as existing but having no records of that type, so a client
+ * moves on to the A record at once.  The answers have a TTL of 0, so nothing
+ * is remembered of them when the client leaves our network.
+ *
+ * It is on the system vhost, and it listens only on \p ads, so other networks
+ * we are on don't see it.  There's one per context: starting it again moves
+ * it.  Requires LWS_WITH_SYS_CAPTIVE_DNS at cmake.
+ *
+ * Returns 0 if it is listening, else nonzero.
+ */
+LWS_EXTERN LWS_VISIBLE int
+lws_captive_dns_start(struct lws_context *context, const char *ads, int port);
+
+/**
+ * lws_captive_dns_stop() - stop answering dns queries
+ *
+ * \param context: the lws_context
+ *
+ * Stops what lws_captive_dns_start() started, if anything.
+ */
+LWS_EXTERN LWS_VISIBLE void
+lws_captive_dns_stop(struct lws_context *context);
+
+/**
+ * lws_captive_dns_answer() - the answer to one dns query, as a captive portal
+ *
+ * \param q: the query, as it came in a UDP datagram
+ * \param ql: the length of the query
+ * \param ans: the address every name is
+ * \param r: where to write the answer
+ * \param rl: the room at \p r, 512 is always enough
+ *
+ * What lws_captive_dns_start() answers each datagram with, for testing it, or
+ * answering queries that come some other way.  \p q is untrusted.  Anything
+ * that isn't a single, well-formed question isn't answered at all, nor is a
+ * response, so two of us can't answer each other forever.  A question with an
+ * opcode other than QUERY is answered "not implemented".  The answer is never
+ * more than 16 bytes longer than the question.
+ *
+ * Returns the length of the answer written at \p r, or 0 if there is none.
+ */
+LWS_EXTERN LWS_VISIBLE size_t
+lws_captive_dns_answer(const uint8_t *q, size_t ql, const lws_sockaddr46 *ans,
+		       uint8_t *r, size_t rl);
+#endif
+
 /**
  * lws_system_cpd_start() - helper to initiate captive portal detection
  *

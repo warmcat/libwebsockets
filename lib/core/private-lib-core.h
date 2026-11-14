@@ -803,6 +803,12 @@ struct lws_context {
 	lws_dll2_owner_t		dhcpc_owner;
 					/**< list of ifaces with dhcpc */
 #endif
+#if defined(LWS_WITH_SYS_CAPTIVE_DNS)
+	struct lws			*captive_dns_wsi;
+					/**< answering dns, if we are */
+	lws_sockaddr46			captive_dns_ans;
+					/**< the address every name is */
+#endif
 #if defined(LWS_WITH_SYS_WHOIS)
 	lws_dll2_owner_t		whois_owner;
 					/**< whois queries in flight */

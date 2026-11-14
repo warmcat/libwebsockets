@@ -4,6 +4,14 @@ Lws now has a little collection of helper utilities for common network-based
 functions necessary for normal device operation, eg, async DNS, ntpclient
 (necessary for tls validation), and DHCP client.
 
+## Captive portal DNS
+
+With `LWS_WITH_SYS_CAPTIVE_DNS`, `lws_captive_dns_start()` answers dns queries
+on one address, eg, a device's own while it's a wifi AP to be set up, saying
+every name is that address.  It's a UDP wsi on the system vhost.  See
+`include/libwebsockets/lws-system.h`, and `lws_wifi_provision_create()`,
+which uses it.
+
 ## Conventions
 
 If any system helper is enabled for build, lws creates an additional vhost
