@@ -1326,8 +1326,8 @@ parse_av:
 int
 lws_cookie_send_cookies(struct lws *wsi, char **pp, char *end)
 {
-	char *p, *start;
-	int size;
+	int size, n;
+	char *buf;
 
 	if (!wsi || !pp || !(*pp) || !end)
 		return -1;
@@ -1343,42 +1343,38 @@ lws_cookie_send_cookies(struct lws *wsi, char **pp, char *end)
 
 	lwsl_notice("%s: size %d\n", __func__, size);
 
-	start = *pp;
-	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE, NULL, size,
-								(unsigned char **)pp, (unsigned char *)end))
-		return -1;
-
-
-#ifdef LWS_WITH_HTTP2
-	if (lws_wsi_is_h2(wsi)
-#ifdef LWS_ROLE_H3
-	    || lws_wsi_is_h3(wsi)
-#endif
-	)
-		p = *pp - size;
-	else
-#endif
-		p = *pp - size - 2;
-
 	/*
-	 * The reservation above only moved *pp on, it did not initialize the
-	 * reserved bytes (lws_add_http_header_by_name() skips the copy for a
-	 * NULL value), so they still hold whatever was in the serv_buf.  If
-	 * the second pass writes fewer bytes than the first pass measured --
-	 * eg, a cookie's TTL lapsed in between and the cache walk stopped
-	 * early -- the tail of the Cookie: header we send would be that stale
-	 * scratch content.  Insist the two passes agree exactly.
+	 * Each pass walks the jar again, and a cookie can expire between them:
+	 * the jar file keeps expiries in whole seconds, so one with a short
+	 * Max-Age may be found by the measuring pass but not this one.  So the
+	 * second pass writes into a buffer of the measured size, bounding
+	 * itself against it, and what it wrote is what we send.
 	 */
-	if (lws_cookie_attach_cookies(wsi, p, p + size) != size) {
-		lwsl_err("%s:failed to attach cookies\n", __func__);
-		/* take the half-filled reservation back out of the head */
-		*pp = start;
+	buf = lws_malloc((size_t)size, __func__);
+	if (!buf)
 		return -1;
+
+	n = lws_cookie_attach_cookies(wsi, buf, buf + size);
+	if (n < 0) {
+		lwsl_err("%s:failed to attach cookies\n", __func__);
+		goto bail;
 	}
 
+	if (n && lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE,
+					      (unsigned char *)buf, n,
+					      (unsigned char **)pp,
+					      (unsigned char *)end))
+		goto bail;
+
+	lws_free(buf);
+
 	/* the header carries the cookie values: log only its length */
-	lwsl_cookie("%s: attached Cookie:, len %d\n", __func__,
-		    (int)lws_ptr_diff(*pp, start));
+	lwsl_cookie("%s: attached Cookie:, len %d\n", __func__, n);
 
 	return 0;
+
+bail:
+	lws_free(buf);
+
+	return -1;
 }
