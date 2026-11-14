@@ -244,6 +244,12 @@ if (LWS_WITH_DRIVERS)
 	add_subdirectory(drivers)
 endif()
 
+if (LWS_WITH_DRIVERS OR LWS_WITH_DLO)
+	# the display state's inset: dlo users like the strip ui need it
+	# whether or not the generic drivers are built
+	list(APPEND SOURCES drivers/display/lws-display-inset.c)
+endif()
+
 if (LWS_WITH_NETWORK)
 	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/core-net)
 	add_subdirectory(core-net)
