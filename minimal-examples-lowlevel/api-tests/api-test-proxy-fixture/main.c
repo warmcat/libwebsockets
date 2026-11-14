@@ -117,6 +117,9 @@ static const char http_ok[] = "HTTP/1.1 200 Connection established\r\n\r\n",
  */
 
 static void
+plog(const char *fmt, ...) LWS_FORMAT(1);
+
+static void
 plog(const char *fmt, ...)
 {
 	char line[640];
