@@ -1489,6 +1489,29 @@ lws_quic_pc_lost(const struct lws_quic_netconn *qn, struct lws_quic_pc_run *r,
 		r->found = 1;
 }
 
+/*
+ * Where what was lost goes back in what is pending: ahead of the stream data
+ * that was never sent, behind what was, eg, a PTO's probe and what it sends
+ * again.  At the tail, behind everything the application wrote, a lost frame
+ * waits for all of that to be sent first, while the peer can deliver none of
+ * what it gets after the gap; and if the peer can't hold that either, every
+ * packet of it is lost too, and goes behind it again.  NULL if there's no
+ * such data, when the tail is the place.
+ */
+static struct lws_dll2 *
+lws_quic_pending_first_unsent(lws_dll2_owner_t *o)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(o)) {
+		const struct lws_quic_tx_frame *f = lws_container_of(d,
+					struct lws_quic_tx_frame, list);
+
+		if ((f->type & 0xf8) == LWS_QUIC_FT_STREAM && !f->first_sent_us)
+			return d;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
 void
 lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
 {
@@ -1499,6 +1522,9 @@ lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
         lws_usec_t now = lws_wsi_now(nwsi);
         lws_usec_t loss_time = lws_quic_loss_time_us(qn);
 	uint64_t last_lost_pn = LWS_QUIC_PMTUD_PROBE_NONE;
+	/* the lost go back ahead of this, in the order they were sent */
+	struct lws_dll2 *unsent = NULL;
+	int unsent_found = 0;
 	struct lws_quic_pc_run pc;
 
 	memset(&pc, 0, sizeof(pc));
@@ -1582,7 +1608,20 @@ lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
 						  curlvl == LWS_QUIC_LEVEL_EARLY ?
 							"loss-requeue-early"
 						      : "loss-requeue");
-				lws_dll2_add_tail(&f->list, &qn->pending_tx[pending_lvl]);
+				/*
+				 * Both levels checked go back in the same
+				 * pending level, so one search serves both
+				 */
+				if (!unsent_found) {
+					unsent = lws_quic_pending_first_unsent(
+						&qn->pending_tx[pending_lvl]);
+					unsent_found = 1;
+				}
+				if (unsent)
+					lws_dll2_add_before(&f->list, unsent);
+				else
+					lws_dll2_add_tail(&f->list,
+						&qn->pending_tx[pending_lvl]);
 			}
 		} lws_end_foreach_dll_safe(d, d1);
 	}
