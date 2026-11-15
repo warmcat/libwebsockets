@@ -55,7 +55,11 @@ enum {
 	LWS_SPI_FLAG_DC_CMD_IS_HIGH			= (1 << 1),
 	/**< It's normally 0 for cmd phase, invert with this flag */
 	LWS_SPI_FLAG_DMA_BOUNCE_NOT_NEEDED		= (1 << 2),
-	/**< It's normally 0 for cmd phase, invert with this flag */
+	/**< the data is already in memory the SPI DMA can read */
+	LWS_SPI_FLAG_DATA_QUAD				= (1 << 3),
+	/**< on a quad bus, the data goes on all four lines, eg, pixels to a
+	 * QSPI display controller.  An implementation without quad support
+	 * fails the queue */
 };
 
 typedef struct lws_spi_desc {

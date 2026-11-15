@@ -33,6 +33,9 @@ typedef struct {
 	spi_transaction_t	esp_txn;
 } lws_spi_async_txn_t;
 
+/* the most the bus is set up to send in one transaction with DMA */
+#define LWS_ESP32_SPI_MAX_XFER	4092
+
 static spi_device_handle_t sdh[4][4]; /* [unit][cs index] */
 static volatile lws_spi_async_txn_t sat[7];
 
@@ -92,6 +95,101 @@ lws_esp32_spi_in_flight(const struct lws_spi_ops *ctx)
 	return inf;
 }
 
+/*
+ * Point the transaction at the data to send: directly if the caller says it
+ * is somewhere the DMA can read, otherwise copied into a DMA-capable bounce
+ * buffer the txn slot keeps, eg, for data in flash
+ */
+
+static int
+stage_data(lws_spi_async_txn_t *at, const uint8_t *d, size_t len, uint8_t flags)
+{
+	uint32_t u = 0;
+	size_t i;
+
+	if (flags & LWS_SPI_FLAG_DMA_BOUNCE_NOT_NEEDED) {
+		at->esp_txn.tx_buffer = d;
+
+		return 0;
+	}
+
+	if (at->dma_stash && at->dma_stash_len != len) {
+		/* we lazily free these to avoid heap apis in IRQ ctx */
+		lws_esp32_spi_free_dma(NULL, (void **)&at->dma_stash);
+		at->dma_stash_len = 0;
+	}
+
+	if (!at->dma_stash) {
+		/* it's filled a whole u32 at a time */
+		at->dma_stash = lws_esp32_spi_alloc_dma(NULL, (len + 3) & ~3u);
+		if (!at->dma_stash) {
+			lwsl_err("%s: OOM getting DMA bounce\n", __func__);
+			return 1;
+		}
+		at->dma_stash_len = len;
+	}
+
+	for (i = 0; i < len; i++) {
+		((uint8_t *)&u)[i & 3] = *d++;
+		at->dma_stash[i >> 2] = u;
+	}
+
+	at->esp_txn.tx_buffer = at->dma_stash;
+
+	return 0;
+}
+
+/*
+ * A quad bus has no D/C line: each desc is one transaction, under one nCS, of
+ * an 8-bit opcode and a 24-bit address on one line, then the data, on four
+ * lines if the desc says so.  The data can't be split into more than one
+ * transaction, since the device would see nCS go up in the middle of it.
+ */
+
+static int
+lws_esp32_spi_queue_quad(spi_device_handle_t h, const lws_spi_desc_t *desc)
+{
+	lws_spi_async_txn_t *at = NULL;
+	esp_err_t e;
+
+	if (desc->count_cmd != 4 || desc->count_read ||
+	    desc->count_write > LWS_ESP32_SPI_MAX_XFER) {
+		lwsl_err("%s: unusable desc: cmd %u, write %u, read %u\n",
+			 __func__, desc->count_cmd, desc->count_write,
+			 desc->count_read);
+		return 1;
+	}
+
+	while (!at)
+		at = find_idle_sat();
+
+	at->esp_txn.cmd = desc->src[0];
+	at->esp_txn.addr = (uint64_t)((desc->src[1] << 16) |
+				      (desc->src[2] << 8) | desc->src[3]);
+	at->esp_txn.flags = desc->flags & LWS_SPI_FLAG_DATA_QUAD ?
+						SPI_TRANS_MODE_QIO : 0;
+	at->esp_txn.length = (size_t)desc->count_write * 8;
+	at->esp_txn.rx_buffer = NULL;
+	at->esp_txn.rxlength = 0;
+	at->esp_txn.tx_buffer = NULL;
+
+	if (desc->count_write &&
+	    stage_data(at, desc->data, desc->count_write, desc->flags))
+		return -1;
+
+	/* nonzero marks the slot as in flight until the post callback */
+	at->esp_txn.user = (void *)1;
+
+	e = spi_device_queue_trans(h, &at->esp_txn, 50);
+	if (e != ESP_OK) {
+		at->esp_txn.user = NULL;
+		lwsl_err("%s: failed to queue trans: 0x%x\n", __func__, e);
+		return 1;
+	}
+
+	return 0;
+}
+
 int
 lws_esp32_spi_init(const lws_spi_ops_t *spi_ops)
 {
@@ -102,20 +200,25 @@ lws_esp32_spi_init(const lws_spi_ops_t *spi_ops)
 
 	memset(&bc, 0, sizeof(bc));
 
-	bc.mosi_io_num = -1; // bb->mosi;
-	bc.miso_io_num = -1; // bb->miso;
+	/*
+	 * data0..3 are the same members as mosi, miso, quadwp and quadhd.
+	 * The display buses are write-only, miso is only used as the second
+	 * data line of a quad bus
+	 */
+
 	bc.sclk_io_num = bb->clk;
 	bc.data0_io_num = bb->mosi;
-	bc.data1_io_num = -1;
-	bc.data2_io_num = -1;
-	bc.data3_io_num = -1;
+	bc.data1_io_num = bb->quad ? bb->miso : -1;
+	bc.data2_io_num = bb->quad ? bb->d2 : -1;
+	bc.data3_io_num = bb->quad ? bb->d3 : -1;
 	bc.data4_io_num = -1;
 	bc.data5_io_num = -1;
 	bc.data6_io_num = -1;
 	bc.data7_io_num = -1;
-	bc.quadwp_io_num = -1;
-	bc.quadhd_io_num = -1;
+	bc.max_transfer_sz = LWS_ESP32_SPI_MAX_XFER;
 	bc.flags = SPICOMMON_BUSFLAG_MASTER;
+	if (bb->quad)
+		bc.flags |= SPICOMMON_BUSFLAG_QUAD;
 
 	if (spi_bus_initialize(bb->unit, &bc, SPI_DMA_CH_AUTO) != ESP_OK) {
 		lwsl_err("%s: SPI init failed\n", __func__);
@@ -150,14 +253,24 @@ lws_esp32_spi_queue(const lws_spi_ops_t *spi_ops, const lws_spi_desc_t *desc)
 		edic.input_delay_ns = 50;
 		edic.spics_io_num = bb->ncs[desc->channel];
 		edic.queue_size = 7;
-		edic.pre_cb = lcd_spi_pre_transfer_callback;
 		edic.post_cb = lcd_spi_post_transfer_callback;
-		edic.flags = SPI_DEVICE_NO_DUMMY;
 
-		/* we do these manually in callbacks */
+		if (bb->quad) {
+			/* multi-line data needs half duplex */
+			edic.command_bits = 8;
+			edic.address_bits = 24;
+			edic.flags = SPI_DEVICE_HALFDUPLEX;
+		} else {
+			edic.pre_cb = lcd_spi_pre_transfer_callback;
+			edic.flags = SPI_DEVICE_NO_DUMMY;
 
-		bb->gpio->mode(bb->ncmd[desc->channel], LWSGGPIO_FL_WRITE);
-		bb->gpio->mode(bb->ncs[desc->channel], LWSGGPIO_FL_WRITE);
+			/* we do these manually in callbacks */
+
+			bb->gpio->mode(bb->ncmd[desc->channel],
+				       LWSGGPIO_FL_WRITE);
+			bb->gpio->mode(bb->ncs[desc->channel],
+				       LWSGGPIO_FL_WRITE);
+		}
 
 		e = spi_bus_add_device(bb->unit, &edic, &h);
 		if (e != ESP_OK) {
@@ -166,6 +279,9 @@ lws_esp32_spi_queue(const lws_spi_ops_t *spi_ops, const lws_spi_desc_t *desc)
 		}
 		sdh[bb->unit][desc->channel] = h;
 	}
+
+	if (bb->quad)
+		return lws_esp32_spi_queue_quad(h, desc);
 
 	if (desc->count_cmd) {
 		lws_spi_async_txn_t *at = NULL;
@@ -233,39 +349,9 @@ lws_esp32_spi_queue(const lws_spi_ops_t *spi_ops, const lws_spi_desc_t *desc)
 		while (!at)
 			at = find_idle_sat();
 
-		if (at->dma_stash && at->dma_stash_len != chunk) {
-			/* we lazily free these to avoid heap apis in IRQ ctx */
-			lws_esp32_spi_free_dma(NULL, (void **)&at->dma_stash);
-			at->dma_stash_len = 0;
-		}
-
-		if (at->dma_stash_len != chunk &&
-		    !(desc->flags & LWS_SPI_FLAG_DMA_BOUNCE_NOT_NEEDED)) {
-			/* allocate a bounce buffer and fill it */
-
-			at->dma_stash = lws_esp32_spi_alloc_dma(NULL, chunk);
-			if (!at->dma_stash) {
-				lwsl_err("%s: OOM getting DMA bounce\n", __func__);
-				return -1;
-			}
-
-			at->dma_stash_len = chunk;
-
-		}
-		if (desc->flags & LWS_SPI_FLAG_DMA_BOUNCE_NOT_NEEDED) {
-			at->esp_txn.tx_buffer = d;
-			d += chunk;
-		} else {
-			uint32_t u = 0;
-			size_t i;
-
-			at->esp_txn.tx_buffer = at->dma_stash;
-
-			for (i = 0; i < chunk; i++) {
-				((uint8_t *)&u)[i & 3] = *d++;
-				((uint32_t *)at->esp_txn.tx_buffer)[i >> 2] = u;
-			}
-		}
+		if (stage_data(at, d, chunk, desc->flags))
+			return -1;
+		d += chunk;
 
 		at->esp_txn.rx_buffer = NULL;
 		at->esp_txn.rxlength = 0;

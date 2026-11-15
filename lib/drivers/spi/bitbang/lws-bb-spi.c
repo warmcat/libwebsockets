@@ -98,6 +98,10 @@ lws_bb_spi_queue(const lws_spi_ops_t *octx, const lws_spi_desc_t *desc)
 	lws_bb_spi_t *ctx = (lws_bb_spi_t *)octx;
 	const uint8_t *src = desc->src;
 
+	if (ctx->quad || (desc->flags & LWS_SPI_FLAG_DATA_QUAD))
+		/* we only have the one data line out */
+		return 1;
+
 	/* clock to idle */
 	ctx->gpio->set(ctx->clk, 0 ^ !!(octx->bus_mode & LWSSPIMODE_CPOL));
 	/* enable nCS */

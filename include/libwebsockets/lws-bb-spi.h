@@ -47,10 +47,21 @@ typedef struct lws_bb_spi {
 	_lws_plat_gpio_t	ncmd[LWS_SPI_BB_MAX_CH];
 	_lws_plat_gpio_t	mosi;
 	_lws_plat_gpio_t	miso;
+	_lws_plat_gpio_t	d2;
+	_lws_plat_gpio_t	d3;
+	/**< with .quad, the third and fourth data lines.  mosi and miso are
+	 * then the first and second */
 
 	uint8_t			unit;
 
 	uint8_t			flags;
+
+	uint8_t			quad:1;
+	/**< the bus is quad SPI, eg, to a QSPI display controller: there is
+	 * no ncmd, a queued desc is always one transaction whose count_cmd
+	 * is 4, an 8-bit opcode then a 24-bit address, sent on one line, and
+	 * whose data goes on four lines if it has LWS_SPI_FLAG_DATA_QUAD.
+	 * Only on an implementation that can, eg, lws_esp32_spi_ops */
 } lws_bb_spi_t;
 
 #define lws_bb_spi_ops \
