@@ -144,6 +144,7 @@
 #include <libwebsockets/lws-ssd1306-i2c.h>
 #include <libwebsockets/lws-ili9341-spi.h>
 #include <libwebsockets/lws-gc9a01a-spi.h>
+#include <libwebsockets/lws-axs15231b-qspi.h>
 #include <libwebsockets/lws-spd1656-spi.h>
 #include <libwebsockets/lws-ssd1675b-spi.h>
 #include <libwebsockets/lws-uc8176-spi.h>

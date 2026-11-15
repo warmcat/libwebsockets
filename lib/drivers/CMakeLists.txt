@@ -3,6 +3,7 @@ list(APPEND SOURCES
 	drivers/display/ssd1306-i2c.c
 	drivers/display/ili9341-spi.c
 	drivers/display/gc9a01a-spi.c
+	drivers/display/axs15231b-qspi.c
 	drivers/display/spd1656-spi.c
 	drivers/display/uc8176-spi.c
 	drivers/display/ssd1675b-spi.c
