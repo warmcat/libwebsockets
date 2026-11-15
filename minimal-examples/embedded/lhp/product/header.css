@@ -3,4 +3,5 @@ img.pl { width: 32px; height: 32px }
 .pt { flex-grow: 1; padding: 0 6px }
 .pc { font-size: 0.75em; color: #888 }
 .pm { color: #24476b }
+@media (monochrome: 1) { .pm { color: #000 } }
 img.pd { width: 48px; height: 32px }

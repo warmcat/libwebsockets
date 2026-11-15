@@ -36,6 +36,13 @@
 /* the example's colours, for its title strips, as css colours */
 #define LHP_UI_STRIP_BG		"#1a5c3a"
 #define LHP_UI_STRIP_FG		"#ffe680"
+/*
+ * On a display that's only black and white, they'd be dithered: the strip is
+ * black and its text white instead
+ */
+#define LHP_UI_STRIP_MONO	"@media (monochrome: 1) {" \
+				" #t { background-color: #000 }" \
+				" #tt { color: #fff } }"
 
 /* the name the update spinner is registered with in the dlo filesystem */
 #define LHP_UPDATE_ICON		"update-spinner.svg"

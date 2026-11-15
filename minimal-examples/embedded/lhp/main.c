@@ -140,6 +140,13 @@ static uint32_t scan_count_shown;
 static char app_drawing;
 /* the frame is being drawn, before the first page */
 static char handover;
+/*
+ * On an EPD, the boot list is being cleaned off before the first page, which
+ * may take a while to come
+ */
+static char boot_blanking;
+/* the display was left all white: the next page needn't be cleared first */
+static char display_white;
 /* the frame's title strip changed while the display was busy */
 static char frame_redraw_pending;
 /* the settings were shown at boot, because no AP was stored */
@@ -686,7 +693,8 @@ sui_create(void)
 	i.status_button = "settings";
 	/* the title strip in the example's colours */
 	i.css = "#t { background-color: " LHP_UI_STRIP_BG " }"
-		"#tt { color: " LHP_UI_STRIP_FG " }";
+		"#tt { color: " LHP_UI_STRIP_FG " }"
+		LHP_UI_STRIP_MONO;
 
 	sui = lws_dlo_ui_create(&i);
 	if (!sui) {
@@ -923,10 +931,13 @@ app_next(lws_sorted_usec_list_t *sul)
 	/*
 	 * A different page: a display that can, eg, an EPD that only changes
 	 * the pixels that differ, is cleared first, so nothing is left behind
-	 * from the last one
+	 * from the last one, unless it was left white
 	 */
-	if (lds.disp->clear)
+	if (lds.disp->clear && !display_white)
 		lds.disp->clear(&lds);
+	display_white = 0;
+	/* if the white page never came, its end isn't the first page's */
+	boot_blanking = 0;
 	/* whether the frame was drawn before the first page or not */
 	handover = 0;
 	page_no = carousel + 1;
@@ -968,12 +979,12 @@ app_reshow(lws_sorted_usec_list_t *sul)
 }
 
 /*
- * The last page has been shown long enough: we are done, but on an EPD,
- * leave it white first
+ * Leave all of the display white, the frame too, eg, on an EPD, which keeps
+ * showing what was on it
  */
 
-static void
-app_last_shown(lws_sorted_usec_list_t *sul)
+static int
+blank_show(void)
 {
 	static const char blank[] = "<!doctype html><html><head>"
 		"<meta charset=\"utf-8\" />"
@@ -981,6 +992,26 @@ app_last_shown(lws_sorted_usec_list_t *sul)
 		"<body></body></html>";
 	char *html;
 
+	html = malloc(sizeof(blank));
+	if (!html)
+		return 1;
+	memcpy(html, blank, sizeof(blank));
+
+	if (lds.disp->clear)
+		lds.disp->clear(&lds);
+	sui_drop();
+
+	return page_show("blank.html", html, (int)sizeof(blank) - 1, NULL);
+}
+
+/*
+ * The last page has been shown long enough: we are done, but on an EPD,
+ * leave it white first
+ */
+
+static void
+app_last_shown(lws_sorted_usec_list_t *sul)
+{
 	if (carousel_phase != CAROUSEL_SHOWING_LAST)
 		/* the user took over meanwhile */
 		return;
@@ -998,21 +1029,9 @@ app_last_shown(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
-	html = malloc(sizeof(blank));
-	if (!html) {
-		lws_sul_schedule(cx, 0, &sul_app, app_last_shown,
-				 LWS_US_PER_SEC);
-		return;
-	}
-	memcpy(html, blank, sizeof(blank));
-
 	lwsl_notice("%s: leaving the display white\n", __func__);
-	if (lds.disp->clear)
-		lds.disp->clear(&lds);
-	/* all of it, the frame too */
-	sui_drop();
 	carousel_phase = CAROUSEL_BLANKING;
-	if (page_show("blank.html", html, (int)sizeof(blank) - 1, NULL)) {
+	if (blank_show()) {
 		carousel_phase = CAROUSEL_SHOWING_LAST;
 		lws_sul_schedule(cx, 0, &sul_app, app_last_shown,
 				 LWS_US_PER_SEC);
@@ -1080,12 +1099,29 @@ ui_kick_cb(lws_sorted_usec_list_t *sul)
 		/*
 		 * The boot list is replaced by the frame, titled with the
 		 * first page.  An EPD takes long enough to update that we
-		 * only show it with the first page, otherwise it's drawn
-		 * now, and the first page is browsed once it's on the display
+		 * only show it with the first page.  One that can be cleared,
+		 * eg, a directly-driven one that only changes the px that
+		 * differ, updates quickly enough that meanwhile, the boot list
+		 * is cleaned off it, so it's white while the first page is
+		 * fetched and laid out.  Otherwise the frame is drawn now, and
+		 * the first page is browsed once it's on the display
 		 */
 		page_no = 1;
-		if (!lds.disp->bistable &&
-		    !app_frame(LWS_DLO_UI_FRAME_DRAW)) {
+		if (lds.disp->bistable) {
+			if (lds.disp->clear) {
+				boot_blanking = 1;
+				if (!blank_show()) {
+					/* in case it can't be drawn */
+					lws_sul_schedule(cx, 0, &sul_app,
+							 app_next,
+							 HANDOVER_WAIT_US);
+					return;
+				}
+				/* it can't be, eg, OOM: the first page
+				 * clears it */
+				boot_blanking = 0;
+			}
+		} else if (!app_frame(LWS_DLO_UI_FRAME_DRAW)) {
 			handover = 1;
 			/* in case the frame can't be drawn, eg, OOM */
 			lws_sul_schedule(cx, 0, &sul_app, app_next,
@@ -1207,6 +1243,17 @@ display_completion_cb(lws_display_state_t *lds, int a)
 			if (handover && ui == UI_APP) {
 				/* the frame is on the display: the first page */
 				handover = 0;
+				lws_sul_schedule(lds->ctx, 0, &sul_app,
+						 app_next, 1);
+			}
+			break;
+		}
+
+		if (boot_blanking) {
+			/* the boot list is cleaned off: the first page */
+			boot_blanking = 0;
+			if (update_pc_shown < 0) {
+				display_white = 1;
 				lws_sul_schedule(lds->ctx, 0, &sul_app,
 						 app_next, 1);
 			}

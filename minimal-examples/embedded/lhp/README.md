@@ -118,7 +118,10 @@ in one update.
 On displays that aren't bistable, the frame is drawn by itself as the boot
 list goes, with a white body, and the first page is browsed once it's on the
 display, so it's clear booting is over.  An EPD, eg, the 7-colour one taking
-20s for an update, only shows the frame with the first page.
+20s for an update, only shows the frame with the first page.  One with a
+`.clear` op, eg, the directly-driven T5's, is quick enough that the boot list
+is cleaned off it first, leaving it white while the first page is fetched and
+laid out.
 
 At the right of the title strip, inside the circle on a round display, a
 status capsule shows the wlan's signal as up to four bars, and on boards
@@ -290,9 +293,10 @@ On other displays, the display is turned off as it ends.
 
 A display that only changes the pixels that differ, eg, a directly-driven
 EPD, can leave a trace of what it showed before.  If its `lws_display_t` has
-a `.clear` op, it's called as each carousel page starts and before the white
-page at the end, so that update starts with the display cleared, eg, an
-EPD's flashing refresh.
+a `.clear` op, it's called as each carousel page starts, unless the display
+was left white, and before the white pages after the boot list and at the
+end, so that update starts with the display cleared, eg, an EPD's flashing
+refresh.
 
 Ending tears everything down, the devices in `deinit_plat_devices()`, then
 the lws context, and logs the free heap from before the context was created

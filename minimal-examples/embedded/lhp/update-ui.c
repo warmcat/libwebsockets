@@ -295,7 +295,10 @@ lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
 		       "#f { left: 0; top: 0; width: %dpx; height: %dpx;"
 		       " background-color: " LHP_UI_STRIP_BG ";"
 		       " overflow: hidden }"
-		       "#pf { color: #fff }",
+		       "#pf { color: #fff }"
+		       LHP_UI_STRIP_MONO
+		       "@media (monochrome: 1) { #v { color: #000 }"
+		       " #f { background-color: #000 } }",
 		       w, th, bx, by, bw, bh, bh / 2, fw, bh);
 
 	/* the title's line sits at the bottom of its strip */
