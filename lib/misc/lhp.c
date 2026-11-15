@@ -4501,8 +4501,32 @@ lws_lhp_viewport_h(lhp_ctx_t *ctx)
 }
 
 /*
+ * The media feature "monochrome": how many bits a px of a greyscale surface
+ * has, eg, 1 for one that's only black and white, or 0 if it has colour
+ */
+
+static int
+lhp_monochrome_bits(const lws_surface_info_t *ic)
+{
+	size_t d;
+	int b = 0;
+
+	if (!ic->greyscale)
+		return 0;
+
+	if (ic->type != LWSSURF_PALETTE || !ic->palette_depth)
+		return 8;
+
+	for (d = 1; d < ic->palette_depth; d <<= 1)
+		b++;
+
+	return b ? b : 1;
+}
+
+/*
  * Crude @media evaluation: enough to keep print / max-width blocks from
- * leaking into the layout.  Unknown features are treated as not matching.
+ * leaking into the layout, and to style a page for a surface without colour.
+ * Unknown features are treated as not matching.
  */
 
 static int
@@ -4520,15 +4544,31 @@ lhp_media_feature(lhp_ctx_t *ctx, const char *p, const char *end)
 		nl--;
 
 	if (p >= end || *p != ':') {
-		/* (color), (hover) etc: only "(color)" is something we are */
-		return nl == 5 && !strncmp(n, "color", 5) &&
-		       !ctx->ic.greyscale;
+		/* (color), (hover) etc: we are "(color)" or "(monochrome)" */
+		if (nl == 5 && !strncmp(n, "color", 5))
+			return !ctx->ic.greyscale;
+
+		return nl == 10 && !strncmp(n, "monochrome", 10) &&
+		       lhp_monochrome_bits(&ctx->ic) > 0;
 	}
 
 	p++;
 	while (p < end && *p == ' ')
 		p++;
 	v = p;
+
+	/* (monochrome: 1), or with min- / max-, bits per px */
+	if ((nl == 10 && !strncmp(n, "monochrome", 10)) ||
+	    (nl == 14 && (!strncmp(n, "min-monochrome", 14) ||
+			  !strncmp(n, "max-monochrome", 14)))) {
+		lhp_fx_parse(&val, v, (size_t)(end - v));
+		px = lhp_monochrome_bits(&ctx->ic);
+		if (nl == 10)
+			return px == val.whole;
+		if (n[1] == 'a') /* max- */
+			return px <= val.whole;
+		return px >= val.whole;
+	}
 
 	/* we are a 1:1 device; the -webkit- forms are common Chrome hacks */
 	if ((nl >= 22 && !strncmp(n + nl - 22, "min-device-pixel-ratio", 22)) ||

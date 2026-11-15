@@ -1,0 +1,13 @@
+<!doctype html>
+<html><head><style>
+* { margin: 0; padding: 0 }
+div { width: 40px; height: 10px; background-color: #1a5c3a }
+@media (color) { .c { background-color: #ff0000 } }
+@media (monochrome) { .m { background-color: #000000 } }
+@media (monochrome: 1) { .m1 { background-color: #000000 } }
+@media (monochrome: 2) { .m2 { background-color: #00ff00 } }
+@media (min-monochrome: 1) { .n { width: 50px } }
+@media (max-monochrome: 0) { .x { width: 60px } }
+@media not all and (monochrome) { .nm { width: 70px } }
+</style></head>
+<body><div class="c"></div><div class="m"></div><div class="m1"></div><div class="m2"></div><div class="n"></div><div class="x"></div><div class="nm"></div></body></html>

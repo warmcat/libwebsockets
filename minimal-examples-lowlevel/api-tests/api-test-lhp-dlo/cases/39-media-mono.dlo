@@ -1,0 +1,8 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (0.0,0.0) [40.0 x 10.0] rgba=FF0000FF
+ rect (0.0,10.0) [40.0 x 10.0] rgba=FF3A5C1A
+ rect (0.0,20.0) [40.0 x 10.0] rgba=FF3A5C1A
+ rect (0.0,30.0) [40.0 x 10.0] rgba=FF3A5C1A
+ rect (0.0,40.0) [40.0 x 10.0] rgba=FF3A5C1A
+ rect (0.0,50.0) [60.0 x 10.0] rgba=FF3A5C1A
+ rect (0.0,60.0) [70.0 x 10.0] rgba=FF3A5C1A

@@ -74,6 +74,18 @@ if (requirements)
 					-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
 		endforeach()
 
+		# the same case laid out for a surface that's only black and
+		# white, as a 1-bit epd: its @media (monochrome) rules apply,
+		# its (color) ones don't
+		add_test(NAME api-test-lhp-dlo-39-media-mono-1bit
+			 COMMAND ${CMAKE_COMMAND}
+				-DTOOL=$<TARGET_FILE:${SAMP}>
+				-DHTML=${CMAKE_CURRENT_SOURCE_DIR}/cases/39-media-mono.html
+				-DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/cases/39-media-mono-1bit.dlo
+				-DOUT=${CMAKE_CURRENT_BINARY_DIR}/39-media-mono-1bit.dlo
+				-DFLAGS=--mono
+				-P ${CMAKE_CURRENT_SOURCE_DIR}/lhp-dlo-case.cmake)
+
 		# six images on a context with a tiny fd table: the fetches must
 		# queue behind each other and still all arrive (svg images)
 		if (LWS_WITH_SVG)

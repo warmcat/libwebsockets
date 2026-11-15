@@ -37,6 +37,7 @@ enum {
 		LWS_SW_ANIM_T,
 		LWS_SW_CHANGE,
 		LWS_SW_EXPECT_DAMAGE,
+		LWS_SW_MONO,
 		LWS_SW_HELP,
 };
 
@@ -68,6 +69,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_ANIM_T] = { "--anim-t",       "Draw animated images, eg, svg with SMIL animation, as they are this many ms into their animations (rs.anim_t)" },
 	[LWS_SW_CHANGE]	= { "--change",        "With --retained, after the page is drawn, change it in place and draw again over the bmp only the lines lws_display_render_damage() says changed.  Changes are separated by ',': id=text sets the text of the element with that id, id:w=px its width, and t=ms moves animations on to that time" },
 	[LWS_SW_EXPECT_DAMAGE] = { "--expect-damage", "With --change, fail unless the lines lws_display_render_damage() gives are y0,y1 (y1 one past the last), or none" },
+	[LWS_SW_MONO]	= { "--mono",          "With --dump, lay the page out for a surface that's only black and white, as a 1-bit epd is, eg, for its @media (monochrome) rules" },
 	[LWS_SW_HELP]	= { "--help",          "Show this help information" },
 };
 
@@ -204,6 +206,12 @@ static lws_surface_info_t ic = {
 	.type			= LWSSURF_TRUECOLOR32,
 #endif
 	.greyscale		= 0
+};
+
+/* --mono: only black and white, as a 1-bit epd */
+static const lws_display_colour_t palette_mono[] = {
+	PALETTE_RGBY(0, 0, 0),
+	PALETTE_RGBY(255, 255, 255),
 };
 
 int fdin = 0, fdout = 1, result = 0;
@@ -1143,6 +1151,17 @@ main(int argc, const char **argv)
 		ic.wh_px[0].whole = atoi(p);
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_H].sw)))
 		ic.wh_px[1].whole = atoi(p);
+
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_MONO].sw)) {
+		if (!dump_path) {
+			lwsl_err("--mono is for laying out with --dump\n");
+			return 1;
+		}
+		ic.palette		= palette_mono;
+		ic.palette_depth	= LWS_ARRAY_SIZE(palette_mono);
+		ic.type			= LWSSURF_PALETTE;
+		ic.greyscale		= 1;
+	}
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_FDLIMIT].sw)))
 		info.fd_limit_per_thread = (unsigned int)atoi(p);

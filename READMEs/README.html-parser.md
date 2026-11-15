@@ -96,7 +96,9 @@ JPEG and PNG images and express all UI in html/css.
  - Only quite basic HTML + CSS implemented atm.  CSS selectors support tag,
    `.class`, `#id`, `[attr]` / `[attr=value]` forms, descendant and child
    combinators, and specificity; `style=""` attributes, `!important` and
-   `@media` (screen / print / min- and max-width) are understood.
+   `@media` (screen / print / min- and max-width, color, and monochrome, with
+   its bits per px, eg, `(monochrome: 1)` for a display that's only black and
+   white) are understood.
    Pseudo-classes and sibling combinators never match.
  - Requires correct HTML, not yet tolerant of missing end tags etc
  - CSS must be inline in the HTML atm
