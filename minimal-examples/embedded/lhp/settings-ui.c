@@ -114,6 +114,18 @@ dlg_html(void *opaque, lws_dlo_ui_html_t *h)
 		lws_html_w_printf(h, "<div class=\"s\">Display</div>"
 				     "<a class=\"e\" href=\"?edges\">"
 				     "Edges and touch</a>");
+
+	if (s->tz_cb) {
+		lws_html_w_printf(h, "<div class=\"s\">Time</div>"
+				     "<a class=\"e\" href=\"?tz\">");
+		lws_html_w_text(h, lhp_tz_name(s->tz, LHP_TZ_HOME), 64);
+		if (lhp_tz_away(s->tz)) {
+			lws_html_w_printf(h, ", away ");
+			lws_html_w_text(h, lhp_tz_name(s->tz, LHP_TZ_AWAY),
+					64);
+		}
+		lws_html_w_printf(h, "</a>");
+	}
 }
 
 /* what we listed about ssid, or NULL */
@@ -232,6 +244,10 @@ dlg_action(void *opaque, const char *href)
 			lhp_settings_close(s);
 			s->edges_cb(s->opaque);
 		}
+		if (s->tz_cb && !strcmp(href, "?tz")) {
+			lhp_settings_close(s);
+			s->tz_cb(s->opaque);
+		}
 		break;
 	}
 }
@@ -241,7 +257,9 @@ lhp_settings_init(lhp_settings_t *s, struct lws_context *cx,
 		  lws_netdev_instance_wifi_t *wnd,
 		  lhp_settings_exit_cb_t exit_cb,
 		  lhp_settings_stored_cb_t stored_cb,
-		  lhp_settings_edges_cb_t edges_cb, void *opaque)
+		  lhp_settings_edges_cb_t edges_cb,
+		  lhp_settings_tz_cb_t tz_cb, const lhp_tz_t *tz,
+		  void *opaque)
 {
 	lws_dlo_filesystem_t f;
 	size_t n;
@@ -252,6 +270,8 @@ lhp_settings_init(lhp_settings_t *s, struct lws_context *cx,
 	s->exit_cb = exit_cb;
 	s->stored_cb = stored_cb;
 	s->edges_cb = edges_cb;
+	s->tz_cb = tz_cb;
+	s->tz = tz;
 	s->opaque = opaque;
 
 	memset(&f, 0, sizeof(f));

@@ -67,6 +67,7 @@
 #include "settings-ui.h"
 #include "update-ui.h"
 #include "edges-ui.h"
+#include "tz-ui.h"
 
 struct lws_context *cx;
 struct lws_touch_state *tcs;
@@ -177,12 +178,21 @@ static struct lws_wifi_provision *prov;
 static char *page;
 static const char *page_name;
 
-/* the edges and touch page is shown, see edges-ui.h */
-static char edges_shown;
-/* the touches on it */
-static lhp_edges_t edges;
+/*
+ * Our own generated page that is pressed on is shown, all of what can be seen,
+ * until it's finished with
+ */
+static enum {
+	GEN_NONE,
+	GEN_EDGES,		/* the edges and touch page, see edges-ui.h */
+	GEN_TZ,			/* the time zone page, see tz-ui.h */
+} gen_page;
 /* the application's page to go back to after it, if there was one */
-static char edges_back[sizeof(lds.current_url)];
+static char gen_back[sizeof(lds.current_url)];
+/* the touches on the edges page */
+static lhp_edges_t edges;
+/* the time zones, home and away */
+static lhp_tz_t tz;
 
 extern const char *carousel_urls[];
 
@@ -431,44 +441,72 @@ settings_stored(void *opaque)
 }
 
 /*
- * The edges and touch page, for finding out the display's inset and seeing if
- * touches land where they are on it.  It's a generated page, unframed, all of
- * what can be seen, so the strip ui is dropped while it's shown, and made
- * again after, the size of what can be seen then.
+ * Our own generated pages that are pressed on: the edges and touch page, for
+ * finding out the display's inset and seeing if touches land where they are on
+ * it, and the time zone page.  Each is unframed, all of what can be seen, so
+ * the strip ui is dropped while it's shown, and made again after, the size of
+ * what can be seen then.
  */
 
+#define GEN_HTML_MAX (LHP_EDGES_HTML_MAX > LHP_TZ_HTML_MAX ? \
+		      LHP_EDGES_HTML_MAX : LHP_TZ_HTML_MAX)
+
 static int
-edges_show(void)
+gen_show(void)
 {
 	char *html;
 	int len;
 
-	html = malloc(LHP_EDGES_HTML_MAX);
+	html = malloc(GEN_HTML_MAX);
 	if (!html)
 		return 1;
 
-	len = lhp_edges_html(html, LHP_EDGES_HTML_MAX, &lds.ic, lds.inset,
-			     &edges);
+	if (gen_page == GEN_EDGES)
+		len = lhp_edges_html(html, GEN_HTML_MAX, &lds.ic, lds.inset,
+				     &edges);
+	else
+		len = lhp_tz_html(html, GEN_HTML_MAX, &lds.ic, &tz,
+				  (int64_t)lws_now_secs());
 	if (len < 0) {
-		lwsl_err("%s: edges page too big\n", __func__);
+		lwsl_err("%s: page too big\n", __func__);
 		free(html);
 		return 1;
 	}
 
-	return page_show("edges.html", html, len, NULL);
+	return page_show(gen_page == GEN_EDGES ? "edges.html" : "tz.html",
+			 html, len, NULL);
 }
 
-/* finished with the page: the inset found is kept, and used from now on */
+/*
+ * Finished with the page: what was found on it is kept, eg, the inset is used
+ * from now on
+ */
 
 static void
-edges_leave(void)
+gen_leave(void)
 {
-	lwsl_notice("%s: inset %d, %d, %d, %d\n", __func__, lds.inset[0],
-		    lds.inset[1], lds.inset[2], lds.inset[3]);
+	switch (gen_page) {
+	case GEN_EDGES:
+		lwsl_notice("%s: inset %d, %d, %d, %d\n", __func__,
+			    lds.inset[0], lds.inset[1], lds.inset[2],
+			    lds.inset[3]);
+		if (lhp_edges_store(cx, lds.inset))
+			lwsl_warn("%s: unable to store the inset\n", __func__);
+		break;
+	case GEN_TZ:
+		lwsl_notice("%s: time zones %s, %s\n", __func__,
+			    lhp_tz_name(&tz, LHP_TZ_HOME),
+			    lhp_tz_away(&tz) ? lhp_tz_name(&tz, LHP_TZ_AWAY) :
+					       "no away");
+		if (lhp_tz_store(cx, &tz))
+			lwsl_warn("%s: unable to store the time zones\n",
+				  __func__);
+		break;
+	default:
+		break;
+	}
 
-	edges_shown = 0;
-	if (lhp_edges_store(cx, lds.inset))
-		lwsl_warn("%s: unable to store the inset\n", __func__);
+	gen_page = GEN_NONE;
 
 	/* what's shown next is all different */
 	if (lds.disp->clear)
@@ -488,56 +526,69 @@ edges_leave(void)
 		carousel_phase = CAROUSEL_LAST;
 
 	page_drop();
-	if (!edges_back[0] || app_frame(0)) {
+	if (!gen_back[0] || app_frame(0)) {
 		lws_sul_schedule(cx, 0, &sul_app, app_next, 1);
 		return;
 	}
 
-	app_browse(edges_back);
+	app_browse(gen_back);
 }
 
 static void
-edges_open_cb(lws_sorted_usec_list_t *sul)
+gen_open_cb(lws_sorted_usec_list_t *sul)
 {
-	if (!edges_shown)
+	if (gen_page == GEN_NONE)
 		/* something else took the display meanwhile, eg, an update */
 		return;
 
 	if (lds.display_busy) {
-		lws_sul_schedule(cx, 0, &sul_settings, edges_open_cb,
+		lws_sul_schedule(cx, 0, &sul_settings, gen_open_cb,
 				 LWS_US_PER_SEC / 10);
 		return;
 	}
 
-	lwsl_notice("%s\n", __func__);
+	lwsl_notice("%s: %s\n", __func__,
+		    gen_page == GEN_EDGES ? "edges" : "time zones");
 
 	/* a generated page isn't there to go back to */
-	edges_back[0] = '\0';
+	gen_back[0] = '\0';
 	if (ui == UI_APP && strncmp(lds.current_url, "file://dlofs/", 13))
-		lws_strncpy(edges_back, lds.current_url, sizeof(edges_back));
+		lws_strncpy(gen_back, lds.current_url, sizeof(gen_back));
 
 	sui_drop();
-	lhp_edges_reset(&edges);
+	if (gen_page == GEN_EDGES)
+		lhp_edges_reset(&edges);
+	else
+		/* a press on the map sets home, until away is pressed */
+		tz.picking = LHP_TZ_HOME;
 
 	if (lds.disp->clear)
 		lds.disp->clear(&lds);
-	if (edges_show()) {
-		lwsl_err("%s: unable to show the edges page\n", __func__);
-		edges_leave();
+	if (gen_show()) {
+		lwsl_err("%s: unable to show the page\n", __func__);
+		gen_leave();
 	}
 }
 
 /*
- * "Edges and touch" was pressed in the settings.  We're told from inside the
- * ui's callbacks, and the ui is dropped for the page: do it from the event
- * loop instead.  It's the page's from now, so nothing else is shown meanwhile.
+ * "Edges and touch" or "Time zones" was pressed in the settings.  We're told
+ * from inside the ui's callbacks, and the ui is dropped for the page: do it
+ * from the event loop instead.  It's the page's from now, so nothing else is
+ * shown meanwhile.
  */
 
 static void
 settings_edges(void *opaque)
 {
-	edges_shown = 1;
-	lws_sul_schedule(cx, 0, &sul_settings, edges_open_cb, 1);
+	gen_page = GEN_EDGES;
+	lws_sul_schedule(cx, 0, &sul_settings, gen_open_cb, 1);
+}
+
+static void
+settings_tz(void *opaque)
+{
+	gen_page = GEN_TZ;
+	lws_sul_schedule(cx, 0, &sul_settings, gen_open_cb, 1);
 }
 
 /*
@@ -919,9 +970,9 @@ app_next(lws_sorted_usec_list_t *sul)
 	}
 
 	if (!carousel_urls[carousel] || lhp_settings_shown(&settings) ||
-	    edges_shown)
+	    gen_page)
 		/* the one pass through the carousel already ended, or the
-		 * settings or the edges page are shown: it goes on when
+		 * settings or a generated page are shown: it goes on when
 		 * they're finished with */
 		return;
 
@@ -1060,7 +1111,7 @@ ui_kick_cb(lws_sorted_usec_list_t *sul)
 							     UPDATE_SHOW_US);
 
 		/* the update display takes over, whatever else is going on */
-		edges_shown = 0;
+		gen_page = GEN_NONE;
 		sui_drop();
 		if (!every && update_pc_shown == update_pc)
 			/* there's no spinner to move on */
@@ -1086,9 +1137,9 @@ ui_kick_cb(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
-	if (ui == UI_APP || edges_shown)
-		/* the application paces itself, and the edges page is shown
-		 * until it's finished with */
+	if (ui == UI_APP || gen_page)
+		/* the application paces itself, and a generated page is
+		 * shown until it's finished with */
 		return;
 
 	if (boot_done && !lhp_settings_shown(&settings)) {
@@ -1187,8 +1238,23 @@ ota_progress(lws_ota_ret_t state, int percent)
 	return 0;
 }
 
+/*
+ * The time was set, from the rtc at boot or from ntp: lws already stepped the
+ * system clock, and set the rtc from ntp's time.  The boot list shows the
+ * time, and where it came from.
+ */
+
+static int
+clock_set(lws_usec_t us)
+{
+	boot_changed();
+
+	return 0;
+}
+
 static lws_system_ops_t system_ops = {
 	.reboot				   = do_reboot,
+	.set_clock			   = clock_set,
 #if defined(LWS_WITH_OTA)
 
 	.ota_ops			   = {
@@ -1262,9 +1328,9 @@ display_completion_cb(lws_display_state_t *lds, int a)
 
 		if (ui != UI_APP || carousel_phase == CAROUSEL_DONE ||
 		    update_pc_shown >= 0 || lhp_settings_shown(&settings) ||
-		    edges_shown)
-			/* the settings' or edges page's exit draws it again,
-			 * and goes on */
+		    gen_page)
+			/* the settings' or a generated page's exit draws it
+			 * again, and goes on */
 			break;
 
 		if (carousel_phase == CAROUSEL_LAST) {
@@ -1345,7 +1411,7 @@ app_page_shown(void)
 				lws_system_get_state_manager(cx)->state;
 
 	return ui == UI_APP && rs.html == 2 && !lhp_settings_shown(&settings) &&
-	       !edges_shown && st != LWS_SYSTATE_AWAITING_MODAL_UPDATING &&
+	       !gen_page && st != LWS_SYSTATE_AWAITING_MODAL_UPDATING &&
 	       st != LWS_SYSTATE_MODAL_UPDATING;
 }
 
@@ -1487,7 +1553,7 @@ edges_press(const void *buf, size_t len)
 
 	switch (act) {
 	case LHP_EDGES_ACT_DONE:
-		edges_leave();
+		gen_leave();
 		return;
 
 	case LHP_EDGES_ACT_RESET:
@@ -1511,8 +1577,49 @@ edges_press(const void *buf, size_t len)
 		break;
 	}
 
-	if (edges_show())
+	if (gen_show())
 		lwsl_err("%s: unable to show the edges page\n", __func__);
+}
+
+/*
+ * A touch press on the time zone page: on one of its controls, it does what
+ * that says, and on the map, it picks the zone nearest, see tz-ui.h
+ */
+
+static void
+tz_press(const void *buf, size_t len)
+{
+	const char *href = NULL;
+	lws_dlo_hit_t *h;
+	int x, y;
+
+	if (lds.display_busy || rs.html != 2 || sui)
+		/* it's being drawn, or not shown yet, so what's where isn't
+		 * settled */
+		return;
+
+	if (json_coord(buf, len, "\"x\":", &x) ||
+	    json_coord(buf, len, "\"y\":", &y) ||
+	    /* the page is all of what can be seen, and isn't dragged */
+	    lws_display_visible_xy(&lds, &x, &y))
+		return;
+
+	h = lws_display_dl_hit_test(&rs.displaylist, x, y, NULL);
+	if (h && h->url)
+		href = h->url;
+
+	switch (lhp_tz_press(&lds.ic, &tz, href, x, y)) {
+	case LHP_TZ_ACT_DONE:
+		gen_leave();
+		return;
+	case LHP_TZ_ACT_CHANGED:
+		break;
+	default:
+		return;
+	}
+
+	if (gen_show())
+		lwsl_err("%s: unable to show the time zone page\n", __func__);
 }
 
 /* is it an event from a button called name, eg, "bc/settings" or "ui/settings" */
@@ -1566,8 +1673,10 @@ smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
 				page_drag(buf, len);
 			else if (!lws_json_simple_strcmp(buf, len,
 						"\"event\":", "press")) {
-				if (edges_shown)
+				if (gen_page == GEN_EDGES)
 					edges_press(buf, len);
+				else if (gen_page == GEN_TZ)
+					tz_press(buf, len);
 				else
 					touch_press(buf, len);
 			}
@@ -1680,6 +1789,21 @@ smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
 	return 0;
 }
 
+/* the boot stages that being at system state st means are reached */
+
+static void
+boot_states(int st)
+{
+	if (st >= LWS_SYSTATE_TIME_VALID && st <= LWS_SYSTATE_OPERATIONAL &&
+	    lhp_boot_set(&boot, LHP_BOOT_DATE, 1))
+		boot_changed();
+
+	/* AUTH1 and AUTH2 are behind us */
+	if (st > LWS_SYSTATE_AUTH2 && st <= LWS_SYSTATE_OPERATIONAL &&
+	    lhp_boot_set(&boot, LHP_BOOT_AUTH, 1))
+		boot_changed();
+}
+
 static int
 system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		 int current, int target)
@@ -1687,16 +1811,7 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	if (current == target) {
 		/* we arrived at a state */
 
-		if (current >= LWS_SYSTATE_TIME_VALID &&
-		    current <= LWS_SYSTATE_OPERATIONAL &&
-		    lhp_boot_set(&boot, LHP_BOOT_DATE, 1))
-			boot_changed();
-
-		/* AUTH1 and AUTH2 are behind us */
-		if (current > LWS_SYSTATE_AUTH2 &&
-		    current <= LWS_SYSTATE_OPERATIONAL &&
-		    lhp_boot_set(&boot, LHP_BOOT_AUTH, 1))
-			boot_changed();
+		boot_states(current);
 
 		if (current == LWS_SYSTATE_AWAITING_MODAL_UPDATING)
 			/* the update display takes over the display */
@@ -1780,6 +1895,7 @@ teardown(uint32_t heap_before)
 	page_drop();
 	sui_drop();
 	lhp_settings_deinit(&settings);
+	lhp_tz_deinit(cx);
 	lhp_boot_deinit(&boot);
 	lhp_update_deinit(cx);
 
@@ -1895,19 +2011,31 @@ app_main(void)
 				  __func__);
 	}
 
+	/* the time zones stored, and the map to pick them on */
+	if (lhp_tz_init(cx, &tz))
+		goto spin;
+
 	/*
-	 * The settings, shown on the strip ui when asked for.  The edges page
-	 * is pressed on, so it's only offered with a touch panel
+	 * The settings, shown on the strip ui when asked for.  The edges and
+	 * time zone pages are pressed on, so they're only offered with a touch
+	 * panel
 	 */
 	if (lhp_settings_init(&settings, cx, wnd, settings_exit,
 			      settings_stored, tcs ? settings_edges : NULL,
-			      NULL))
+			      tcs ? settings_tz : NULL, &tz, NULL))
 		goto spin;
 
 	/* the boot overlay, shown when the display is ready */
 
 	if (lhp_boot_init(cx, &boot, wnd))
 		goto spin;
+	boot.tz = &tz;
+	/*
+	 * The system state may already be past where the notifier marks
+	 * stages reached, eg, an rtc gave us the time while the devices were
+	 * initialized
+	 */
+	boot_states(lws_system_get_state_manager(cx)->state);
 	lhp_boot_set(&boot, LHP_BOOT_SETUP, boot_have_creds());
 	boot_dirty = 1;
 

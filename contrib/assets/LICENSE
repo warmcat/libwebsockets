@@ -26,3 +26,16 @@ Source: libwebsockets project, authored directly as SVG for lws / lhp
 
 License: CC0
 Source: libwebsockets project, authored directly as SVG for lws / lhp
+
+### tz/tz-map.svg
+
+License: Public domain
+Source: made by tz/gen-tz.py from Natural Earth's 1:110m land polygons,
+https://www.naturalearthdata.com/ (public domain), with a dot at each zone's
+city from tzdata's zone1970.tab (public domain)
+
+### tz/tz-zones.h
+
+License: Public domain
+Source: made by tz/gen-tz.py from tzdata's zone1970.tab and the POSIX TZ
+strings of its compiled zones (public domain)

@@ -21,6 +21,7 @@
 #define __LHP_BOOT_UI_H__
 
 #include <libwebsockets.h>
+#include "tz-ui.h"
 
 /* in the order they are shown, matching contrib/assets/boot-status */
 
@@ -30,7 +31,7 @@ typedef enum {
 	LHP_BOOT_IPV4,		/* have an IPv4 address */
 	LHP_BOOT_IPV6,		/* have an IPv6 address (optional) */
 	LHP_BOOT_INTERNET,	/* captive portal detection passed */
-	LHP_BOOT_DATE,		/* the time is known */
+	LHP_BOOT_DATE,		/* the time is known, from an rtc or ntp */
 	LHP_BOOT_OTA,		/* we are on the latest firmware */
 	LHP_BOOT_AUTH,		/* the server recognizes us */
 
@@ -51,6 +52,8 @@ typedef enum {
 typedef struct lhp_boot {
 	struct lws_context		*cx;
 	lws_netdev_instance_wifi_t	*wnd;	/* NULL, or wifi, for the APs */
+	const lhp_tz_t			*tz;	/* NULL, or the time zones the
+						 * time is shown in, else UTC */
 
 	char				ap[33];	 /* the first stored AP's SSID */
 	char				own_ap[33]; /* while we're an AP to be

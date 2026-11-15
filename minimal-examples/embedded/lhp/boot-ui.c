@@ -14,7 +14,6 @@
 #include "boot-ui.h"
 
 #include <string.h>
-#include <time.h>
 
 #include "boot-icons.h"
 
@@ -174,18 +173,38 @@ lhp_boot_text_wlan(const lhp_boot_t *b, int reached, bw_t *w)
 		bw_printf(w, ", %u seen", (unsigned int)seen);
 }
 
+/*
+ * The time at home, and away if there is an away zone, and where the time
+ * came from, eg, "Sun 15 Nov 15:56 JST, away 06:56 GMT, rtc"
+ */
+
 static void
-lhp_boot_text_date(bw_t *w)
+lhp_boot_text_date(const lhp_boot_t *b, bw_t *w)
 {
-	struct tm tm;
+	static const lhp_tz_t utc = { { -1, -1 }, 0 };
+	const lhp_tz_t *tz = b->tz ? b->tz : &utc;
+	int64_t now = (int64_t)lws_now_secs();
 	char d[32];
-	time_t t = time(NULL);
 
-	if (!gmtime_r(&t, &tm) ||
-	    !strftime(d, sizeof(d), "%Y-%m-%d %H:%M UTC", &tm))
+	if (lhp_tz_format(tz, LHP_TZ_HOME, now, 1, d, sizeof(d)) < 0)
 		return;
-
 	bw_text(w, d, sizeof(d));
+
+	if (lhp_tz_format(tz, LHP_TZ_AWAY, now, 0, d, sizeof(d)) > 0) {
+		bw_printf(w, ", away ");
+		bw_text(w, d, sizeof(d));
+	}
+
+	switch (lws_system_time_source(b->cx)) {
+	case LWS_SYSTIME_SRC_RTC:
+		bw_printf(w, ", rtc");
+		break;
+	case LWS_SYSTIME_SRC_NTP:
+		bw_printf(w, ", ntp");
+		break;
+	default:
+		break;
+	}
 }
 
 static void
@@ -269,7 +288,7 @@ lhp_boot_text(const lhp_boot_t *b, lhp_boot_stage_t s, lhp_boot_stage_t f,
 
 	case LHP_BOOT_DATE:
 		if (reached)
-			lhp_boot_text_date(w);
+			lhp_boot_text_date(b, w);
 		else
 			bw_printf(w, "Asking for the time");
 		break;

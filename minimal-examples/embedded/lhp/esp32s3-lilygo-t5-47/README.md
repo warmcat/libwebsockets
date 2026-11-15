@@ -57,6 +57,26 @@ N: gt911_describe: ts: GT911 fw 0x1060 at 0x5d: config v65, 540 x 960, 5 contact
 
 and warns if the resolution isn't the `.wh_native` in `main/devices.c`.
 
+## RTC
+
+The board has an NXP PCF8563 rtc, with its own backup battery, on the same
+i2c bus as the touch panel, at its usual address, 0x51.  It uses
+`lws-pcf8563-i2c.h`, attached with `lws_rtc_attach()` once the bus is up, so
+when the rtc has a time it believes, the time is known at boot, before there's
+any network, and ntp is only asked in the background; when ntp answers, the
+rtc is set from it.  The boot list says which the time came from.  When it
+comes up, the driver logs something like
+
+```
+N: lws_rtc_pcf8563_init: PCF8563 at 0x51
+N: lws_rtc_attach: rtc pcf8563: 2026-11-15 06:56:18 UTC
+```
+
+The first time, or after its battery ran out, the chip says its time can't
+be believed, so the time waits for ntp, which then sets the chip.  Its INT
+isn't used, and its CLKOUT is turned off, to save its battery.  The watch
+routing has no rtc.
+
 ## How the passes are run
 
 Panel passes run on a FreeRTOS task of their own pinned to core 1, using the

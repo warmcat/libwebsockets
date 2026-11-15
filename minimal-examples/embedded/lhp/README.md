@@ -23,14 +23,14 @@ stages
 |ipv4|an IPv4 address was acquired|
 |ipv6|an IPv6 address was acquired (optional, never waited for)|
 |internet|captive portal detection says we have internet|
-|date|the time is known|
+|date|the time is known, from an rtc chip or ntp|
 |ota|the first update check says we are on the latest firmware|
 |auth|the system passed its AUTH states|
 
 Each stage is a row of the list, its icon and next to it what is known
 about it: the AP stored in the settings, or "Not configured" if there is
 none, the AP being looked for, or joined, the IPv4 and IPv6 addresses,
-whether there is internet, the date, the OTA variant and what the update
+whether there is internet, the time, the OTA variant and what the update
 check said.  Stages reached are shown as they are, the others dimmed.  The
 row of the stage being worked on, the first not reached, is highlighted, and
 kept in the middle of the list: when the display is too short for the whole
@@ -105,6 +105,22 @@ lines (`.band`, eg, the round LCD).  They're all drawn first, then sent to the
 display together, so they appear at once.  A display that can only be
 updated whole has all of the page drawn again, as it was laid out.
 
+### The time
+
+The date row shows the time in the home time zone, and in the away one if
+there is one, see "Time zones" below, eg, "Sun 15 Nov 15:56 JST, away 06:56
+GMT", followed by where the time came from, "rtc" or "ntp".
+
+A board with a battery-backed rtc chip attaches it with `lws_rtc_attach()`
+(see `lib/drivers/rtc/README.md`), eg, `esp32s3-lilygo-t5-47`'s PCF8563.  If
+the chip has a time it believes, the system clock is set from it at once, so
+the date stage is reached at boot, without waiting for the network, and ntp
+is asked in the background.  When ntp answers, the system clock and the
+chip are set from it, and the row says "ntp".  Without an rtc, or one whose
+time can't be believed, eg, its battery ran out, the date stage waits for
+ntp, as before.  The example's `lws_system_ops_t .set_clock()` redraws the
+boot list each time the time is set.
+
 ## Frame and status
 
 After boot, the same title strip stays at the top of the display, saying
@@ -173,6 +189,9 @@ can make a dialog of its own settings.  It has
 
  - "Display", on a touch display: "Edges and touch", which shows the edges
    and touch page, see below
+
+ - "Time", on a touch display: the time zones, which shows the time zone
+   page, see below
 
 How joining went, and the internet being reached, are noted by the netdev in
 the stored credentials, so they're known after a reboot.  Changing the
@@ -246,6 +265,32 @@ before, the boot list or the page, is laid out again on what can be seen now,
 and the carousel goes on.
 
 It's only offered on a touch display, since it's used by pressing on it.
+
+### Time zones
+
+The device knows two time zones: "home", where it usually is, and
+optionally "away", where it is now, eg, while travelling.  Until home is
+picked, it's UTC.  Pressing the time zones in the settings shows a page, made
+by `tz-ui.c`, for picking them.
+
+It's a map of the world, with a dot at the principal city of each tzdata
+zone.  Pressing on the map picks the zone whose city is nearest where it was
+pressed.  Below the map are a row for home and one for away, each with the
+zone picked and the time there.  Pressing "Home" or "Away" says which one the
+map picks, shown black; "Off" turns away off, and "On" turns it back on, the
+next press on the map picking it.  The zones picked are marked on the map,
+"H" and "A".  Done stores them in the settings, as `lhp.tz.home` and
+`lhp.tz.away`, by their tzdata names, and goes back to what was shown before.
+
+The zones are compiled in: `contrib/assets/tz/gen-tz.py` makes the map,
+`tz-map.svg`, from Natural Earth's land polygons, and the table of zones,
+`tz-zones.h`, from tzdata, with where each zone's city is and its POSIX TZ
+string; `boot-icons.cmake` makes the map a C array and copies the table
+beside it.  The local time is found with `lws_tz_local()` (`lws-tz.h`), not
+the platform's own time zone support, so it's the same everywhere, and home
+and away can be used at once, where TZ is one zone for the whole process.
+
+Like the edges page, it's only offered on a touch display.
 
 ## Product header
 

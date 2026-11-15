@@ -33,6 +33,10 @@
  *    which closes the settings and calls it, eg, to show the edges and touch
  *    page, see edges-ui.h
  *
+ *  - "Time", if the caller gives a callback for it: the time zones, home and
+ *    away if there is one, which pressed closes the settings and calls it, eg,
+ *    to show the time zone page, see tz-ui.h
+ *
  * A passphrase is typed in from empty, even if one is stored: what is stored
  * is never shown, not even its length.  It's only stored when Done is pressed
  * on it.  The hostname starts as it is, to be changed, and is stored however
@@ -57,6 +61,7 @@
 #define __LHP_SETTINGS_UI_H__
 
 #include <libwebsockets.h>
+#include "tz-ui.h"
 
 typedef enum {
 	LHP_SET_EDIT_NONE,
@@ -66,8 +71,8 @@ typedef enum {
 
 /*
  * The most APs listed.  Each has up to LWS_WIFI_SETTINGS_AP_LINKS links, and
- * the hostname and display ones two more: LWS_WIFI_SETTINGS_AP_LINKS *
- * LHP_SET_AP_MAX + 2 must be no more than the 32 links the ui finds on a
+ * the hostname, display and time ones three more: LWS_WIFI_SETTINGS_AP_LINKS *
+ * LHP_SET_AP_MAX + 3 must be no more than the 32 links the ui finds on a
  * dialog
  */
 #define LHP_SET_AP_MAX			12
@@ -95,6 +100,9 @@ typedef void (*lhp_settings_stored_cb_t)(void *opaque);
  */
 typedef void (*lhp_settings_edges_cb_t)(void *opaque);
 
+/* the time zones were pressed: as for the edges callback */
+typedef void (*lhp_settings_tz_cb_t)(void *opaque);
+
 typedef struct lhp_settings {
 	struct lws_context		*cx;
 	struct lws_dlo_ui		*ui;
@@ -102,6 +110,8 @@ typedef struct lhp_settings {
 	lhp_settings_exit_cb_t		exit_cb;
 	lhp_settings_stored_cb_t	stored_cb;
 	lhp_settings_edges_cb_t		edges_cb;
+	lhp_settings_tz_cb_t		tz_cb;
+	const lhp_tz_t			*tz;
 	void				*opaque;
 
 	/* the APs as they were when the dialog's html was last written */
@@ -134,6 +144,9 @@ typedef struct lhp_settings {
  * \param stored_cb: NULL, or told when credentials were stored for an AP
  * \param edges_cb: NULL, or told when "Edges and touch" was pressed, which
  *		    is only shown if it's given
+ * \param tz_cb: NULL, or told when the time zones were pressed, which are
+ *		 only shown if it's given
+ * \param tz: the time zones, to show, if tz_cb is given
  * \param opaque: passed to the callbacks
  *
  * Registers the images the dialog uses in the dlo filesystem.  Returns 0, or
@@ -144,7 +157,9 @@ lhp_settings_init(lhp_settings_t *s, struct lws_context *cx,
 		  lws_netdev_instance_wifi_t *wnd,
 		  lhp_settings_exit_cb_t exit_cb,
 		  lhp_settings_stored_cb_t stored_cb,
-		  lhp_settings_edges_cb_t edges_cb, void *opaque);
+		  lhp_settings_edges_cb_t edges_cb,
+		  lhp_settings_tz_cb_t tz_cb, const lhp_tz_t *tz,
+		  void *opaque);
 
 /* the settings are finished with: closes them, and unregisters the images */
 void

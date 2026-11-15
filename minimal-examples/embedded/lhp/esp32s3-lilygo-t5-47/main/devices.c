@@ -29,12 +29,13 @@
  * the README.
  *
  * On the LilyGo boards, there's a GT911 touch panel over the display, on
- * its own i2c bus.  The watch's gpios for that are used for the panel
- * signals, and its own touch panel is something else, so the watch routing
- * has no touch.
+ * an i2c bus it shares with a PCF8563 rtc and its backup battery.  The
+ * watch's gpios for that are used for the panel signals, and its own touch
+ * panel is something else, so the watch routing has no touch or rtc.
  */
 
 #include "../../main.h"
+#include "freertos/semphr.h"
 
 #define T547_ROUTING_WATCH	0
 #define T547_ROUTING_LILYGO	1
@@ -387,7 +388,8 @@ static const lws_display_epd_direct_t disp = {
 #if T547_ROUTING != T547_ROUTING_WATCH
 
 /*
- * i2c for the touch panel, bitbanged on GPIO18 (SDA) and GPIO17 (SCL)
+ * i2c for the touch panel and the rtc, bitbanged on GPIO18 (SDA) and GPIO17
+ * (SCL)
  */
 
 static void
@@ -399,8 +401,29 @@ esp32_i2c_delay(void)
 		n++;
 }
 
+/*
+ * The touch panel is read from an OS timer, and the rtc from the lws event
+ * loop, so each transaction holds the bus, so they don't interleave
+ */
+
+static StaticSemaphore_t i2c_mutex_mem;
+static SemaphoreHandle_t i2c_mutex;
+
+static int
+esp32_i2c_lock(const lws_i2c_ops_t *ctx)
+{
+	return xSemaphoreTake(i2c_mutex, portMAX_DELAY) != pdTRUE;
+}
+
+static void
+esp32_i2c_unlock(const lws_i2c_ops_t *ctx)
+{
+	xSemaphoreGive(i2c_mutex);
+}
+
 static const lws_bb_i2c_t li2c = {
-	.bb_ops				= lws_bb_i2c_ops,
+	.bb_ops				= lws_bb_i2c_ops_locked(esp32_i2c_lock,
+							esp32_i2c_unlock),
 	.scl				= GPIO_NUM_17,
 	.sda				= GPIO_NUM_18,
 	.gpio				= &lws_gpio_plat,
@@ -426,6 +449,20 @@ static const lws_touch_gt911_t touch = {
 		.irq_edge		= LWSGGPIO_IRQ_FALLING,
 		.flags			= LWSTOUCH_FL_SWAP_XY |
 					  LWSTOUCH_FL_INVERT_Y,
+	},
+	.i2c				= &li2c.bb_ops,
+};
+
+/*
+ * The PCF8563 rtc, with its backup battery, on the same bus.  Its INT isn't
+ * used.  If it has a time it believes, we know the time at boot from it, and
+ * ntp only sets it right in the background.
+ */
+
+static const lws_rtc_pcf8563_t rtc = {
+	.rtc = {
+		lws_rtc_pcf8563_ops,
+		.name			= "pcf8563",
 	},
 	.i2c				= &li2c.bb_ops,
 };
@@ -518,12 +555,17 @@ init_plat_devices(struct lws_context *cx)
 #if T547_ROUTING != T547_ROUTING_WATCH
 	/* ... and i2c and the touch panel over it */
 
+	i2c_mutex = xSemaphoreCreateMutexStatic(&i2c_mutex_mem);
 	li2c.bb_ops.init(&li2c.bb_ops);
 	tcs = lws_touch_create(cx, &touch.touch);
 	if (!tcs) {
 		lwsl_err("%s: could not create touch\n", __func__);
 		return 1;
 	}
+
+	/* ... and the rtc, which is only a loss if it's not there */
+	if (lws_rtc_attach(cx, &rtc.rtc))
+		lwsl_warn("%s: no rtc\n", __func__);
 #endif
 
 	return 0;
@@ -537,6 +579,7 @@ init_plat_devices(struct lws_context *cx)
 void
 deinit_plat_devices(struct lws_context *cx)
 {
+	lws_rtc_detach(cx);
 	lws_touch_destroy(&tcs);
 	lws_display_epd_direct_destroy(&lds);
 
