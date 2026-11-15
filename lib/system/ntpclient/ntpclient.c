@@ -129,7 +129,7 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 						 lws_get_protocol(wsi));
 	uint8_t pkt[LWS_PRE + 48];
-#if defined(LWS_PLAT_FREERTOS) || (_LWS_ENABLED_LOGS & LLL_NOTICE)
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	struct timeval t1;
 	int64_t delta_us;
 #endif
@@ -253,12 +253,7 @@ do_close_l:
 		     (((uint64_t)lws_ser_ru32be(((uint8_t *)in) + 44) *
 						1000000000ull) >> 32);
 
-#if defined(LWS_PLAT_FREERTOS) || (_LWS_ENABLED_LOGS & LLL_NOTICE)
-		/*
-		 * Compute the step, only needed to adjust the nonmonotonic
-		 * suls on freertos, and for the log
-		 */
-
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 		gettimeofday(&t1, NULL);
 
 		delta_us = ((int64_t)ns / 1000) -
@@ -269,21 +264,8 @@ do_close_l:
 				(long long)delta_us);
 #endif
 
-#if defined(LWS_PLAT_FREERTOS)
-		{
-			struct timeval t;
-
-			t.tv_sec = (unsigned long long)ns / 1000000000;
-			t.tv_usec = (ns % 1000000000) / 1000;
-
-			lws_sul_nonmonotonic_adjust(wsi->a.context, delta_us);
-
-			settimeofday(&t, NULL);
-		}
-#endif
-		if (lws_system_get_ops(wsi->a.context) &&
-		    lws_system_get_ops(wsi->a.context)->set_clock)
-			lws_system_get_ops(wsi->a.context)->set_clock((int64_t)ns / 1000);
+		lws_system_time_set(wsi->a.context, (lws_usec_t)(ns / 1000),
+				    LWS_SYSTIME_SRC_NTP);
 
 		v->set_time = 1;
 		lws_state_transition_steps(&wsi->a.context->mgr_system,

@@ -605,6 +605,11 @@ struct lws_context {
 
 	lws_system_blob_t system_blobs[LWS_SYSBLOB_TYPE_COUNT];
 
+#if defined(LWS_WITH_DRIVERS)
+	const lws_rtc_t				*rtc;	/* NULL, or our rtc chip */
+#endif
+	uint8_t					systime_src; /* lws_systime_src_t */
+
 #if defined(LWS_WITH_SYS_SMD)
 	lws_smd_t				smd;
 #endif
@@ -1772,6 +1777,12 @@ lws_plugins_handle_builtin(struct lws_plugin **pplugin,
  * context's lws_io_ops_t, which need the context complete
  */
 #include "private-lib-sansio-seam.h"
+#endif
+
+#if defined(LWS_WITH_DRIVERS)
+/* set the context's rtc chip, if any, to secs since 1970 UTC */
+int
+_lws_rtc_set(struct lws_context *cx, int64_t secs);
 #endif
 
 #if !defined(PRIu64)

@@ -126,11 +126,20 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 #endif
 
 #if defined(LWS_WITH_SYS_NTPCLIENT)
-	if (target == LWS_SYSTATE_TIME_VALID &&
-	    lws_now_secs() < 1594017754) /* 06:42 Mon Jul 6 2020 UTC */ {
-		lws_ntpc_trigger(context);
+	if (target == LWS_SYSTATE_TIME_VALID) {
+		if (lws_now_secs() < LWS_SYSTEM_TIME_PLAUSIBLE_SECS) {
+			lws_ntpc_trigger(context);
 
-		return 1;
+			return 1;
+		}
+
+		/*
+		 * The time came from an rtc chip: we can go on with it, but
+		 * ask ntp in the background anyway, which sets the chip right
+		 * too when it answers
+		 */
+		if (context->systime_src == LWS_SYSTIME_SRC_RTC)
+			lws_ntpc_trigger(context);
 	}
 #endif
 

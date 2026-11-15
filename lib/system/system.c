@@ -35,6 +35,51 @@ lws_system_get_ops(struct lws_context *context)
 	return context->system_ops;
 }
 
+int
+lws_system_time_set(struct lws_context *context, lws_usec_t us,
+		    lws_systime_src_t src)
+{
+#if defined(LWS_PLAT_FREERTOS)
+	struct timeval t;
+	int64_t step_us;
+
+	/*
+	 * Timers scheduled against the system clock must be moved by the
+	 * same step, or after the first time is set, eg, from 1970, they
+	 * would wait for decades
+	 */
+
+	gettimeofday(&t, NULL);
+	step_us = us - (((int64_t)t.tv_sec * LWS_US_PER_SEC) + t.tv_usec);
+	lws_sul_nonmonotonic_adjust(context, step_us);
+
+	t.tv_sec = (time_t)(us / LWS_US_PER_SEC);
+	t.tv_usec = (suseconds_t)(us % LWS_US_PER_SEC);
+	settimeofday(&t, NULL);
+#endif
+
+	context->systime_src = (uint8_t)src;
+
+	if (context->system_ops && context->system_ops->set_clock)
+		context->system_ops->set_clock(us);
+
+#if defined(LWS_WITH_DRIVERS)
+	/* the time ntp gave us is better than whatever the chip has */
+	if (src == LWS_SYSTIME_SRC_NTP && context->rtc &&
+	    _lws_rtc_set(context, us / LWS_US_PER_SEC))
+		lwsl_cx_warn(context, "unable to set rtc %s",
+			     context->rtc->name);
+#endif
+
+	return 0;
+}
+
+lws_systime_src_t
+lws_system_time_source(struct lws_context *context)
+{
+	return (lws_systime_src_t)context->systime_src;
+}
+
 #if !defined(LWS_WITH_SYS_NTPCLIENT)
 int
 lws_ntpc_trigger(struct lws_context *context)

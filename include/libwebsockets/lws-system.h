@@ -441,6 +441,56 @@ enum {
 	_LWSDH_SA46_COUNT,
 };
 
+/*
+ * A system clock earlier than this, 06:42 Mon Jul 6 2020 UTC, has plainly not
+ * been set
+ */
+#define LWS_SYSTEM_TIME_PLAUSIBLE_SECS	1594017754
+
+/* where lws got the time it set the system clock to */
+
+typedef enum {
+	LWS_SYSTIME_SRC_NONE,		/**< lws didn't set it: the system clock
+					 * is whatever the platform had */
+	LWS_SYSTIME_SRC_RTC,		/**< from an rtc chip, see lws-rtc.h */
+	LWS_SYSTIME_SRC_NTP,		/**< from ntp, see lws_ntpc_trigger() */
+	LWS_SYSTIME_SRC_OTHER,		/**< from user code, eg, gps */
+} lws_systime_src_t;
+
+/**
+ * lws_system_time_set() - set the system clock, and say where the time came from
+ *
+ * \param context: the lws_context
+ * \param us: the time, in us since 1970-01-01 00:00:00 UTC
+ * \param src: where the time came from
+ *
+ * How lws sets the system clock, from ntp or an rtc chip, and how user code
+ * can, from somewhere else, eg, gps.  On FreeRTOS, lws steps the system clock
+ * itself, moving any pending timers that were scheduled against it, so they
+ * don't fire decades early or late.  On every platform, the time is then
+ * given to lws_system_ops_t .set_clock() if there is one, whose
+ * implementation decides what to do with it.  Time from ntp also sets the
+ * context's rtc chip, if it has one.
+ *
+ * lws_system_time_source() says \p src from then on.  Returns 0.
+ */
+LWS_EXTERN LWS_VISIBLE int
+lws_system_time_set(struct lws_context *context, lws_usec_t us,
+		    lws_systime_src_t src);
+
+/**
+ * lws_system_time_source() - where the time lws set the system clock to came from
+ *
+ * \param context: the lws_context
+ *
+ * Returns LWS_SYSTIME_SRC_NONE until lws_system_time_set() was called, ie,
+ * the system clock is whatever the platform had, then where the time it was
+ * last given came from, eg, LWS_SYSTIME_SRC_RTC at boot, then
+ * LWS_SYSTIME_SRC_NTP when ntp answered.
+ */
+LWS_EXTERN LWS_VISIBLE lws_systime_src_t
+lws_system_time_source(struct lws_context *context);
+
 #if defined(LWS_WITH_NETWORK)
 typedef struct lws_dhcpc_ifstate {
 	char				ifname[16];
