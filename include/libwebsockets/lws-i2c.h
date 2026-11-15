@@ -48,10 +48,21 @@ typedef struct lws_i2c_ops {
 	/**< clock out the acknowledge bit for a byte just read, as the bus
 	 * level: 0 (low) ACKs it, asking the peer for more, 1 (high) NAKs it,
 	 * as must be done after the last byte read before stop or restart */
+	int  (*lock)(const struct lws_i2c_ops *ctx);
+	/**< NULL, or take the bus for a whole transaction, eg, with a mutex,
+	 * waiting for it if need be.  Needed when devices on the bus are used
+	 * from different threads, eg, a touch controller read from an OS
+	 * timer, and an rtc from the lws event loop, so their transactions
+	 * don't interleave.  The helpers below take it around each
+	 * transaction.  0 = taken */
+	void (*unlock)(const struct lws_i2c_ops *ctx);
+	/**< NULL, or give the bus back after a transaction */
 } lws_i2c_ops_t;
 
 /*
- * These are implemented by calling the ops above, and so are generic
+ * These are implemented by calling the ops above, and so are generic.  Each
+ * is one transaction (lws_i2c_command_list() is one per byte), taken under
+ * .lock if the bus has one.
  */
 
 /**

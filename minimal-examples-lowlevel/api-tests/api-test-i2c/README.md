@@ -8,7 +8,9 @@ bus protocol at the level of the ops (START / repeated START, address and
 data ACK / NAK, the master NAKing the last byte it reads), holds a 256-byte
 register file, and takes either 8-bit or 16-bit register addresses, checking
 the 16-bit ones arrive most significant byte first, so no hardware is
-needed.
+needed.  With `.lock` and `.unlock`, as for a bus shared between threads, it
+checks each transaction holds the bus throughout and gives it back, even when
+it fails, and that nothing is done on a bus that can't be taken.
 
 Requires `LWS_WITH_DRIVERS`.
 

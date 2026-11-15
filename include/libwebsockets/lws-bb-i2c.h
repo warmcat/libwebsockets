@@ -53,6 +53,23 @@ typedef struct lws_bb_i2c {
 		.set_ack = lws_bb_i2c_set_ack, \
 	}
 
+/*
+ * As lws_bb_i2c_ops, for a bus shared by devices used from different threads:
+ * _lock and _unlock are the lws_i2c_ops_t .lock and .unlock, eg, taking and
+ * giving a mutex
+ */
+#define lws_bb_i2c_ops_locked(_lock, _unlock) \
+	{ \
+		.init = lws_bb_i2c_init, \
+		.start = lws_bb_i2c_start, \
+		.stop = lws_bb_i2c_stop, \
+		.write = lws_bb_i2c_write, \
+		.read = lws_bb_i2c_read, \
+		.set_ack = lws_bb_i2c_set_ack, \
+		.lock = _lock, \
+		.unlock = _unlock, \
+	}
+
 int
 lws_bb_i2c_init(const lws_i2c_ops_t *octx);
 

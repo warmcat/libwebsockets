@@ -47,6 +47,13 @@ typedef struct mock_i2c {
 	int			violations;
 	int			fail_read_at; /* > 0: that read op fails */
 	int			reads;
+
+	/* with .lock and .unlock: the bus must be held for a transaction */
+	char			lockable;
+	char			locked;
+	char			refuse_lock;
+	int			locks;
+	int			unlocks;
 } mock_i2c_t;
 
 static void
@@ -71,6 +78,8 @@ mock_start(const lws_i2c_ops_t *octx)
 
 	if (m->ack_owed)
 		violation(m, "START with an ACK still owed");
+	if (m->lockable && !m->locked)
+		violation(m, "START without holding the bus");
 
 	/* START from idle, or a repeated START inside a transaction */
 	m->starts++;
@@ -173,6 +182,36 @@ mock_set_ack(const lws_i2c_ops_t *octx, int ack)
 	m->ack_owed = 0;
 	if (ack) /* bus high: NAK, the device stops sending */
 		m->state = MB_RDONE;
+}
+
+static int
+mock_lock(const lws_i2c_ops_t *octx)
+{
+	mock_i2c_t *m = (mock_i2c_t *)octx;
+
+	if (m->refuse_lock)
+		return 1;
+	if (m->locked)
+		violation(m, "bus taken while held");
+
+	m->locked = 1;
+	m->locks++;
+
+	return 0;
+}
+
+static void
+mock_unlock(const lws_i2c_ops_t *octx)
+{
+	mock_i2c_t *m = (mock_i2c_t *)octx;
+
+	if (!m->locked)
+		violation(m, "bus given back while not held");
+	if (m->state != MB_IDLE)
+		violation(m, "bus given back mid-transaction");
+
+	m->locked = 0;
+	m->unlocks++;
 }
 
 static void
@@ -356,6 +395,47 @@ int main(int argc, const char **argv)
 	if (!lws_i2c_read_regs16(&m.ops, MOCK_ADS7, 0x8140, r, 4) ||
 	    m.stops != 1 || m.state != MB_IDLE) {
 		lwsl_err("%s: failing read16\n", __func__);
+		fails++;
+	}
+
+	/*
+	 * A bus shared between threads: each transaction is taken whole, and
+	 * given back, even when it fails
+	 */
+
+	mock_reset(&m);
+	m.lockable = 1;
+	m.ops.lock = mock_lock;
+	m.ops.unlock = mock_unlock;
+	if (lws_i2c_write_regs(&m.ops, MOCK_ADS7, 0x40, w, sizeof(w)) ||
+	    lws_i2c_read_regs(&m.ops, MOCK_ADS7, 0x40, r, sizeof(w)) ||
+	    memcmp(r, w, sizeof(w)) ||
+	    lws_i2c_command(&m.ops, MOCK_ADS7, 0x55) ||
+	    !lws_i2c_read_regs(&m.ops, MOCK_ADS7 + 1, 0x40, r, 1) ||
+	    m.violations || m.locked || m.locks != 4 || m.unlocks != 4) {
+		lwsl_err("%s: locked bus: violations %d, locks %d, unlocks %d\n",
+			 __func__, m.violations, m.locks, m.unlocks);
+		fails++;
+	}
+
+	/* the mock calls the STOP after a failed read a violation itself */
+	m.fail_read_at = m.reads + 2;
+	if (!lws_i2c_read_regs(&m.ops, MOCK_ADS7, 0x40, r, 4) ||
+	    m.state != MB_IDLE || m.locked || m.locks != 5 ||
+	    m.unlocks != 5) {
+		lwsl_err("%s: failing read on a locked bus\n", __func__);
+		fails++;
+	}
+
+	/* if the bus can't be taken, nothing is done on it */
+
+	m.refuse_lock = 1;
+	m.starts = 0;
+	if (!lws_i2c_read_regs(&m.ops, MOCK_ADS7, 0x40, r, 1) ||
+	    !lws_i2c_write_regs(&m.ops, MOCK_ADS7, 0x40, w, 1) ||
+	    !lws_i2c_command(&m.ops, MOCK_ADS7, 0x55) || m.starts ||
+	    m.unlocks != 5) {
+		lwsl_err("%s: bus that can't be taken\n", __func__);
 		fails++;
 	}
 

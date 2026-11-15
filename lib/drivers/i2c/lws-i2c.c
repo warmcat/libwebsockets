@@ -27,9 +27,24 @@
  */
 
 #include <libwebsockets.h>
-	
-int
-lws_i2c_command(const lws_i2c_ops_t *ctx, uint8_t ads7, uint8_t c)
+
+/* take the bus for a transaction, if it's shared between threads */
+
+static int
+bus_lock(const lws_i2c_ops_t *ctx)
+{
+	return ctx->lock && ctx->lock(ctx);
+}
+
+static void
+bus_unlock(const lws_i2c_ops_t *ctx)
+{
+	if (ctx->unlock)
+		ctx->unlock(ctx);
+}
+
+static int
+lws_i2c_command_locked(const lws_i2c_ops_t *ctx, uint8_t ads7, uint8_t c)
 {
 	if (ctx->start(ctx))
 		return 1;
@@ -45,6 +60,19 @@ lws_i2c_command(const lws_i2c_ops_t *ctx, uint8_t ads7, uint8_t c)
 	ctx->stop(ctx);
 
 	return 0;
+}
+
+int
+lws_i2c_command(const lws_i2c_ops_t *ctx, uint8_t ads7, uint8_t c)
+{
+	int n;
+
+	if (bus_lock(ctx))
+		return 1;
+	n = lws_i2c_command_locked(ctx, ads7, c);
+	bus_unlock(ctx);
+
+	return n;
 }
 
 int
@@ -87,8 +115,8 @@ bail:
 }
 
 static int
-lws_i2c_read(const lws_i2c_ops_t *ctx, uint8_t ads7, const uint8_t *reg,
-	     size_t rlen, uint8_t *buf, size_t len)
+lws_i2c_read_locked(const lws_i2c_ops_t *ctx, uint8_t ads7, const uint8_t *reg,
+		    size_t rlen, uint8_t *buf, size_t len)
 {
 	int n;
 
@@ -124,8 +152,9 @@ bail:
 }
 
 static int
-lws_i2c_write(const lws_i2c_ops_t *ctx, uint8_t ads7, const uint8_t *reg,
-	      size_t rlen, const uint8_t *buf, size_t len)
+lws_i2c_write_locked(const lws_i2c_ops_t *ctx, uint8_t ads7,
+		     const uint8_t *reg, size_t rlen, const uint8_t *buf,
+		     size_t len)
 {
 	if (lws_i2c_reg_select(ctx, ads7, reg, rlen))
 		return 1;
@@ -140,6 +169,34 @@ lws_i2c_write(const lws_i2c_ops_t *ctx, uint8_t ads7, const uint8_t *reg,
 	ctx->stop(ctx);
 
 	return 0;
+}
+
+static int
+lws_i2c_read(const lws_i2c_ops_t *ctx, uint8_t ads7, const uint8_t *reg,
+	     size_t rlen, uint8_t *buf, size_t len)
+{
+	int n;
+
+	if (bus_lock(ctx))
+		return 1;
+	n = lws_i2c_read_locked(ctx, ads7, reg, rlen, buf, len);
+	bus_unlock(ctx);
+
+	return n;
+}
+
+static int
+lws_i2c_write(const lws_i2c_ops_t *ctx, uint8_t ads7, const uint8_t *reg,
+	      size_t rlen, const uint8_t *buf, size_t len)
+{
+	int n;
+
+	if (bus_lock(ctx))
+		return 1;
+	n = lws_i2c_write_locked(ctx, ads7, reg, rlen, buf, len);
+	bus_unlock(ctx);
+
+	return n;
 }
 
 int
