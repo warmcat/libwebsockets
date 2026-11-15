@@ -10,7 +10,8 @@
  * behind a mock lws_i2c_ops_t.  The mock checks the master keeps to the
  * bus protocol at the level of the ops, and models a typical register-file
  * device whose register pointer auto-increments.  The device can take
- * 8-bit or 16-bit register addresses, the latter for the *_regs16() helpers.
+ * 8-bit, 16-bit or 32-bit register addresses, the latter two for the
+ * *_regs16() and *_regs32() helpers.
  */
 
 #include <libwebsockets.h>
@@ -23,7 +24,6 @@ typedef enum {
 	MB_IDLE,	/* bus free */
 	MB_ADDR,	/* after START, expecting the address byte */
 	MB_REG,		/* addressed for write, expecting register address */
-	MB_REG_LO,	/* 16-bit register address, expecting its low byte */
 	MB_WDATA,	/* register address set, any more bytes are data */
 	MB_RDATA,	/* addressed for read, master clocks bytes in */
 	MB_RDONE,	/* master NAKed a byte, only STOP or restart is legal */
@@ -34,10 +34,11 @@ typedef struct mock_i2c {
 	lws_i2c_ops_t		ops; /* must be first */
 
 	uint8_t			regs[256];
-	uint16_t		ptr;	/* register pointer, regs[] holds the
+	uint32_t		ptr;	/* register pointer, regs[] holds the
 					 * low 256 of them */
-	uint16_t		reg_set; /* the last register address sent */
-	char			reg16;	/* register addresses are 16-bit */
+	uint32_t		reg_set; /* the last register address sent */
+	uint8_t			reg_bytes; /* register address length, 0 = 1 */
+	uint8_t			reg_got; /* bytes of it seen so far */
 
 	mock_bus_state_t	state;
 	char			ack_owed; /* a byte was read, set_ack() due */
@@ -115,22 +116,22 @@ mock_write(const lws_i2c_ops_t *octx, uint8_t data)
 			m->state = MB_IGNORE;
 			return 1; /* nobody home: NAK */
 		}
-		m->state = (data & 1) ? MB_RDATA : MB_REG;
+		if (data & 1) {
+			/* reads go on from where the pointer was left */
+			m->state = MB_RDATA;
+			return 0;
+		}
+		m->state = MB_REG;
+		m->reg_got = 0;
+		m->ptr = 0;
 		return 0;
 
 	case MB_REG:
-		if (m->reg16) {
-			/* the most significant byte comes first */
-			m->ptr = (uint16_t)(data << 8);
-			m->state = MB_REG_LO;
+		/* the most significant byte comes first */
+		m->ptr = (m->ptr << 8) | data;
+		if (++m->reg_got < (m->reg_bytes ? m->reg_bytes : 1))
 			return 0;
-		}
-		m->ptr = m->reg_set = data;
-		m->state = MB_WDATA;
-		return 0;
-
-	case MB_REG_LO:
-		m->ptr = m->reg_set = (uint16_t)(m->ptr | data);
+		m->reg_set = m->ptr;
 		m->state = MB_WDATA;
 		return 0;
 
@@ -339,7 +340,7 @@ int main(int argc, const char **argv)
 	 */
 
 	mock_reset(&m);
-	m.reg16 = 1;
+	m.reg_bytes = 2;
 	if (lws_i2c_write_regs16(&m.ops, MOCK_ADS7, 0x8140, w, sizeof(w)) ||
 	    bus_ok(&m, 1, "write16") || m.reg_set != 0x8140 ||
 	    memcmp(&m.regs[0x40], w, sizeof(w))) {
@@ -358,7 +359,7 @@ int main(int argc, const char **argv)
 	}
 
 	mock_reset(&m);
-	m.reg16 = 1;
+	m.reg_bytes = 2;
 	if (lws_i2c_write_regs16(&m.ops, MOCK_ADS7, 0x814e, NULL, 0) ||
 	    bus_ok(&m, 1, "write16 0") || m.reg_set != 0x814e) {
 		lwsl_err("%s: write_regs16 empty\n", __func__);
@@ -366,7 +367,7 @@ int main(int argc, const char **argv)
 	}
 
 	mock_reset(&m);
-	m.reg16 = 1;
+	m.reg_bytes = 2;
 	if (!lws_i2c_read_regs16(&m.ops, MOCK_ADS7 + 1, 0x8140, r, 2) ||
 	    bus_ok(&m, 1, "absent read16")) {
 		lwsl_err("%s: read_regs16 from absent device\n", __func__);
@@ -374,7 +375,7 @@ int main(int argc, const char **argv)
 	}
 
 	mock_reset(&m);
-	m.reg16 = 1;
+	m.reg_bytes = 2;
 	if (!lws_i2c_write_regs16(&m.ops, MOCK_ADS7 + 1, 0x814e, w, 1) ||
 	    bus_ok(&m, 1, "absent write16")) {
 		lwsl_err("%s: write_regs16 to absent device\n", __func__);
@@ -382,7 +383,7 @@ int main(int argc, const char **argv)
 	}
 
 	mock_reset(&m);
-	m.reg16 = 1;
+	m.reg_bytes = 2;
 	if (!lws_i2c_read_regs16(&m.ops, MOCK_ADS7, 0x8140, r, 0) ||
 	    m.starts || m.stops) {
 		lwsl_err("%s: zero-length read16\n", __func__);
@@ -390,11 +391,60 @@ int main(int argc, const char **argv)
 	}
 
 	mock_reset(&m);
-	m.reg16 = 1;
+	m.reg_bytes = 2;
 	m.fail_read_at = 3;
 	if (!lws_i2c_read_regs16(&m.ops, MOCK_ADS7, 0x8140, r, 4) ||
 	    m.stops != 1 || m.state != MB_IDLE) {
 		lwsl_err("%s: failing read16\n", __func__);
+		fails++;
+	}
+
+	/*
+	 * 32-bit register addresses, most significant byte first, as a
+	 * CST3530 touch controller is spoken to: its commands are register
+	 * address writes with no data
+	 */
+
+	mock_reset(&m);
+	m.reg_bytes = 4;
+	if (lws_i2c_write_regs32(&m.ops, MOCK_ADS7, 0xd0070040, w, sizeof(w)) ||
+	    bus_ok(&m, 1, "write32") || m.reg_set != 0xd0070040 ||
+	    memcmp(&m.regs[0x40], w, sizeof(w))) {
+		lwsl_err("%s: write_regs32\n", __func__);
+		fails++;
+	}
+
+	m.starts = m.stops = 0;
+	m.reg_set = 0;
+	memset(r, 0, sizeof(r));
+	if (lws_i2c_read_regs32(&m.ops, MOCK_ADS7, 0xd0070040, r, sizeof(w)) ||
+	    bus_ok(&m, 2, "read32") || m.reg_set != 0xd0070040 ||
+	    memcmp(r, w, sizeof(w))) {
+		lwsl_err("%s: read_regs32\n", __func__);
+		fails++;
+	}
+
+	mock_reset(&m);
+	m.reg_bytes = 4;
+	if (lws_i2c_write_regs32(&m.ops, MOCK_ADS7, 0xd00002ab, NULL, 0) ||
+	    bus_ok(&m, 1, "write32 0") || m.reg_set != 0xd00002ab) {
+		lwsl_err("%s: write_regs32 empty\n", __func__);
+		fails++;
+	}
+
+	mock_reset(&m);
+	m.reg_bytes = 4;
+	if (!lws_i2c_read_regs32(&m.ops, MOCK_ADS7 + 1, 0xd0070000, r, 2) ||
+	    bus_ok(&m, 1, "absent read32")) {
+		lwsl_err("%s: read_regs32 from absent device\n", __func__);
+		fails++;
+	}
+
+	mock_reset(&m);
+	m.reg_bytes = 4;
+	if (!lws_i2c_read_regs32(&m.ops, MOCK_ADS7, 0xd0070000, r, 0) ||
+	    m.starts || m.stops) {
+		lwsl_err("%s: zero-length read32\n", __func__);
 		fails++;
 	}
 

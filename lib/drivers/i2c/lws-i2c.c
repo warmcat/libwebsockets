@@ -231,3 +231,35 @@ lws_i2c_write_regs16(const lws_i2c_ops_t *ctx, uint8_t ads7, uint16_t reg,
 	return lws_i2c_write(ctx, ads7, r, sizeof(r), buf, len);
 }
 
+/* 32-bit register addresses go most significant byte first */
+
+static void
+reg32_bytes(uint32_t reg, uint8_t *r)
+{
+	r[0] = (uint8_t)(reg >> 24);
+	r[1] = (uint8_t)(reg >> 16);
+	r[2] = (uint8_t)(reg >> 8);
+	r[3] = (uint8_t)reg;
+}
+
+int
+lws_i2c_read_regs32(const lws_i2c_ops_t *ctx, uint8_t ads7, uint32_t reg,
+		    uint8_t *buf, size_t len)
+{
+	uint8_t r[4];
+
+	reg32_bytes(reg, r);
+
+	return lws_i2c_read(ctx, ads7, r, sizeof(r), buf, len);
+}
+
+int
+lws_i2c_write_regs32(const lws_i2c_ops_t *ctx, uint8_t ads7, uint32_t reg,
+		     const uint8_t *buf, size_t len)
+{
+	uint8_t r[4];
+
+	reg32_bytes(reg, r);
+
+	return lws_i2c_write(ctx, ads7, r, sizeof(r), buf, len);
+}
