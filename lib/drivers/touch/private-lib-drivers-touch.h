@@ -39,7 +39,9 @@ typedef struct lws_touch_state {
 
 	struct lws_context		*ctx;
 	const lws_touch_t		*touch;
-	void				*priv;	   /* for the controller */
+	void				*priv;	   /* for the controller, any
+						    * heap allocation there is
+						    * freed with the state */
 
 	uint8_t				ads7;	   /* for the controller, eg,
 						    * the i2c address it was

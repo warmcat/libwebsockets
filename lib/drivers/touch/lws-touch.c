@@ -416,6 +416,7 @@ bail:
 	if (ts->timer_poll)
 		LWS_PLAT_TIMER_DELETE(ts->timer_poll);
 #endif
+	lws_free_set_NULL(ts->priv);
 	lws_free(ts);
 
 	return NULL;
@@ -443,6 +444,7 @@ lws_touch_destroy(struct lws_touch_state **pts)
 	LWS_PLAT_TIMER_DELETE(ts->timer_poll);
 #endif
 
+	lws_free_set_NULL(ts->priv);
 	lws_free(ts);
 	*pts = NULL;
 }

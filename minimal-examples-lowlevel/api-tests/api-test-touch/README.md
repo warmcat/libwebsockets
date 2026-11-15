@@ -25,6 +25,16 @@ Tests the touch controller class without hardware.
    the first of two fingers is used, and a report with more contacts than
    the chip can have is ignored.
 
+ - A CST3530, as fitted to the LilyGo T-Display S3 Long, behind a simulated
+   i2c bus with 32-bit register addresses, some of which are written without
+   data as commands.  Its reset is the display's, so it isn't reset by its
+   driver, and it NAKs its address until it has come up, so it must be
+   retried for, then put in its normal mode before it says what it is.  Each
+   report, including one left over from before, must be taken.  A report
+   with two contacts is read in full for its checksum, a report failing its
+   checksum is ignored, a key listed before the contact isn't taken for it,
+   and a lift's coordinates aren't trusted.
+
 Requires `LWS_WITH_DRIVERS` and `LWS_WITH_SYS_SMD`.
 
 ## build

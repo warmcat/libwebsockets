@@ -17,6 +17,7 @@ list(APPEND SOURCES
 	drivers/touch/lws-touch.c
 	drivers/touch/cst816s-i2c.c
 	drivers/touch/gt911-i2c.c
+	drivers/touch/cst3530-i2c.c
 	drivers/rtc/lws-rtc.c
 	drivers/rtc/pcf8563-i2c.c
 	drivers/led/led-gpio.c

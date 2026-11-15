@@ -12,8 +12,8 @@
  * covering controllers that stream movement and ones that only report the
  * finger coming down and lifting.
  *
- * Then whole touch controllers, CST816S and GT911 behind simulated i2c
- * buses and gpio, from reset or wake through to the lws_smd events they
+ * Then whole touch controllers, CST816S, GT911 and CST3530 behind simulated
+ * i2c buses and gpio, from reset or wake through to the lws_smd events they
  * issue, with the controller's coordinates mapped into display pixels.  A
  * lift the chip reports with no finger must not take its coordinate
  * registers for where the finger lifted: a drag ended with a scroll to
@@ -195,13 +195,14 @@ test_classifier(void)
 }
 
 /*
- * Part 2: CST816S and GT911 controllers on simulated buses
+ * Part 2: CST816S, GT911 and CST3530 controllers on simulated buses
  */
 
 #define RESET_GPIO	13
 #define IRQ_GPIO	5
 #define GT_IRQ_GPIO	47
 #define GT_ADS7		LWS_GT911_I2C7_ADS_ALT
+#define CST3530_IRQ_GPIO	11
 
 typedef struct {
 	lws_i2c_ops_t		ops; /* must be first */
@@ -411,6 +412,212 @@ gsim_report(uint8_t status, int x, int y)
 	gsim_le16(0x8154, 30);		/* size */
 }
 
+/*
+ * A CST3530, with 32-bit register addresses, some written without data as
+ * commands.  Like on the T-Display S3 Long, its reset is the display's, so
+ * it isn't reset by its driver: it NAKs its address until it has come up,
+ * a while after it's first spoken to, so it is only found by retrying.
+ */
+
+#define CST_LP_OFF	0xd0000400
+#define CST_NORMAL_1	0xd0000000
+#define CST_NORMAL_2	0xd0000c00
+#define CST_NORMAL_3	0xd0000100
+#define CST_DONE	0xd00002ab
+#define CST_INFO	0xd0030000
+#define CST_REPORT	0xd0070000
+
+typedef struct {
+	lws_i2c_ops_t		ops; /* must be first */
+	uint8_t			info[50];
+	uint8_t			report[4 + 5 * 5];
+	uint32_t		reg;
+	const uint8_t		*rp;	/* where reads come from */
+	size_t			rlen;	/* how many there are */
+	lws_usec_t		us_first; /* when it was first spoken to */
+	uint8_t			reg_got; /* bytes of reg seen */
+	uint8_t			phase;	/* 0 address, 1 reg, 2 data, 3 read */
+	uint8_t			normal;	/* NORMAL_1..3 seen, in order */
+	int			naks;
+	int			bad;	/* registers or commands it hasn't */
+} sim_cst3530_t;
+
+/* its register writes are only commands, acted on at STOP */
+
+static void
+csim_stop(const lws_i2c_ops_t *o);
+
+static int
+csim_start(const lws_i2c_ops_t *o)
+{
+	sim_cst3530_t *d = (sim_cst3530_t *)o;
+
+	if (!d->us_first)
+		d->us_first = lws_now_usecs();
+	/* a repeated START after the register address keeps it */
+	if (d->phase != 2)
+		d->reg_got = 0;
+	d->phase = 0;
+
+	return 0;
+}
+
+static int
+csim_write(const lws_i2c_ops_t *o, uint8_t data)
+{
+	sim_cst3530_t *d = (sim_cst3530_t *)o;
+
+	switch (d->phase) {
+	case 0:
+		if ((data >> 1) != LWS_CST3530_I2C7_ADS ||
+		    lws_now_usecs() - d->us_first < MS(150)) {
+			d->naks++;
+			return 1;
+		}
+		if (!(data & 1)) {
+			d->phase = 1;
+			return 0;
+		}
+		if (d->reg_got != 4) {
+			d->bad++;
+			return 1;
+		}
+		d->phase = 3;
+		d->rp = NULL;
+		d->rlen = 0;
+		if (d->reg == CST_INFO && d->normal == 3) {
+			d->rp = d->info;
+			d->rlen = sizeof(d->info);
+		}
+		if (d->reg == CST_REPORT) {
+			d->rp = d->report;
+			d->rlen = sizeof(d->report);
+		}
+		return 0;
+	case 1:
+		d->reg = (d->reg << 8) | data;
+		if (++d->reg_got == 4)
+			d->phase = 2;
+		return 0;
+	default:
+		/* it has no registers we write data to */
+		d->bad++;
+		return 1;
+	}
+}
+
+static void
+csim_stop(const lws_i2c_ops_t *o)
+{
+	sim_cst3530_t *d = (sim_cst3530_t *)o;
+
+	if (d->phase == 2)
+		switch (d->reg) {
+		case CST_LP_OFF:
+			break;
+		case CST_NORMAL_1:
+			d->normal = 1;
+			break;
+		case CST_NORMAL_2:
+		case CST_NORMAL_3:
+			if (d->normal == (d->reg == CST_NORMAL_2 ? 1 : 2))
+				d->normal++;
+			break;
+		case CST_DONE:
+			/* until the next, what's there isn't a report */
+			memset(d->report, 0, sizeof(d->report));
+			break;
+		default:
+			d->bad++;
+			break;
+		}
+
+	d->phase = 0;
+}
+
+static int
+csim_read(const lws_i2c_ops_t *o)
+{
+	sim_cst3530_t *d = (sim_cst3530_t *)o;
+
+	if (!d->rlen) {
+		d->bad++;
+		return -1;
+	}
+	d->rlen--;
+
+	return *d->rp++;
+}
+
+static sim_cst3530_t csim = {
+	.ops = {
+		.init		= sim_init,
+		.start		= csim_start,
+		.stop		= csim_stop,
+		.write		= csim_write,
+		.read		= csim_read,
+		.set_ack	= sim_set_ack,
+	},
+};
+
+/* as on the T-Display S3 Long: chip type 0xcaca220e, reporting 180 x 640 */
+
+static void
+csim_init(void)
+{
+	static const uint8_t type[] = { 0x0e, 0x22, 0xca, 0xca };
+
+	memcpy(&csim.info[0], type, sizeof(type));
+	csim.info[28] = 180;
+	csim.info[29] = 0;
+	csim.info[30] = (uint8_t)(640 & 0xff);
+	csim.info[31] = (uint8_t)(640 >> 8);
+	csim.info[48] = 10;	/* sensor tx */
+	csim.info[49] = 20;	/* sensor rx */
+
+	csim.report[2] = 0xff;	/* a stale report from before */
+	csim.report[3] = 1;
+}
+
+/*
+ * A report of keys, then contacts, each { x, y, down }, with its checksum,
+ * or with it wrong
+ */
+
+static void
+csim_report(int keys, int contacts, const int (*c)[3], int bad_sum)
+{
+	uint16_t sum = 0x55;
+	uint8_t *p;
+	int n;
+
+	memset(csim.report, 0, sizeof(csim.report));
+	csim.report[2] = 0xff;
+	csim.report[3] = (uint8_t)((keys << 4) | contacts);
+
+	p = &csim.report[4];
+	for (n = 0; n < keys; n++, p += 5) {
+		p[0] = 0x55; /* nonsense, if it were taken as a contact */
+		p[4] = 0x11;
+	}
+	for (n = 0; n < contacts; n++, p += 5) {
+		p[0] = (uint8_t)c[n][0];
+		p[1] = (uint8_t)c[n][1];
+		p[2] = 40;	/* pressure */
+		p[3] = (uint8_t)(((c[n][0] >> 8) & 0xf) |
+				 (((c[n][1] >> 8) & 0xf) << 4));
+		p[4] = (uint8_t)((c[n][2] ? 0x10 : 0) | n);
+	}
+
+	for (n = 4; n < 4 + 5 * (keys + contacts); n++)
+		sum = (uint16_t)(sum + csim.report[n]);
+	if (bad_sum)
+		sum++;
+
+	csim.report[0] = (uint8_t)sum;
+	csim.report[1] = (uint8_t)(sum >> 8);
+}
+
 /* the gpio, recording what happens to the reset line and GT911's INT */
 
 static lws_usec_t us_reset_low, us_reset_high, us_wake_high, us_wake_end;
@@ -517,6 +724,21 @@ static const lws_touch_gt911_t tc = {
 	.i2c			= &gsim.ops,
 };
 
+/* the CST3530 as on the T-Display S3 Long, its reset the display's */
+
+static const lws_touch_cst3530_t td = {
+	.touch = {
+		lws_touch_cst3530_ops,
+		.gpio		= &sim_gpio,
+		.name		= "td",
+		.wh_native	= { 180, 640 },
+		.wh_px		= { 180, 640 },
+		.irq_gpio	= CST3530_IRQ_GPIO,
+		.irq_edge	= LWSGGPIO_IRQ_FALLING,
+	},
+	.i2c			= &csim.ops,
+};
+
 static const char * const expect_smd[] = {
 	/* ta: a tap */
 	"{\"type\":\"touch\",\"src\":\"ta\",\"event\":\"down\",\"x\":10,\"y\":20}",
@@ -546,9 +768,21 @@ static const char * const expect_smd[] = {
 	"{\"type\":\"touch\",\"src\":\"tc\",\"event\":\"down\",\"x\":200,\"y\":439}",
 	"{\"type\":\"touch\",\"src\":\"tc\",\"event\":\"scroll\",\"x\":300,\"y\":439,\"dx\":100,\"dy\":0}",
 	"{\"type\":\"touch\",\"src\":\"tc\",\"event\":\"up\",\"x\":300,\"y\":439}",
+	/* td: a tap, lifted with the contact somewhere else */
+	"{\"type\":\"touch\",\"src\":\"td\",\"event\":\"down\",\"x\":20,\"y\":600}",
+	"{\"type\":\"touch\",\"src\":\"td\",\"event\":\"up\",\"x\":20,\"y\":600}",
+	"{\"type\":\"touch\",\"src\":\"td\",\"event\":\"press\",\"x\":20,\"y\":600}",
+	/* td: a drag, a second finger, a corrupted report, the lift */
+	"{\"type\":\"touch\",\"src\":\"td\",\"event\":\"down\",\"x\":20,\"y\":100}",
+	"{\"type\":\"touch\",\"src\":\"td\",\"event\":\"scroll\",\"x\":20,\"y\":300,\"dx\":0,\"dy\":200}",
+	"{\"type\":\"touch\",\"src\":\"td\",\"event\":\"up\",\"x\":20,\"y\":300}",
+	/* td: a tap with a key in the report before it */
+	"{\"type\":\"touch\",\"src\":\"td\",\"event\":\"down\",\"x\":170,\"y\":5}",
+	"{\"type\":\"touch\",\"src\":\"td\",\"event\":\"up\",\"x\":170,\"y\":5}",
+	"{\"type\":\"touch\",\"src\":\"td\",\"event\":\"press\",\"x\":170,\"y\":5}",
 };
 
-static struct lws_touch_state *tsa, *tsb, *tsc;
+static struct lws_touch_state *tsa, *tsb, *tsc, *tsd;
 static lws_sorted_usec_list_t sul_step;
 static struct lws_context *cx;
 static int smd_seen, step, done;
@@ -670,6 +904,62 @@ next_step(lws_sorted_usec_list_t *sul)
 		gsim_report(0x80, 0, 0);
 		lws_touch_service(tsc);
 		check(!gsim.bad, "%d accesses to absent registers\n", gsim.bad);
+
+		/*
+		 * The CST3530 was only found by retrying, after it was put in
+		 * its normal mode, and the stale report was taken
+		 */
+		check(csim.naks && csim.normal == 3,
+		      "naks %d normal %d\n", csim.naks, csim.normal);
+		check(!csim.report[2], "the stale report wasn't taken\n");
+
+		/* a tap, the lift reported as the contact not down */
+		{
+			static const int down[][3] = { { 20, 600, 1 } },
+					 lift[][3] = { { 90, 90, 0 } };
+
+			csim_report(0, 1, down, 0);
+			lws_touch_service(tsd);
+			check(!csim.report[2], "report not taken\n");
+			lws_touch_service(tsd); /* no new report */
+			csim_report(0, 1, lift, 0);
+			lws_touch_service(tsd);
+		}
+
+		/*
+		 * A drag, then a second finger down, reported with the first,
+		 * then a report that fails its checksum, then the lift with
+		 * no contacts
+		 */
+		{
+			static const int one[][3] = { { 20, 100, 1 } },
+					 two[][3] = { { 20, 300, 1 },
+						      { 150, 20, 1 } },
+					 bad[][3] = { { 170, 630, 1 } };
+
+			csim_report(0, 1, one, 0);
+			lws_touch_service(tsd);
+			csim_report(0, 2, two, 0);
+			lws_touch_service(tsd);
+			csim_report(0, 1, bad, 1);
+			lws_touch_service(tsd);
+			check(!csim.report[2], "bad report not taken\n");
+			csim_report(0, 0, NULL, 0);
+			lws_touch_service(tsd);
+		}
+
+		/* a key reported before the contact isn't taken for it */
+		{
+			static const int c[][3] = { { 170, 5, 1 } },
+					 l[][3] = { { 170, 5, 0 } };
+
+			csim_report(1, 1, c, 0);
+			lws_touch_service(tsd);
+			csim_report(1, 1, l, 0);
+			lws_touch_service(tsd);
+		}
+		check(!csim.bad, "%d accesses the CST3530 doesn't have\n",
+		      csim.bad);
 		break;
 
 	default:
@@ -698,13 +988,15 @@ test_controllers(void)
 	}
 
 	gsim_init();
+	csim_init();
 
 	tsa = lws_touch_create(cx, &ta.touch);
 	tsb = lws_touch_create(cx, &tb.touch);
 	tsc = lws_touch_create(cx, &tc.touch);
-	check(tsa && tsb && tsc, "touch create failed\n");
+	tsd = lws_touch_create(cx, &td.touch);
+	check(tsa && tsb && tsc && tsd, "touch create failed\n");
 
-	if (tsa && tsb && tsc) {
+	if (tsa && tsb && tsc && tsd) {
 		/* give the reset time to complete */
 		lws_sul_schedule(cx, 0, &sul_step, next_step, MS(200));
 
@@ -719,7 +1011,8 @@ test_controllers(void)
 	lws_touch_destroy(&tsa);
 	lws_touch_destroy(&tsb);
 	lws_touch_destroy(&tsc);
-	check(!tsa && !tsb && !tsc, "destroy didn't clear\n");
+	lws_touch_destroy(&tsd);
+	check(!tsa && !tsb && !tsc && !tsd, "destroy didn't clear\n");
 
 	lws_context_destroy(cx);
 }
