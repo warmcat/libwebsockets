@@ -36,7 +36,8 @@ list(APPEND SOURCES
 	misc/html-w.c
 	misc/prng.c
 	misc/lws-crc32.c
-	misc/lws-ring.c)
+	misc/lws-ring.c
+	misc/tz.c)
 
 if (LWS_WITH_NETWORK)
 	list(APPEND SOURCES

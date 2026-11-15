@@ -55,6 +55,7 @@ struct lws_context_creation_info;
 
 #include <libwebsockets/lws-purify.h>
 #include <libwebsockets/lws-misc.h>
+#include <libwebsockets/lws-tz.h>
 #include <libwebsockets/lws-dsh.h>
 #include <libwebsockets/lws-ring.h>
 #include <libwebsockets/lws-region.h>
