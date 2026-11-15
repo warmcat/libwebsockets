@@ -94,6 +94,8 @@
 /* a taller rectangular display: its title strip stops growing at 40px */
 #define TALL_H		480
 #define TALL_TITLE_H	40
+/* and its rows are for 48px icons */
+#define TALL_ROW_H	54
 
 /* the second time, the title strip is white with red text */
 static const char css_red_title[] =
@@ -818,7 +820,7 @@ start_tall(void)
 static void
 next_step(lws_sorted_usec_list_t *sul)
 {
-	int top;
+	int top, x;
 
 	if (fail) {
 		finish(0);
@@ -1650,6 +1652,20 @@ next_step(lws_sorted_usec_list_t *sul)
 			       0xff, 0xff, 0xff) ||
 		    !capsule_drawn()) {
 			lwsl_err("tall: no title or capsule\n");
+			finish(0);
+			return;
+		}
+
+		/*
+		 * The first row's icon is at its left, a little in, not
+		 * centred with its text: it stays there whatever the text is
+		 */
+		for (x = 0; x < W; x++)
+			if (colour_in(x, TALL_TITLE_H, x + 1, TALL_TITLE_H +
+				      TALL_ROW_H, 0x2a, 0x7f, 0xff))
+				break;
+		if (x < 2 || x > 16) {
+			lwsl_err("tall: first row's icon starts at x %d\n", x);
 			finish(0);
 			return;
 		}

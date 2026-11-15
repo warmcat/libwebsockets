@@ -37,7 +37,8 @@
  *    tells the caller, if it wants to know.
  *
  *  - a list strip, taking the rest of the display: rows of an optional icon
- *    and a line of text, centred.  It scrolls by dragging it, or to keep the
+ *    and a line of text, from the left, so an icon stays where it is when its
+ *    text changes.  It scrolls by dragging it, or to keep the
  *    row the caller says is the focus in its middle.  Pressing a row tells the
  *    caller which it was.
  *

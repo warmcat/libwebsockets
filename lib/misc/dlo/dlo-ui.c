@@ -961,14 +961,19 @@ ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 	 * can be seen across all of it, so the background of a highlighted
 	 * one is all inside the circle.
 	 *
-	 * On a round display, a row's icon and text start at the left edge of
-	 * the circle instead of being centred, from where all of its icon can
-	 * be seen: the icons follow the circle round, and the rows away from
-	 * the middle, where it's narrow, show less of their text
+	 * A row's icon and text start at its left, not centred, so the icon
+	 * stays where it is whatever the text is: on a display that only
+	 * changes the pixels that differ, eg, an EPD, an icon that moved when
+	 * its text changed would leave a ghost where it was.  On a round
+	 * display, that's the left edge of the circle, from where all of its
+	 * icon can be seen: the icons follow the circle round, and the rows
+	 * away from the middle, where it's narrow, show less of their text
 	 */
 
-	if (round)
-		lws_html_w_printf(&w, ".r { justify-content: flex-start }");
+	lws_html_w_printf(&w, ".r { justify-content: flex-start }");
+	if (!round)
+		lws_html_w_printf(&w, ".r { box-sizing: border-box;"
+				  " padding-left: %dpx }", ui->pad * 2);
 
 	first = ui->top / ui->row_h;
 	last = (ui->top + lh + ui->row_h - 1) / ui->row_h;
