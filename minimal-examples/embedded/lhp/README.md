@@ -225,8 +225,8 @@ The settings need a way to move around them and the keyboard: a touch
 display, or buttons named `up`, `down`, `left`, `right` and `enter`, and
 optionally `esc` to go back.  Their clicks go to `lws_dlo_ui_interaction()`,
 which moves a cursor over the dialog's links and the keyboard.  The boards here only
-have a single `user` button, so for now only
-`esp32s3-waveshare-240-240-touch` can show the settings; a board given those
+have a single `user` button, so for now only the ones with a touch panel can
+show the settings; a board given those
 buttons, and a `settings` one, in its `lws_button_map_t` needs no other
 changes.
 
@@ -353,13 +353,14 @@ once it has used it, it logs `Completed: PASS`, which is what Sai's
 
 ESP32 WROVER KIT, and ESP32S2 Kaluga boards and displays are
 supported, along with Waveshare ESP32 dev board and a variety of
-E-ink displays, and the Waveshare ESP32-S3-Touch-LCD-1.28 round LCD with
-a touch panel.
+E-ink displays, the Waveshare ESP32-S3-Touch-LCD-1.28 round LCD with
+a touch panel, and the LilyGo T-Display S3 Long, a 180 x 640 LCD on quad SPI
+with a touch panel.
 
 ## Touch
 
-On boards with a touch panel (`esp32s3-waveshare-240-240-touch` and
-`esp32s3-lilygo-t5-47`), touches on the strip ui, the boot list, the settings, or the frame's title strip, are
+On boards with a touch panel (`esp32s3-waveshare-240-240-touch`,
+`esp32s3-lilygo-t5-47` and `esp32s3-lilygo-t-display-s3-long`), touches on the strip ui, the boot list, the settings, or the frame's title strip, are
 for it, see above.  Pressing a link on the page in the frame's body follows
 it, and stops the carousel: the user is
 driving then, so it no longer ends by itself.  Dragging the page moves it
@@ -515,8 +516,8 @@ saying so: either build with `-DLWS_WITH_HTTP3=0 -DLWS_ROLE_QUIC=0`, as CI
 does, or give IDF a patched mbedtls component.
 
 `esp32-waveshare-600-448-7col` uses http/3 for its content, and
-`esp32s3-waveshare-240-240-touch` and `esp32s3-lilygo-t5-47` build it beside
-h2, so they need the
+`esp32s3-waveshare-240-240-touch`, `esp32s3-lilygo-t5-47` and
+`esp32s3-lilygo-t-display-s3-long` build it beside h2, so they need the
 patched component.  For esp-idf v6.1 (mbedtls 4.1), you can make one
 without touching the IDF install: copy IDF's component, apply the patches
 to the mbedtls inside it, and enable them in IDF's mbedtls config
