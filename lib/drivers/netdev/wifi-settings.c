@@ -42,6 +42,8 @@
 static const char settings_css[] =
 	"a { text-decoration: none; color: #000 }"
 	".s { color: #24476b; margin-top: 4px }"
+	/* on a display that's only black and white, it'd be dithered */
+	"@media (monochrome: 1) { .s { color: #000 } }"
 	".d { color: #888 }"
 	".st { font-size: 0.75em }"
 	"table { border-collapse: collapse; border: 1px solid #b4bcc6 }"

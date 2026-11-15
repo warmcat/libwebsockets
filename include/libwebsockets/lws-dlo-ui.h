@@ -123,7 +123,9 @@
  *
  * The positions and sizes of these follow from the display, and are set by
  * the ui after the caller's css, so css can't change them; colours, borders
- * and the like are its to set.
+ * and the like are its to set.  On a display that's only black and white, the
+ * theme's dark colours are black, so they aren't dithered with white px: css
+ * setting colours can do the same with @media (monochrome: 1).
  *
  * The ui uses the display while it draws: it sets lds->display_busy, and as
  * with any other update, the display's completion callback clears it when the

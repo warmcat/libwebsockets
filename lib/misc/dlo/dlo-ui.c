@@ -698,7 +698,15 @@ static const char * const ui_css =
 	".sb { opacity: 0.3 }"
 	".so { opacity: 1 }"
 	"#sbi { background-color: #fff }"
-	"#sbc { background-color: #2a8f3a }";
+	"#sbc { background-color: #2a8f3a }"
+
+	/*
+	 * On a display that's only black and white, eg, an EPD, the dark
+	 * colours would be black dithered with a few white px: they're black
+	 */
+	"@media (monochrome: 1) {"
+		" #t, .ka, .c, .sb, #sbo, #sbn, #sbf, #sbc"
+			" { background-color: #000 } }";
 
 /* where the capsule's icons are in it */
 
