@@ -18,6 +18,11 @@ real panel would, if the waveforms suited it.  It checks
  - a row is only ever stepped over with "no drive" latched in the source
    driver, since stepping over drives what's latched onto the row
 
+ - a row whose pixels were written with some drive is written with no drive
+   before it's stepped over, and no row still holds a drive when an update
+   is said to be complete: like a real active-matrix panel, the simulated
+   one's pixels go on being driven by what was last written to them
+
  - a row's data isn't changed while it's being sent: the simulated transport
    reads it when it's latched, as a DMA might, and the driver prepares the
    next row in the meantime
@@ -36,12 +41,28 @@ real panel would, if the waveforms suited it.  It checks
    starts with one, and only that update
 
  - rows are driven for the waveform's `clear_drive_ns` in a clear's passes,
-   and its `drive_ns` in an update's
+   and its `drive_ns` in an update's, or with a `drive_cycle_ns`, the time
+   for where the update is in the cycle, which updates overlapping agree on
 
  - the panel supplies are turned off once the passes are done
 
  - being bistable, the display only animates anything if it says how often
    it can usefully be updated, `.anim_hz`, and then no more often than that
+
+It runs the tests for black and white, then for grey levels, with a 16-level
+waveform for a simulated ink that moves exactly a level per pass driven,
+both on a 16-level display and on a 4-level one, whose levels are spread
+over the waveform's.  With grey levels it checks
+
+ - pixels move from whatever level they're at to the one wanted, darker and
+   lighter, and all the transitions in an update end on the same pass
+
+ - updates start on a pass that's a multiple of 4, so one started while
+   another is in flight starts 4 passes after it
+
+ - a pixel whose span (`.start_span_px`) has a transition in flight waits
+   for it to finish, while one in the next span doesn't, and with 1-pixel
+   spans, neither waits
 
 Where there are pthreads, it then runs all of it again with the passes run on
 a thread of their own, through `lws_epd_direct_runner_t`, the way a platform

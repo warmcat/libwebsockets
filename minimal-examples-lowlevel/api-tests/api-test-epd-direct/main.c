@@ -20,6 +20,10 @@
  *    nothing changing on them aren't driven
  *  - transitions of different lengths in an update end on the same pass
  *  - a row is only ever stepped over with "no drive" latched
+ *  - a row whose pixels were written with some drive is written with no
+ *    drive before it's stepped over, and none still holds a drive when an
+ *    update is said to be complete, since active-matrix pixels go on being
+ *    driven by what was last written to them
  *  - a row's data isn't changed while it's being sent, since the driver
  *    prepares the next row then
  *  - two updates started passes apart are both in flight at once
@@ -32,6 +36,12 @@
  *    updates' in theirs
  *  - a line blitted without pixels is white
  *  - the supplies are turned off after the passes are done
+ *  - with grey levels, pixels move from whatever level they're at to the
+ *    one wanted, both ways, a display with fewer levels than its waveform
+ *    has its levels spread over the waveform's, and updates start on a pass
+ *    that's a multiple of 4
+ *  - a pixel whose span has a transition in flight waits for it to finish,
+ *    unless spans are a single pixel
  *
  * Where there are pthreads, it then does it all again with the passes run on
  * a thread of their own, the way a platform's runner would, to check the two
@@ -70,6 +80,8 @@ static struct lws_context *cx;
 #define ROW_BYTES	(W / 4)
 #define TAIL		2
 #define INK_STEPS	4
+#define GREY_LEVELS	16
+#define GREY_PASSES	(GREY_LEVELS - 1)
 #define MAX_PASSES	512
 
 #define DRIVE_NS	10000
@@ -117,6 +129,13 @@ static struct {
 	uint32_t	drive_ns[MAX_PASSES];
 	/**< how long rows were driven for in that pass, 0 if none were */
 	uint8_t		ink_min[H][W];
+	int		px_first[H][W];
+	int		px_last[H][W];
+	/**< the first and last pass the pixel was driven in, or -1 */
+	int		charged[H];
+	/**< like a real active-matrix panel, the row's pixels go on being
+	 * driven with what was last written to them until they're written
+	 * again: it was last written with some drive */
 	int		row;
 	int		passes;
 	int		powered;
@@ -127,6 +146,9 @@ static struct {
 	int		bad_loads;
 	int		bad_buffers;
 	int		bad_drives;
+	int		bad_charged;
+	int		encodes_16l;
+	/**< calls of the bus' encode_16l */
 } sim;
 
 static int
@@ -177,6 +199,13 @@ sim_row_load(const lws_epd_direct_bus_ops_t *bus, const uint8_t *data,
 	memcpy(sim.loaded, data, len);
 }
 
+/*
+ * How far the simulated ink goes from black to white.  For black and white,
+ * the waveforms saturate it; for grey levels, it moves a step per level, and
+ * the waveforms move it exactly
+ */
+static int ink_max = INK_STEPS;
+
 /* move the ink of the current row as the latched codes say */
 
 static void
@@ -201,12 +230,18 @@ sim_apply(void)
 			d |= 1;
 		}
 		if (c == CODE_WHITE) {
-			if (*ink < INK_STEPS)
+			if (*ink < ink_max)
 				(*ink)++;
 			d |= 2;
 		}
 		if (*ink < sim.ink_min[sim.row][x])
 			sim.ink_min[sim.row][x] = *ink;
+		if ((c == CODE_BLACK || c == CODE_WHITE) &&
+		    sim.passes < MAX_PASSES) {
+			if (sim.px_first[sim.row][x] < 0)
+				sim.px_first[sim.row][x] = sim.passes;
+			sim.px_last[sim.row][x] = sim.passes;
+		}
 	}
 
 	/* the tail must not drive anything */
@@ -242,6 +277,17 @@ sim_row_drive(const lws_epd_direct_bus_ops_t *bus, uint32_t drive_ns)
 	memcpy(sim.latched, sim.sending, sizeof(sim.latched));
 	sim.sending = NULL;
 	sim_apply();
+
+	/* what's written to the row stays on its pixels */
+
+	if (sim.row < H) {
+		size_t n;
+
+		sim.charged[sim.row] = 0;
+		for (n = 0; n < ROW_BYTES; n++)
+			if (sim.latched[n] != CODE_NONE)
+				sim.charged[sim.row] = 1;
+	}
 	sim.row++;
 }
 
@@ -258,6 +304,14 @@ sim_row_skip(const lws_epd_direct_bus_ops_t *bus)
 		if (sim.latched[n] != CODE_NONE)
 			sim.bad_skips++;
 
+	/*
+	 * Stepping over a row whose pixels still hold a drive leaves them
+	 * moving: they must have been written with no drive first
+	 */
+
+	if (sim.row < H && sim.charged[sim.row])
+		sim.bad_charged++;
+
 	sim_apply();
 	sim.row++;
 }
@@ -273,15 +327,61 @@ sim_frame_end(const lws_epd_direct_bus_ops_t *bus)
 	wake();
 }
 
+/*
+ * A bus that encodes the most common rows itself, as a platform might do it
+ * faster.  This one does it just as the description of .encode_16l says, so
+ * the driver's tables for it, and its use of it for runs of words with every
+ * pixel in flight, are checked.
+ */
+
+static uint32_t
+sim_encode_16l(uint8_t *out, const uint8_t *ft, const uint8_t *starts,
+	       size_t words, const void *tables)
+{
+	const uint8_t *t = (const uint8_t *)tables;
+	const uint32_t *codes = (const uint32_t *)(const void *)
+						(t + LWS_EPDD_16L_CODES);
+	uint8_t none = t[LWS_EPDD_16L_NONE], b;
+	size_t x, p, n = words * 32;
+	unsigned int j, st;
+	uint32_t any = 0;
+
+	if (((uintptr_t)out & 7) || ((uintptr_t)ft & 15) ||
+	    ((uintptr_t)tables & 15))
+		sim.bad_loads++;
+
+	for (x = 0; x < n; x += 4) {
+		b = 0;
+		for (j = 0; j < 4; j++) {
+			p = x + j;
+			st = (starts[p / 16] >> (((p / 8) & 1) * 4)) & 0xf;
+			b = (uint8_t)(b | ((codes[st << 8 | ft[p]] & 3) <<
+								(6 - 2 * j)));
+		}
+		out[x / 4] = b;
+		any |= (uint32_t)(b ^ none);
+	}
+
+	ainc(&sim.encodes_16l);
+
+	return any;
+}
+
+#define SIM_BUS_OPS \
+	.init			= sim_init, \
+	.power			= sim_power, \
+	.frame_start		= sim_frame_start, \
+	.row_load		= sim_row_load, \
+	.row_drive		= sim_row_drive, \
+	.row_skip		= sim_row_skip, \
+	.frame_end		= sim_frame_end, \
+	.row_tail_bytes		= TAIL
+
 static const lws_epd_direct_bus_ops_t sim_bus = {
-	.init			= sim_init,
-	.power			= sim_power,
-	.frame_start		= sim_frame_start,
-	.row_load		= sim_row_load,
-	.row_drive		= sim_row_drive,
-	.row_skip		= sim_row_skip,
-	.frame_end		= sim_frame_end,
-	.row_tail_bytes		= TAIL,
+	SIM_BUS_OPS,
+}, sim_bus_16l = {
+	SIM_BUS_OPS,
+	.encode_16l		= sim_encode_16l,
 };
 
 static const lws_epd_direct_panel_t sim_panel = {
@@ -300,29 +400,141 @@ static const lws_epd_direct_panel_t sim_panel = {
 #define Wh LWS_EPDD_WHITE
 
 /*
- * Going black is shorter than going white, and doesn't drive in its first
- * pass, so in an update with both, it starts two passes later
+ * Going black drives in fewer passes than going white, and not in the first
+ * three, so in an update with both, it starts driving three passes later
  */
 
-static const uint8_t to_black[] = { N, B, B, B, B },
-		     to_white[] = { Wh, Wh, Wh, Wh, Wh, Wh, Wh },
-		     clear[] = { B, B, B, B, Wh, Wh, Wh, Wh };
+#define BLACK_LEAD	3
 
-static const lws_epd_direct_waveform_bw_t sim_wf = {
-	.to_black		= to_black,
-	.to_black_len		= LWS_ARRAY_SIZE(to_black),
-	.to_white		= to_white,
-	.to_white_len		= LWS_ARRAY_SIZE(to_white),
+static const uint8_t bw_update[] = {
+	/* to black, from black, white;  to white, from black, white */
+	LWS_EPDD_PACK2(N, N),	LWS_EPDD_PACK2(Wh, N),
+	LWS_EPDD_PACK2(N, N),	LWS_EPDD_PACK2(Wh, N),
+	LWS_EPDD_PACK2(N, N),	LWS_EPDD_PACK2(Wh, N),
+	LWS_EPDD_PACK2(N, B),	LWS_EPDD_PACK2(Wh, N),
+	LWS_EPDD_PACK2(N, B),	LWS_EPDD_PACK2(Wh, N),
+	LWS_EPDD_PACK2(N, B),	LWS_EPDD_PACK2(Wh, N),
+	LWS_EPDD_PACK2(N, B),	LWS_EPDD_PACK2(Wh, N),
+}, clear[] = { B, B, B, B, Wh, Wh, Wh, Wh };
+
+#define BW_PASSES	(LWS_ARRAY_SIZE(bw_update) / 2)
+#define BW_BLACK_PASSES	(BW_PASSES - BLACK_LEAD)
+
+static const lws_epd_direct_waveform_t sim_wf = {
+	.update			= bw_update,
+	.update_passes		= BW_PASSES,
+	.levels			= 2,
 	.clear			= clear,
 	.clear_len		= LWS_ARRAY_SIZE(clear),
 	.drive_ns		= DRIVE_NS,
 	.clear_drive_ns		= CLEAR_DRIVE_NS,
 };
 
+/*
+ * 16 grey levels, for a simulated ink that moves exactly a level per pass
+ * driven.  A transition drives towards where it's going in its last passes,
+ * as many as the levels it moves, so they all end together.  Its clear
+ * saturates the ink black, then white.
+ */
+
+static uint8_t grey_update[GREY_PASSES][GREY_LEVELS][GREY_LEVELS / 4],
+	       grey_clear[2 * GREY_PASSES];
+
+static const lws_epd_direct_waveform_t grey_wf = {
+	.update			= &grey_update[0][0][0],
+	.update_passes		= GREY_PASSES,
+	.levels			= GREY_LEVELS,
+	.clear			= grey_clear,
+	.clear_len		= LWS_ARRAY_SIZE(grey_clear),
+	.drive_ns		= DRIVE_NS,
+	.clear_drive_ns		= CLEAR_DRIVE_NS,
+}, grey_cycle_wf = {
+	/* the same, driving for a different time in each pass of 4 */
+	.update			= &grey_update[0][0][0],
+	.update_passes		= GREY_PASSES,
+	.levels			= GREY_LEVELS,
+	.clear			= grey_clear,
+	.clear_len		= LWS_ARRAY_SIZE(grey_clear),
+	.drive_ns		= DRIVE_NS,
+	.drive_cycle_ns		= { 4 * DRIVE_NS, DRIVE_NS / 10,
+				    DRIVE_NS / 5, DRIVE_NS / 2 },
+	.clear_drive_ns		= CLEAR_DRIVE_NS,
+};
+
+static void
+build_grey_wf(void)
+{
+	int p, t, f, d, c;
+
+	for (p = 0; p < GREY_PASSES; p++)
+		for (t = 0; t < GREY_LEVELS; t++)
+			for (f = 0; f < GREY_LEVELS; f++) {
+				d = t > f ? t - f : f - t;
+				c = p < GREY_PASSES - d ? N : (t > f ? Wh : B);
+				grey_update[p][t][f >> 2] = (uint8_t)
+					(grey_update[p][t][f >> 2] |
+					 (c << (6 - 2 * (f & 3))));
+			}
+
+	for (p = 0; p < (int)LWS_ARRAY_SIZE(grey_clear); p++)
+		grey_clear[p] = p < GREY_PASSES ? B : Wh;
+}
+
+/*
+ * Palettes, and the Y given for each level when we blit it.  The palettes are
+ * in the linear light the blitted Y is turned into before it's matched to
+ * them, so the Y for each level are the ones that become exactly that.
+ */
+
 static const lws_display_colour_t palette[] = {
 	PALETTE_RGBY(0, 0, 0),
 	PALETTE_RGBY(255, 255, 255),
+}, palette4[] = {
+	PALETTE_RGBY(0, 0, 0),
+	PALETTE_RGBY(22, 22, 22),
+	PALETTE_RGBY(104, 104, 104),
+	PALETTE_RGBY(255, 255, 255),
+}, palette16[] = {
+#define P(_y) PALETTE_RGBY(_y, _y, _y)
+	P(0), P(1), P(3), P(7), P(13), P(22), P(33), P(47),
+	P(63), P(82), P(104), P(128), P(156), P(186), P(219), P(255),
+#undef P
 };
+
+static const uint8_t y_bw[] = { 0, 255 },
+		     y4[] = { 0, 85, 170, 255 },
+		     y16[] = { 0, 21, 34, 51, 68, 85, 102, 119,
+			       136, 153, 170, 187, 204, 221, 238, 255 };
+
+/* what each run of the tests drives */
+
+typedef struct {
+	const char			*name;
+	const lws_display_colour_t	*palette;
+	const uint8_t			*y;
+	const lws_epd_direct_waveform_t	*wf;
+	int				levels;
+	/**< the display's levels */
+	int				ink_max;
+	int				span;
+	/**< start_span_px */
+	const lws_epd_direct_bus_ops_t	*bus;
+} config_t;
+
+static const config_t configs[] = {
+	{ "black and white", palette, y_bw, &sim_wf, 2, INK_STEPS, 0,
+								&sim_bus },
+	{ "16 levels", palette16, y16, &grey_wf, 16, GREY_PASSES, 0,
+								&sim_bus },
+	{ "16 levels, the bus encoding rows", palette16, y16, &grey_wf, 16,
+						GREY_PASSES, 0, &sim_bus_16l },
+	{ "4 of 16 levels, 1-px spans", palette4, y4, &grey_wf, 4,
+						GREY_PASSES, 1, &sim_bus },
+	{ "16 levels, a drive cycle", palette16, y16, &grey_cycle_wf, 16,
+						GREY_PASSES, 0, &sim_bus },
+};
+
+static const config_t *cfg = &configs[0];
 
 static int cb1, cb2;
 
@@ -353,7 +565,7 @@ static lws_display_epd_direct_t disp = {
 		.name			= "simulated EPD",
 	},
 	.panel				= &sim_panel,
-	.wf_bw				= &sim_wf,
+	.wf				= &sim_wf,
 	.bus				= &sim_bus,
 	.cb				= completion_cb,
 	.power_off_idle_ms		= 5,
@@ -367,7 +579,7 @@ lds_runner(void)
 	return disp.runner != NULL;
 }
 
-/* what we last blitted, 0 black or 1 white */
+/* the levels we last blitted, 0 black to cfg->levels - 1 white */
 static uint8_t want[H][W];
 
 static int
@@ -494,9 +706,27 @@ static const lws_epd_direct_runner_t tr_runner = {
 #endif
 
 /*
- * Wait until there have been a number of passes, with the next one not started
- * until release() is called
+ * Don't let a runner on its own thread start a pass once there have been a
+ * number of passes, until release() is called.  This must be done before
+ * what's committed can start passes, or the runner may already be past it.
  */
+
+static void
+hold_from(int passes)
+{
+#if defined(TEST_THREADS)
+	if (lds_runner()) {
+		pthread_mutex_lock(&tr.lock);
+		tr.hold_at = passes;
+		pthread_cond_signal(&tr.cond);
+		pthread_mutex_unlock(&tr.lock);
+	}
+#else
+	(void)passes;
+#endif
+}
+
+/* wait until the runner is held after the passes given to hold_from() */
 
 static void
 hold_at(int passes)
@@ -506,11 +736,6 @@ hold_at(int passes)
 	int held = 0;
 
 	if (lds_runner()) {
-		pthread_mutex_lock(&tr.lock);
-		tr.hold_at = passes;
-		pthread_cond_signal(&tr.cond);
-		pthread_mutex_unlock(&tr.lock);
-
 		while (!held && lws_now_usecs() < until) {
 			pthread_mutex_lock(&tr.lock);
 			held = tr.held;
@@ -562,7 +787,7 @@ blit_row(int y, int null_src)
 	int x;
 
 	for (x = 0; x < W; x++)
-		line[x] = want[y][x] ? 255 : 0;
+		line[x] = cfg->y[want[y][x]];
 
 	memset(&box, 0, sizeof(box));
 	box.w.whole = W;
@@ -596,12 +821,21 @@ check_panel(const char *what)
 {
 	int x, y, bad = 0;
 
+	/* the display's levels are spread evenly over the ink */
+
 	for (y = 0; y < H; y++)
 		for (x = 0; x < W; x++)
-			if (sim.ink[y][x] != (want[y][x] ? INK_STEPS : 0))
+			if (sim.ink[y][x] != want[y][x] * cfg->ink_max /
+							(cfg->levels - 1))
 				bad++;
 
 	check(!bad, "%s: %d pixels wrong\n", what, bad);
+
+	/* when it's said to be done, nothing goes on moving */
+
+	for (y = 0, bad = 0; y < H; y++)
+		bad += sim.charged[y];
+	check(!bad, "%s: %d rows still hold a drive\n", what, bad);
 }
 
 /* the first and last pass a row was driven in from pass p0 */
@@ -640,6 +874,18 @@ set_rect(int x0, int y0, int x1, int y1, uint8_t v)
 			want[y][x] = v;
 }
 
+/* forget which pixels were driven when */
+
+static void
+px_reset(void)
+{
+	int x, y;
+
+	for (y = 0; y < H; y++)
+		for (x = 0; x < W; x++)
+			sim.px_first[y][x] = sim.px_last[y][x] = -1;
+}
+
 static void
 test_boot(void)
 {
@@ -651,9 +897,10 @@ test_boot(void)
 
 	for (y = 0; y < H; y++)
 		for (x = 0; x < W; x++)
-			sim.ink[y][x] = (uint8_t)((x * 7 + y * 3) % (INK_STEPS + 1));
+			sim.ink[y][x] = (uint8_t)((x * 7 + y * 3) %
+						  (ink_max + 1));
 
-	memset(want, 1, sizeof(want));
+	memset(want, cfg->levels - 1, sizeof(want));
 	lws_display_state_init(&lds, cx, -1, -1, NULL, &disp.disp);
 	check(lds.priv != NULL, "init failed\n");
 	if (!lds.priv)
@@ -661,12 +908,17 @@ test_boot(void)
 
 	service_until(&cb1, 1);
 	check_panel("boot clear");
-	check(sim.passes == LWS_ARRAY_SIZE(clear),
+	/* after the clear, a pass writes no drive to the rows it drove */
+
+	check(sim.passes == disp.wf->clear_len + 1,
 	      "clear took %d passes\n", sim.passes);
-	for (x = 0; x < sim.passes; x++)
+	for (x = 0; x < disp.wf->clear_len; x++)
 		check(sim.drive_ns[x] == CLEAR_DRIVE_NS,
 		      "clear pass %d drove for %uns\n", x,
 		      (unsigned int)sim.drive_ns[x]);
+	for (y = 0; y < H; y++)
+		check(!sim.driven[disp.wf->clear_len][y],
+		      "row %d driven after the clear\n", y);
 	check(!cb2, "update completion without an update\n");
 
 	/* after the idle time, the supplies go off */
@@ -734,8 +986,7 @@ test_aligned(void)
 	check(last_driven(p0, 2) == last_driven(p0, 7),
 	      "transitions end on passes %d and %d\n",
 	      last_driven(p0, 2), last_driven(p0, 7));
-	check(first_driven(p0, 7) - first_driven(p0, 2) ==
-		(int)(LWS_ARRAY_SIZE(to_white) - LWS_ARRAY_SIZE(to_black)) + 1,
+	check(first_driven(p0, 7) - first_driven(p0, 2) == BLACK_LEAD,
 	      "to_black started at %d, to_white at %d\n",
 	      first_driven(p0, 7), first_driven(p0, 2));
 }
@@ -751,24 +1002,30 @@ test_overlap(void)
 
 	set_rect(0, 0, W, 2, 0);
 	blit_all();
+	target = aget(&sim.passes) + 2;
+	hold_from(target);
 	commit();
 
-	/* two passes later, rows 8 - 9 go black too */
+	/*
+	 * Two passes later, row 7 goes back to white.  Updates start on a
+	 * multiple of 4 passes, so it starts 4 passes after the first one,
+	 * which is still going.
+	 */
 
-	target = aget(&sim.passes) + 2;
 	hold_at(target);
-	set_rect(10, 8, 30, 10, 0);
+	set_rect(0, 7, 20, 8, 1);
 	blit_all();
 	commit();
 	release();
 
 	service_until(&cb2, c + 1);
 	check_panel("overlap");
-	check(first_driven(p0, 8) > first_driven(p0, 0),
-	      "second update started first\n");
-	check(first_driven(p0, 8) <= last_driven(p0, 0),
+	check(first_driven(p0, 7) - (first_driven(p0, 0) - BLACK_LEAD) == 4,
+	      "second update started %d passes after the first\n",
+	      first_driven(p0, 7) - (first_driven(p0, 0) - BLACK_LEAD));
+	check(first_driven(p0, 7) <= last_driven(p0, 0),
 	      "updates were not in flight together (%d, %d)\n",
-	      first_driven(p0, 8), last_driven(p0, 0));
+	      first_driven(p0, 7), last_driven(p0, 0));
 }
 
 static void
@@ -783,11 +1040,16 @@ test_collision(void)
 	sim.ink_min[6][50] = INK_STEPS;
 	want[6][50] = 0;
 	blit_all();
+	target = aget(&sim.passes) + BLACK_LEAD + 2;
+	hold_from(target);
 	commit();
 
-	/* ... and is wanted white again while it's still going */
+	/*
+	 * ... and is wanted white again while it's still going.  Its update
+	 * starts at once, since nothing else is in flight, and is driven
+	 * black from its BLACK_LEAD'th pass
+	 */
 
-	target = aget(&sim.passes) + 3;
 	hold_at(target);
 	check(sim.ink[6][50] != 0 && sim.ink[6][50] != INK_STEPS,
 	      "pixel not in between (%d)\n", sim.ink[6][50]);
@@ -923,6 +1185,145 @@ test_clear(void)
 }
 
 /*
+ * Grey levels: pixels go from white to levels, then from those levels to
+ * others, darker and lighter.  Everything in an update ends on the same pass.
+ */
+
+/*
+ * The passes from p0 that drove pixels, of updates that all started in step
+ * with the one that started on p0, drove rows for the waveform's times: if it
+ * has a drive cycle, the time for where they are in it.  The pass after them
+ * that only writes no drive may be driven for any of them.
+ */
+
+static void
+check_drive_times(int p0, const char *what)
+{
+	const lws_epd_direct_waveform_t *wf = cfg->wf;
+	int p, y, ph, n = 0;
+	uint32_t ns;
+
+	for (p = p0; p < aget(&sim.passes) && p < MAX_PASSES; p++) {
+		for (y = 0; y < H; y++)
+			if (sim.driven[p][y])
+				break;
+		if (y == H)
+			/* no pixel was driven */
+			continue;
+
+		ph = (p - p0) & (LWS_EPDD_DRIVE_CYCLE - 1);
+		ns = wf->drive_cycle_ns[0] ? wf->drive_cycle_ns[ph] :
+					     wf->drive_ns;
+		check(sim.drive_ns[p] == ns, "%s: pass %d drove for %uns, "
+		      "not %uns\n", what, p, (unsigned int)sim.drive_ns[p],
+		      (unsigned int)ns);
+		n++;
+	}
+	check(n, "%s: no rows driven\n", what);
+}
+
+static void
+test_grey_update(void)
+{
+	int x, y, c, p0, last;
+
+	lwsl_user("%s\n", __func__);
+
+	for (y = 1; y < 5; y++)
+		for (x = 0; x < W; x++)
+			want[y][x] = (uint8_t)((x + y) % cfg->levels);
+
+	c = cb2;
+	p0 = sim.passes;
+	blit_all();
+	commit();
+	service_until(&cb2, c + 1);
+	check_panel("grey from white");
+	check_drive_times(p0, "grey from white");
+
+	for (y = 1; y < 5; y++)
+		for (x = 0; x < W; x++)
+			/* a step of 1 to levels - 1, so it changes */
+			want[y][x] = (uint8_t)((want[y][x] + 1 +
+					x % (cfg->levels - 1)) % cfg->levels);
+
+	c = cb2;
+	p0 = sim.passes;
+	px_reset();
+	blit_all();
+	commit();
+	service_until(&cb2, c + 1);
+	check_panel("grey to grey");
+	check_drive_times(p0, "grey to grey");
+
+	for (y = 1, last = -1; y < 5; y++) {
+		check(last < 0 || last_driven(p0, y) == last,
+		      "row %d ended on pass %d, not %d\n", y,
+		      last_driven(p0, y), last);
+		last = last_driven(p0, y);
+	}
+	check(last == p0 + GREY_PASSES - 1, "ended on pass %d, not %d\n",
+	      last, p0 + GREY_PASSES - 1);
+}
+
+/*
+ * A pixel goes black.  While it's still going, its neighbour in its span, and
+ * one in the next span, go black too.  The one in the next span starts on the
+ * next multiple of 4 passes, while the first is still going; the one in its
+ * span has to wait until it's done, unless spans are a single pixel.
+ */
+
+static void
+test_span(void)
+{
+	int c = cb2, y = 8, first, next, same, span, span_q, target, p0;
+
+	lwsl_user("%s\n", __func__);
+
+	span = cfg->span ? cfg->span : 8;
+	px_reset();
+	want[y][8] = 0;
+	blit_all();
+	p0 = aget(&sim.passes);
+	target = p0 + 6;
+	hold_from(target);
+	commit();
+
+	hold_at(target);
+	want[y][9] = 0;
+	want[y][16] = 0;
+	blit_all();
+	commit();
+	release();
+
+	service_until(&cb2, c + 1);
+	check_panel("span");
+	/* the second update joined in step with the first */
+	check_drive_times(p0, "span");
+
+	first = sim.px_first[y][8];
+	next = sim.px_first[y][16];
+	same = sim.px_first[y][9];
+
+	check(first >= 0 && next > first && next <= sim.px_last[y][8],
+	      "next span's pixel driven from %d, the first %d - %d\n", next,
+	      first, sim.px_last[y][8]);
+	/* check() can't have a % in its condition, it's in a format */
+	span_q = (next - first) & 3;
+	check(!span_q, "next span's pixel started %d passes after\n",
+	      next - first);
+
+	if (span > 1)
+		check(same > sim.px_last[y][8],
+		      "same span's pixel driven from %d, the first until %d\n",
+		      same, sim.px_last[y][8]);
+	else
+		check(same == next,
+		      "with 1-px spans, driven from %d, not with the other at "
+		      "%d\n", same, next);
+}
+
+/*
  * Being bistable, the panel only shows something animated if the display says
  * how often it can usefully be updated for it, and then no more often than
  * that.  A display that isn't bistable can be updated as often as wanted.
@@ -951,27 +1352,48 @@ test_anim_interval(void)
 }
 
 static void
-run_tests(const lws_epd_direct_runner_t *runner)
+run_tests(const config_t *c, const lws_epd_direct_runner_t *runner)
 {
 	memset(&sim, 0, sizeof(sim));
 	memset(&lds, 0, sizeof(lds));
 	cb1 = cb2 = 0;
+	cfg = c;
+	ink_max = c->ink_max;
 	disp.runner = runner;
+	disp.wf = c->wf;
+	disp.bus = c->bus;
+	disp.start_span_px = (uint8_t)c->span;
+	disp.disp.ic.palette = c->palette;
+	disp.disp.ic.palette_depth = (size_t)c->levels;
+	px_reset();
 
-	lwsl_user("passes run %s\n", runner ? "on their own thread" :
-					      "from the event loop");
+	lwsl_user("%s, passes run %s\n", c->name,
+		  runner ? "on their own thread" : "from the event loop");
 
 	test_boot();
 	if (!lds.priv)
 		return;
 
-	test_update();
-	test_aligned();
-	test_overlap();
-	test_collision();
-	test_null_line();
-	test_full_refresh();
-	test_clear();
+	if (c->levels == 2) {
+		test_update();
+		test_aligned();
+		test_overlap();
+		test_collision();
+		test_null_line();
+		test_full_refresh();
+		test_clear();
+	} else {
+		int e = aget(&sim.encodes_16l);
+
+		test_grey_update();
+		test_span();
+
+		/* it was checked at init, and must have been used since */
+		if (c->bus->encode_16l)
+			check(e && aget(&sim.encodes_16l) > e,
+			      "the bus' encode_16l used %d times\n",
+			      aget(&sim.encodes_16l));
+	}
 
 	service_until(&sim.power_offs, aget(&sim.power_ons));
 	check(!aget(&sim.powered), "still powered at the end\n");
@@ -983,6 +1405,8 @@ run_tests(const lws_epd_direct_runner_t *runner)
 	      sim.bad_buffers);
 	check(!sim.bad_drives, "%d passes drove rows for different times\n",
 	      sim.bad_drives);
+	check(!sim.bad_charged, "%d rows stepped over still holding a drive\n",
+	      sim.bad_charged);
 
 	lwsl_user("%d passes\n", aget(&sim.passes));
 
@@ -994,6 +1418,7 @@ int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
+	int n;
 
 	memset(&info, 0, sizeof(info));
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
@@ -1008,12 +1433,16 @@ main(int argc, const char **argv)
 	}
 
 	test_anim_interval();
-	run_tests(NULL);
+	build_grey_wf();
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(configs); n++)
+		run_tests(&configs[n], NULL);
 
 #if defined(TEST_THREADS)
 	pthread_mutex_init(&tr.lock, NULL);
 	pthread_cond_init(&tr.cond, NULL);
-	run_tests(&tr_runner);
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(configs); n++)
+		run_tests(&configs[n], &tr_runner);
 	pthread_cond_destroy(&tr.cond);
 	pthread_mutex_destroy(&tr.lock);
 #endif

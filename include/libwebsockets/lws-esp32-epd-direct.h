@@ -148,6 +148,8 @@ typedef struct lws_epd_direct_esp32_state {
 	/**< which link to reuse for a row buffer we haven't seen */
 	uint8_t			sr;
 	/**< what the shift register outputs are */
+	uint8_t			preloading;
+	/**< a cache preload was started, it may still be going */
 	uint8_t			ckv_busy;
 	/**< a CKV pulse was started and we haven't seen it end */
 	uint8_t			lcd_busy;
@@ -211,6 +213,18 @@ lws_epd_direct_esp32_alloc_dma(const lws_epd_direct_bus_ops_t *bus,
 			       size_t size);
 LWS_VISIBLE LWS_EXTERN void
 lws_epd_direct_esp32_free_dma(const lws_epd_direct_bus_ops_t *bus, void **p);
+LWS_VISIBLE LWS_EXTERN void *
+lws_epd_direct_esp32_alloc_fast(const lws_epd_direct_bus_ops_t *bus,
+				size_t size);
+LWS_VISIBLE LWS_EXTERN void
+lws_epd_direct_esp32_free_fast(const lws_epd_direct_bus_ops_t *bus, void **p);
+LWS_VISIBLE LWS_EXTERN uint32_t
+lws_epd_direct_esp32_encode_16l(uint8_t *out, const uint8_t *ft,
+				const uint8_t *starts, size_t words,
+				const void *tables);
+LWS_VISIBLE LWS_EXTERN void
+lws_epd_direct_esp32_prefetch(const lws_epd_direct_bus_ops_t *bus,
+			      const void *p, size_t len);
 LWS_VISIBLE LWS_EXTERN void
 lws_epd_direct_esp32_frame_start(const lws_epd_direct_bus_ops_t *bus);
 LWS_VISIBLE LWS_EXTERN void
@@ -267,6 +281,10 @@ lws_epd_direct_esp32_runner_stop(const lws_epd_direct_runner_t *r);
 	.power		= lws_epd_direct_esp32_power, \
 	.alloc_dma	= lws_epd_direct_esp32_alloc_dma, \
 	.free_dma	= lws_epd_direct_esp32_free_dma, \
+	.alloc_fast	= lws_epd_direct_esp32_alloc_fast, \
+	.free_fast	= lws_epd_direct_esp32_free_fast, \
+	.encode_16l	= lws_epd_direct_esp32_encode_16l, \
+	.prefetch	= lws_epd_direct_esp32_prefetch, \
 	.frame_start	= lws_epd_direct_esp32_frame_start, \
 	.row_load	= lws_epd_direct_esp32_row_load, \
 	.row_drive	= lws_epd_direct_esp32_row_drive, \

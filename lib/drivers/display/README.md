@@ -80,10 +80,22 @@ generic driver `epd-direct.c`, panel descriptions from their datasheets in
 
 Updates are differential: only pixels that change are driven, wherever they
 are on the panel, and several updates can be in flight at once, so a later
-one doesn't wait for an earlier one to finish.  The panel is cleared at
-start, optionally every `.full_refresh_every` updates, and before the next
-update after the display's `.clear` op is called, eg, when what's shown is
-replaced by a different page.
+one doesn't wait for an earlier one to finish.
+
+Pixels may have 2, 4 or 16 grey levels, from the display's palette.  The
+waveform, `lws_epd_direct_waveform_t`, has a transition table saying, for
+each pass, what a pixel moving from one level to another is driven with, so
+each pixel moving runs the transition for where it's coming from and going
+to.  Transitions start every 4th pass, and pixels in the same span of
+`.start_span_px` along a row (default 8) share when theirs started: a pixel
+whose span has a transition in flight waits for it to finish.  That keeps
+what the passes have to read for each pixel small, about 12 bits for 16
+levels, which matters when it's in PSRAM.  A transport can give
+`.alloc_fast` for what the passes read most, eg, internal RAM on an ESP32.
+
+The panel is cleared at start, optionally every `.full_refresh_every`
+updates, and before the next update after the display's `.clear` op is
+called, eg, when what's shown is replaced by a different page.
 
 By default the passes are run from the lws event loop.  Panels need passes
 to follow each other without gaps, so a platform can instead give

@@ -52,6 +52,7 @@
 #include <driver/gpio.h>
 #include <esp_heap_caps.h>
 #include <esp_rom_sys.h>
+#include <esp_memory_utils.h>
 
 /*
  * It knows the ESP32-S3's LCD_CAM and RMT registers.  Other chips with an
@@ -74,6 +75,8 @@
 #include <hal/lcd_periph.h>
 #include <hal/rmt_ll.h>
 #include <hal/gpio_ll.h>
+#include <hal/cache_hal.h>
+#include <hal/cache_ll.h>
 #include <soc/gpio_struct.h>
 #include <soc/rmt_struct.h>
 
@@ -420,7 +423,8 @@ lws_epd_direct_esp32_alloc_dma(const lws_epd_direct_bus_ops_t *bus,
 {
 	(void)bus;
 
-	return heap_caps_aligned_alloc(4, size, MALLOC_CAP_DMA |
+	/* aligned for encode_16l's vector stores, as well as for GDMA */
+	return heap_caps_aligned_alloc(16, size, MALLOC_CAP_DMA |
 					MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 }
 
@@ -433,6 +437,74 @@ lws_epd_direct_esp32_free_dma(const lws_epd_direct_bus_ops_t *bus, void **p)
 		heap_caps_free(*p);
 		*p = NULL;
 	}
+}
+
+/*
+ * What the passes read for every pixel moving goes in internal RAM if there's
+ * room, since PSRAM is shared with everything else through the cache.
+ *
+ * With PSRAM in the heap, IDF keeps some internal RAM back from malloc() for
+ * what can only use internal RAM, eg, the DMA buffers the hardware AES needs
+ * during TLS.  Asking for internal RAM explicitly, as we do, can take that
+ * too.  And malloc() itself puts small allocations in internal RAM, eg, for
+ * TLS and the network stack, so it needs some beyond that.  We only take what
+ * leaves both, and the caller falls back to PSRAM.
+ */
+
+#define EPDD_FAST_LEAVE_INTERNAL	(48 * 1024)
+
+void *
+lws_epd_direct_esp32_alloc_fast(const lws_epd_direct_bus_ops_t *bus,
+				size_t size)
+{
+	size_t leave = EPDD_FAST_LEAVE_INTERNAL;
+
+	(void)bus;
+
+#if defined(CONFIG_SPIRAM_USE_MALLOC) && \
+    defined(CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL)
+	leave += CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL;
+#endif
+	if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) <
+							size + leave)
+		return NULL;
+
+	return heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+
+void
+lws_epd_direct_esp32_free_fast(const lws_epd_direct_bus_ops_t *bus, void **p)
+{
+	(void)bus;
+
+	if (*p) {
+		heap_caps_free(*p);
+		*p = NULL;
+	}
+}
+
+/*
+ * Start the cache bringing in PSRAM that's about to be read, as IDF's own RGB
+ * LCD driver does for framebuffers there.  There's one preload at a time: if
+ * the last one hasn't finished, this one is left to the misses.
+ */
+
+void IRAM_ATTR
+lws_epd_direct_esp32_prefetch(const lws_epd_direct_bus_ops_t *bus,
+			      const void *p, size_t len)
+{
+	lws_epd_direct_esp32_state_t *st = to_ee(bus)->state;
+
+	if (!esp_ptr_external_ram(p))
+		return;
+
+	if (st->preloading && !Cache_DCache_Preload_Done())
+		return;
+
+	cache_hal_preload(CACHE_LL_LEVEL_EXT_MEM, CACHE_TYPE_DATA,
+			  (uint32_t)(uintptr_t)p, (uint32_t)len,
+			  CACHE_PRELOAD_ORDER_ASCENDING);
+	st->preloading = 1;
 }
 
 void
@@ -973,6 +1045,35 @@ void
 lws_epd_direct_esp32_free_dma(const lws_epd_direct_bus_ops_t *bus, void **p)
 {
 	/* init refused the bus on this chip: nothing to do */
+}
+
+void *
+lws_epd_direct_esp32_alloc_fast(const lws_epd_direct_bus_ops_t *bus,
+				size_t size)
+{
+	return NULL;
+}
+
+void
+lws_epd_direct_esp32_free_fast(const lws_epd_direct_bus_ops_t *bus, void **p)
+{
+	/* nothing was allocated on this chip: nothing to do */
+}
+
+uint32_t
+lws_epd_direct_esp32_encode_16l(uint8_t *out, const uint8_t *ft,
+				const uint8_t *starts, size_t words,
+				const void *tables)
+{
+	/* init refused the bus on this chip, so this is never used */
+	return 0;
+}
+
+void
+lws_epd_direct_esp32_prefetch(const lws_epd_direct_bus_ops_t *bus,
+			      const void *p, size_t len)
+{
+	/* init refused the bus on this chip, so this is never used */
 }
 
 void
