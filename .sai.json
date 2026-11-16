@@ -25,7 +25,16 @@
                                 "cd build && SAI_CPACK=\"-G ZIP\"; ${cpack}"
 			]
 		},
+		#
+		# The slowest builder by far, so not a default platform: its value
+		# is running the heaviest test suites slowly and under load, which
+		# finds timing races, not building every option dimension again.
+		# The option-off dimensions are preprocessor coverage that the
+		# other platforms give, including rpi4's same Ubuntu 24.04 and its
+		# mbedtls 2.28.  The configs it runs list it in their platforms.
+		#
 		"ubuntu-noble/riscv64/gcc": {
+			"default": false,
                         "build": [
 				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
                                 "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
@@ -148,7 +157,7 @@
 	"configurations": {
 		"default": {
 			"cmake":	"-DLWS_WITH_QUIC_TRACE=1",
-			"platforms":	"w11/x86_64-amd/msvc-schannel,freebsd/aarch64/llvm"
+			"platforms":	"w11/x86_64-amd/msvc-schannel,freebsd/aarch64/llvm,ubuntu-noble/riscv64/gcc"
 		},
 		"mingw64-cross": {
 			"cmake":	"",
@@ -174,7 +183,8 @@
 			"platforms":	"w11/x86_64-amd/msvc,freebsd/aarch64/llvm"
 		},
 		"fault-injection": {
-			"cmake":	"-DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_CBOR=1"
+			"cmake":	"-DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_CBOR=1",
+			"platforms":	"ubuntu-noble/riscv64/gcc"
 		},
 		"esp32-waveshare-104-212": {
                         "cmake":        "",
@@ -248,7 +258,8 @@
 		# transport.
 		#
 		"oauth": {
-			"cmake":	"-DLWS_WITH_LWSWS=1 -DLWS_WITH_LIBUV=1 -DLWS_WITH_PLUGINS=1 -DLWS_WITH_AUTH_SERVER=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_STRUCT_SQLITE3=1 -DLWS_WITH_STRUCT_JSON=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_HTTP3=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG"
+			"cmake":	"-DLWS_WITH_LWSWS=1 -DLWS_WITH_LIBUV=1 -DLWS_WITH_PLUGINS=1 -DLWS_WITH_AUTH_SERVER=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_STRUCT_SQLITE3=1 -DLWS_WITH_STRUCT_JSON=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_HTTP3=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG",
+			"platforms":	"ubuntu-noble/riscv64/gcc"
 		},
 		# WARN_DEPRECATED disabled for openssl v3 case on windows
 		"lws_system": {
@@ -263,14 +274,15 @@
 			"platforms":	"w11/x86_64-amd/msvc"
 		},
 		"secure-streams-proxy": {
-			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 "
+			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 ",
+			"platforms":	"ubuntu-noble/riscv64/gcc"
 		},
 		"secure-streams-proxy-metrics": {
 			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_SYS_METRICS=1"
 		},
 		"distro_recommended": { # minimal examples also needed for ctest
 			"cmake":	"-DLWS_WITH_DISTRO_RECOMMENDED=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
-			"platforms":	"rocky9-ca/aarch64-a72a55-rk3588/clang",
+			"platforms":	"rocky9-ca/aarch64-a72a55-rk3588/clang,ubuntu-noble/riscv64/gcc",
 			"cpack":	"cpack $SAI_CPACK",
 			"artifacts":	"build/*.rpm, build/*.deb, build/*.zip"
 		},
@@ -294,7 +306,8 @@
 			"artifacts":	"build/coverage-summary.json"
 		},
 		"lwsws": {
-			"cmake":	"-DLWS_WITH_LWSWS=ON -DLWS_WITHOUT_EXTENSIONS=0 -DLWS_WITH_HTTP2=1 -DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_AUTHORITATIVE_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1"
+			"cmake":	"-DLWS_WITH_LWSWS=ON -DLWS_WITHOUT_EXTENSIONS=0 -DLWS_WITH_HTTP2=1 -DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_AUTHORITATIVE_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1",
+			"platforms":	"ubuntu-noble/riscv64/gcc"
 		},
 		"lwsws-nometrics": {
 			"cmake":	"-DLWS_WITH_LWSWS=ON -DLWS_WITHOUT_EXTENSIONS=0 -DLWS_WITH_HTTP2=1 -DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_AUTHORITATIVE_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1 -DLWS_WITH_SYS_METRICS=0"
@@ -306,7 +319,8 @@
 			"cmake": "-DLWS_WITH_HTTP3=0 -DLWS_WITH_MBEDTLS=1 -DLWS_WITHOUT_TESTAPPS=1"
 		},
 		"mbedtls": {
-			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP3=0 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG"
+			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP3=0 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG",
+			"platforms":	"ubuntu-noble/riscv64/gcc"
 		},
 		"mbedtls-metrics": {
 			"cmake":	"-DLWS_WITH_HTTP3=0 -DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_SYS_METRICS=1"
@@ -375,13 +389,15 @@
 			"cmake":	"-DLWS_WITH_TLS_JIT_TRUST=1"
 		},
 		"smp": {
-			"cmake":	"-DLWS_MAX_SMP=32 -DLWS_WITH_PEER_LIMITS=1 -DLWS_WITH_CGI=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG"
+			"cmake":	"-DLWS_MAX_SMP=32 -DLWS_WITH_PEER_LIMITS=1 -DLWS_WITH_CGI=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG",
+			"platforms":	"ubuntu-noble/riscv64/gcc"
 		},
 		"nows": {
 			"cmake":	"-DLWS_ROLE_WS=0"
 		},
 		"threadpool": {
-			"cmake":	"-DLWS_WITH_THREADPOOL=1 -DLWS_WITH_MINIMAL_EXAMPLES=1"
+			"cmake":	"-DLWS_WITH_THREADPOOL=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"platforms":	"ubuntu-noble/riscv64/gcc"
 		},
 
 		# default-on features turned off together, so their #if guards
@@ -398,7 +414,8 @@
 		# test would wait forever on a builder
 
 		"sys-extras": {
-			"cmake":	"-DLWS_WITH_DTLS=1 -DLWS_WITH_MNEMONIC=1 -DLWS_WITH_ASYNC_QUEUE=1 -DLWS_WITH_COMPRESSED_BACKTRACES=1 -DLWS_WITH_EXTERNAL_POLL=1 -DLWS_WITH_GENCRYPTO=1 -DLWS_HTTP_HEADERS_ALL=1 -DLWS_WITH_MINIMAL_EXAMPLES=1"
+			"cmake":	"-DLWS_WITH_DTLS=1 -DLWS_WITH_MNEMONIC=1 -DLWS_WITH_ASYNC_QUEUE=1 -DLWS_WITH_COMPRESSED_BACKTRACES=1 -DLWS_WITH_EXTERNAL_POLL=1 -DLWS_WITH_GENCRYPTO=1 -DLWS_HTTP_HEADERS_ALL=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"platforms":	"ubuntu-noble/riscv64/gcc"
 		},
 
 		# secure streams build variants never otherwise built; with the

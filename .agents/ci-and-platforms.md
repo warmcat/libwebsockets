@@ -9,6 +9,11 @@ Sai (`.sai.json`) is the CI.  The rules for a config's `platforms`:
  - `not X` removes X;
  - `none, X` → only X.
 
+A platform with `"default": false` is in no config unless a config's
+`platforms` names it.  riscv64 is like that: it only runs the configs
+that list it (the heavy-test ones), so a new dimension that should run
+there has to add it.
+
 Some platforms build but never run ctest (scan-build / clang, coverity,
 fuzz, quic-interop).  Sai substitutes only `${prep}`, `${cmake}` and
 `${cpack}` into fixed per-platform steps, so a config that needs ctest on
