@@ -43,9 +43,11 @@ JPEG and PNG images and express all UI in html/css.
  - Layout follows CSS block and inline formatting: block flow with margin
    collapsing, line boxes with wrapping, baseline alignment and text-align,
    inline elements with backgrounds, inline-block and absolutely positioned
-   boxes with shrink-to-fit widths, lists with markers, images inline, and
-   tables with automatic column widths.  Floats are placed inline without
-   wrap-around, and position: relative offsets are not yet applied.
+   boxes with shrink-to-fit widths, as are blocks with `width: fit-content`
+   or `max-content` (other width keywords are taken as `auto`), lists with
+   markers, images inline, and tables with automatic column widths and
+   `border-spacing`.  Floats are placed inline without wrap-around, and
+   position: relative offsets are not yet applied.
  - css borders on boxes (blocks, inline-blocks, tables and their cells) take
    their width in the layout, as padding does, and are drawn in the colour of
    each side, the corners split between the sides on the diagonal and rounded

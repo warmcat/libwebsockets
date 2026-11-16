@@ -1,0 +1,24 @@
+<!--
+ border-spacing goes around the cells on all four sides: the first row sits
+ the spacing below the table's top as the last ends the spacing above its
+ bottom, and the rows span only their cells, so the table background frames
+ the rows on every side (CSS 2.1 17.5.1, 17.6.1; the gaps between cells in a
+ row still show the row's background).  The nested table is framed
+ the same way inside its cell, and with border-collapse: collapse there is
+ no spacing at all.
+-->
+<!doctype html>
+<html><head><style>
+body { font-size: 12px; margin: 0; padding: 0 }
+table { background-color: #f00; border-spacing: 6px }
+tr { background-color: #000 }
+td { background-color: #eee }
+.n { border-spacing: 2px }
+.col { border-collapse: collapse }
+</style></head>
+<body>
+<table><tr><td>C1</td><td>C2</td></tr><tr><td>C3</td><td>wider</td></tr></table>
+<table><tr><td>X1</td><td><table class="n"><tr><td>N1</td></tr></table></td></tr></table>
+<table class="col"><tr><td>K1</td><td>K2</td></tr></table>
+<div>After</div>
+</body></html>

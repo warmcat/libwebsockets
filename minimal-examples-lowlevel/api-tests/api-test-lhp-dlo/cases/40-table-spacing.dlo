@@ -1,0 +1,29 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (0.0,0.0) [55.0 x 50.0] rgba=FF0000FF
+  rect (6.0,6.0) [43.0 x 16.0] rgba=FF000000
+   rect (0.0,0.0) [12.0 x 16.0] rgba=FFEEEEEE
+    text (1.0,1.0) [9.0 x 14.0] rgba=FF000000 f=12/400 "C1"
+   rect (18.0,0.0) [25.0 x 16.0] rgba=FFEEEEEE
+    text (1.0,1.0) [9.0 x 14.0] rgba=FF000000 f=12/400 "C2"
+  rect (6.0,28.0) [43.0 x 16.0] rgba=FF000000
+   rect (0.0,0.0) [12.0 x 16.0] rgba=FFEEEEEE
+    text (1.0,1.0) [10.0 x 14.0] rgba=FF000000 f=12/400 "C3"
+   rect (18.0,0.0) [25.0 x 16.0] rgba=FFEEEEEE
+    text (1.0,1.0) [23.0 x 14.0] rgba=FF000000 f=12/400 "wider"
+ rect (0.0,50.0) [47.0 x 34.0] rgba=FF0000FF
+  rect (6.0,6.0) [35.0 x 22.0] rgba=FF000000
+   rect (0.0,0.0) [11.0 x 22.0] rgba=FFEEEEEE
+    text (1.0,1.0) [9.0 x 14.0] rgba=FF000000 f=12/400 "X1"
+   rect (17.0,0.0) [18.0 x 22.0] rgba=FFEEEEEE
+    rect (1.0,1.0) [16.0 x 20.0] rgba=FF0000FF
+     rect (2.0,2.0) [12.0 x 16.0] rgba=FF000000
+      rect (0.0,0.0) [12.0 x 16.0] rgba=FFEEEEEE
+       text (1.0,1.0) [10.0 x 14.0] rgba=FF000000 f=12/400 "N1"
+ rect (0.0,84.0) [22.0 x 16.0] rgba=FF0000FF
+  rect (0.0,0.0) [22.0 x 16.0] rgba=FF000000
+   rect (0.0,0.0) [11.0 x 16.0] rgba=FFEEEEEE
+    text (1.0,1.0) [9.0 x 14.0] rgba=FF000000 f=12/400 "K1"
+   rect (11.0,0.0) [11.0 x 16.0] rgba=FFEEEEEE
+    text (1.0,1.0) [9.0 x 14.0] rgba=FF000000 f=12/400 "K2"
+ rect (0.0,100.0) [400.0 x 14.0] rgba=00000000
+  text (0.0,0.0) [19.0 x 14.0] rgba=FF000000 f=12/400 "After"

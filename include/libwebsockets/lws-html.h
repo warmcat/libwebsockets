@@ -666,6 +666,7 @@ typedef struct lhp_pstack {
 	uint8_t				is_table:1;
 	uint8_t				is_row:1;
 	uint8_t				is_cell:1;
+	uint8_t				has_row:1;   /* table: a row was placed */
 	uint8_t				is_inline:1; /* style scope only, no box */
 	uint8_t				is_ilevel:1; /* inline-level box (inline-block) */
 	uint8_t				is_abs:1;    /* absolutely positioned */

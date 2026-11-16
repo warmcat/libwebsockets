@@ -1,0 +1,24 @@
+<!--
+ width: fit-content and max-content size a block-level box to its content,
+ keeping it on a line of its own, where it used to collapse to its padding
+ with the text spilling out.  With auto side margins it is centred.  A
+ keyword width lhp doesn't size by (min-content) is not a length of 0
+ either: the box keeps its auto width.
+-->
+<!doctype html>
+<html><head><style>
+body { font-size: 12px; margin: 0; padding: 0 }
+div { background-color: #ccf; padding-left: 8px; padding-right: 8px;
+      margin-left: 10px; margin-right: 10px; margin-bottom: 2px }
+.f { width: fit-content }
+.m { width: max-content }
+.c { width: fit-content; margin-left: auto; margin-right: auto }
+.n { width: min-content }
+</style></head>
+<body>
+<div class="f">Fit content</div>
+<div class="m">Max content</div>
+<div class="c">Centred</div>
+<div class="n">Auto</div>
+After
+</body></html>

@@ -1,0 +1,10 @@
+rect (0.0,0.0) [400.0 x 300.0] rgba=FFFFFFFF
+ rect (10.0,0.0) [58.0 x 14.0] rgba=FFFFCCCC
+  text (8.0,0.0) [42.0 x 14.0] rgba=FF000000 f=12/400 "Fit content"
+ rect (10.0,16.0) [64.0 x 14.0] rgba=FFFFCCCC
+  text (8.0,0.0) [48.0 x 14.0] rgba=FF000000 f=12/400 "Max content"
+ rect (176.5,32.0) [47.0 x 14.0] rgba=FFFFCCCC
+  text (8.0,0.0) [31.0 x 14.0] rgba=FF000000 f=12/400 "Centred"
+ rect (10.0,48.0) [380.0 x 14.0] rgba=FFFFCCCC
+  text (8.0,0.0) [18.0 x 14.0] rgba=FF000000 f=12/400 "Auto"
+ text (0.0,62.0) [21.0 x 14.0] rgba=FF000000 f=12/400 "After "

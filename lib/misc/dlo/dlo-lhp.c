@@ -41,8 +41,8 @@
  *    full, on <br>, or when a block starts or ends.
  *
  *  - boxes whose width depends on their content (inline-block, absolute with
- *    auto width, table cells) are laid out against the width available to
- *    them while tracking the width they would take unwrapped (max-content).
+ *    auto width, blocks with width: fit-content, table cells) are laid out
+ *    against the width available to them while tracking the width they would take unwrapped (max-content).
  *    At close the box shrinks to min(max-content, available): if it shrinks,
  *    nothing inside it had wrapped, so nothing needs re-laying out.
  *
@@ -173,6 +173,29 @@ static int
 lhp_is_auto(const lcsp_atr_t *a)
 {
 	return a && a->unit == LCSP_UNIT_NONE && a->propval == LCSP_PROPVAL_AUTO;
+}
+
+/*
+ * width: fit-content / max-content size a box to its content, as an
+ * inline-block's auto width does, even when it is block-level.  Content is
+ * laid out against the available width, so max-content can't overflow it
+ * and is the same as fit-content here.  Any other keyword the value
+ * lextable doesn't know (min-content, stretch, ...) isn't a length either,
+ * and the box keeps its auto width.
+ */
+
+static int
+lhp_width_fits_content(const lcsp_atr_t *a)
+{
+	const char *s;
+
+	if (!a || a->unit != LCSP_UNIT_STRING || a->value_len != 11)
+		return 0;
+
+	s = (const char *)&a[1];
+
+	return !strncasecmp(s, "fit-content", 11) ||
+	       !strncasecmp(s, "max-content", 11);
 }
 
 /*
@@ -2100,7 +2123,10 @@ lhp_table_close(lhp_ctx_t *ctx, lhp_pstack_t *t)
 
 	/*
 	 * place the cells of every row, walking each row's cells and the
-	 * columns in step (n columns were counted above)
+	 * columns in step (n columns were counted above).  A row spans
+	 * from its first cell's left edge to its last cell's right edge
+	 * (CSS 2.1 17.5.1): the border-spacing around the cells is the
+	 * table's, so the table background frames the rows on all sides
 	 */
 
 	ctx->layout_ops += n;
@@ -2113,8 +2139,10 @@ lhp_table_close(lhp_ctx_t *ctx, lhp_pstack_t *t)
 		if (!row->flag_row)
 			continue;
 
-		row->box.w = tw;
-		x = sp;
+		lws_fx_add(&row->box.x, &t->ox, &sp);
+		lws_fx_sub(&row->box.w, &tw, &sp);
+		lws_fx_sub(&row->box.w, &row->box.w, &sp);
+		lws_fx_set(x, 0, 0);
 
 		lws_start_foreach_dll(struct lws_dll2 *, cd,
 				      lws_dll2_get_head(&row->children)) {
@@ -2300,8 +2328,10 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 	 * rest of the line
 	 */
 
+	/* a keyword (fit-content...) is not a length: it isn't explicit */
 	ps->explicit_w = ps->css_width && !lhp_is_auto(ps->css_width) &&
 			 ps->css_width->unit != LCSP_UNIT_NONE &&
+			 ps->css_width->unit != LCSP_UNIT_STRING &&
 			 !(ps->css_width->unit == LCSP_UNIT_LENGTH_PERCENT &&
 			   c && (c->shrink || c->in_shrink) && !ps->is_abs);
 
@@ -2338,6 +2368,18 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 		/* rows stack in the table; cells are placed in them */
 		if (c->has_line)
 			lhp_line_end(ctx, c);
+		/*
+		 * border-spacing goes around the rows as well as between
+		 * them: each row closes with the spacing below it, so the
+		 * first one also has it above.  A table with no rows stays
+		 * empty, as in a browser
+		 */
+		if (!c->has_row) {
+			lws_fx_t sp = lhp_table_spacing(ctx, c);
+
+			lws_fx_add(&c->cury, &c->cury, &sp);
+			c->has_row = 1;
+		}
 		y = c->cury;
 		w = c->cw;
 		lws_fx_set(ml, 0, 0);
@@ -2694,6 +2736,12 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 			 * text-align can't be applied against it meanwhile
 			 */
 			ps->in_shrink = c->shrink || c->in_shrink;
+			/*
+			 * width: fit-content: laid out against what is
+			 * available, then shrunk to the content at close
+			 */
+			if (lhp_width_fits_content(ps->css_width))
+				ps->shrink = 1;
 		}
 		break;
 	}
@@ -2821,6 +2869,7 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 
 	ps->is_block = 1;
 	ps->is_table = type == LHP_BOX_TABLE;
+	ps->has_row = 0;
 	ps->ox = pl;
 	ps->oy = pt;
 	lws_fx_sub(&ps->cw, &w, &pl);
@@ -3112,6 +3161,21 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 				ch->box.w = w;
 		} lws_end_foreach_dll(d);
 		ps->cw = w;
+
+		/*
+		 * A block-level box sized to its content (fit-content) with
+		 * auto side margins is centred in its container, as a block
+		 * with an explicit width is when it opens
+		 */
+		if (ps->dlo->flag_block && c &&
+		    lhp_is_auto(ps->css_margin[CCPAS_LEFT]) &&
+		    lhp_is_auto(ps->css_margin[CCPAS_RIGHT])) {
+			lws_fx_sub(&t, &c->cw, &ps->dlo->box.w);
+			lws_fx_div(&t, &t, &fx_2);
+			if (t.whole < 0)
+				lws_fx_set(t, 0, 0);
+			lws_fx_add(&ps->dlo->box.x, &c->ox, &t);
+		}
 	}
 
 	w = ps->dlo->box.w;
