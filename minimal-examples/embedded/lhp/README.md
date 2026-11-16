@@ -187,8 +187,9 @@ can make a dialog of its own settings.  It has
 
  - "Hostname": the hostname, shaded like an editbox, which pressing edits
 
- - "Display", on a touch display: "Edges and touch", which shows the edges
-   and touch page, see below
+ - "Display": on a touch display, "Edges and touch", which shows the edges
+   and touch page, and on a display that can show greys, "Grey levels", which
+   shows the grey levels page, see below
 
  - "Time", on a touch display: the time zones, which shows the time zone
    page, see below
@@ -265,6 +266,32 @@ before, the boot list or the page, is laid out again on what can be seen now,
 and the carousel goes on.
 
 It's only offered on a touch display, since it's used by pressing on it.
+
+### Grey levels
+
+"Grey levels" in the settings shows a page, made by `greys-ui.c`, with every
+grey level the display can show, for seeing how evenly spaced they really
+are, eg, while tuning an EPD's waveform.  It's two rows of equal-width bars,
+one bar per level, filling what can be seen: the top row goes from black to
+white, left to right, and the bottom row from white to black.
+
+On a greyscale display with a palette, eg, an EPD, there's a bar for each of
+its palette's levels.  The grey written in the page's css for each is the one
+`lws_display_palettize_grey()` turns into exactly that level after its gamma
+correction, so each bar is all one level, not dithered from its neighbours;
+a palette level no grey gives exactly is warned about in the log.  On other
+displays it's 16 evenly spaced greys.  It's not offered on a display with a
+palette of colours.
+
+There's nothing else on the page, so it can be photographed and measured with
+`scripts/epd-grey-levels.py`, from any angle, eg:
+
+```
+$ scripts/epd-grey-levels.py --levels 16 --overlay check.jpg photo.jpg
+```
+
+Pressing anywhere on it, or the `settings` button, goes back to what was shown
+before.
 
 ### Time zones
 

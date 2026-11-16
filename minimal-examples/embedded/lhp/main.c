@@ -67,6 +67,7 @@
 #include "settings-ui.h"
 #include "update-ui.h"
 #include "edges-ui.h"
+#include "greys-ui.h"
 #include "tz-ui.h"
 
 struct lws_context *cx;
@@ -185,6 +186,7 @@ static const char *page_name;
 static enum {
 	GEN_NONE,
 	GEN_EDGES,		/* the edges and touch page, see edges-ui.h */
+	GEN_GREYS,		/* the grey levels page, see greys-ui.h */
 	GEN_TZ,			/* the time zone page, see tz-ui.h */
 } gen_page;
 /* the application's page to go back to after it, if there was one */
@@ -441,40 +443,68 @@ settings_stored(void *opaque)
 }
 
 /*
- * Our own generated pages that are pressed on: the edges and touch page, for
- * finding out the display's inset and seeing if touches land where they are on
- * it, and the time zone page.  Each is unframed, all of what can be seen, so
- * the strip ui is dropped while it's shown, and made again after, the size of
- * what can be seen then.
+ * Our own generated pages: the edges and touch page, for finding out the
+ * display's inset and seeing if touches land where they are on it, the grey
+ * levels page, and the time zone page.  Each is unframed, all of what can be
+ * seen, so the strip ui is dropped while it's shown, and made again after, the
+ * size of what can be seen then.
  */
 
-#define GEN_HTML_MAX (LHP_EDGES_HTML_MAX > LHP_TZ_HTML_MAX ? \
-		      LHP_EDGES_HTML_MAX : LHP_TZ_HTML_MAX)
+#define GEN_MAX2(_a, _b) ((_a) > (_b) ? (_a) : (_b))
+#define GEN_HTML_MAX GEN_MAX2(GEN_MAX2(LHP_EDGES_HTML_MAX, LHP_TZ_HTML_MAX), \
+			      LHP_GREYS_HTML_MAX)
+
+static const char *
+gen_name(void)
+{
+	switch (gen_page) {
+	case GEN_EDGES:
+		return "edges";
+	case GEN_GREYS:
+		return "greys";
+	case GEN_TZ:
+		return "tz";
+	default:
+		return "none";
+	}
+}
 
 static int
 gen_show(void)
 {
-	char *html;
+	char name[16], *html;
 	int len;
 
 	html = malloc(GEN_HTML_MAX);
 	if (!html)
 		return 1;
 
-	if (gen_page == GEN_EDGES)
+	switch (gen_page) {
+	case GEN_EDGES:
 		len = lhp_edges_html(html, GEN_HTML_MAX, &lds.ic, lds.inset,
 				     &edges);
-	else
+		break;
+	case GEN_GREYS:
+		len = lhp_greys_html(html, GEN_HTML_MAX, &lds.ic);
+		break;
+	case GEN_TZ:
 		len = lhp_tz_html(html, GEN_HTML_MAX, &lds.ic, &tz,
 				  (int64_t)lws_now_secs());
+		break;
+	default:
+		len = -1;
+		break;
+	}
 	if (len < 0) {
-		lwsl_err("%s: page too big\n", __func__);
+		lwsl_err("%s: unable to write the %s page\n", __func__,
+			 gen_name());
 		free(html);
 		return 1;
 	}
 
-	return page_show(gen_page == GEN_EDGES ? "edges.html" : "tz.html",
-			 html, len, NULL);
+	lws_snprintf(name, sizeof(name), "%s.html", gen_name());
+
+	return page_show(name, html, len, NULL);
 }
 
 /*
@@ -547,8 +577,7 @@ gen_open_cb(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
-	lwsl_notice("%s: %s\n", __func__,
-		    gen_page == GEN_EDGES ? "edges" : "time zones");
+	lwsl_notice("%s: %s\n", __func__, gen_name());
 
 	/* a generated page isn't there to go back to */
 	gen_back[0] = '\0';
@@ -556,11 +585,17 @@ gen_open_cb(lws_sorted_usec_list_t *sul)
 		lws_strncpy(gen_back, lds.current_url, sizeof(gen_back));
 
 	sui_drop();
-	if (gen_page == GEN_EDGES)
+	switch (gen_page) {
+	case GEN_EDGES:
 		lhp_edges_reset(&edges);
-	else
+		break;
+	case GEN_TZ:
 		/* a press on the map sets home, until away is pressed */
 		tz.picking = LHP_TZ_HOME;
+		break;
+	default:
+		break;
+	}
 
 	if (lds.disp->clear)
 		lds.disp->clear(&lds);
@@ -571,16 +606,23 @@ gen_open_cb(lws_sorted_usec_list_t *sul)
 }
 
 /*
- * "Edges and touch" or "Time zones" was pressed in the settings.  We're told
- * from inside the ui's callbacks, and the ui is dropped for the page: do it
- * from the event loop instead.  It's the page's from now, so nothing else is
- * shown meanwhile.
+ * "Edges and touch", "Grey levels" or "Time zones" was pressed in the
+ * settings.  We're told from inside the ui's callbacks, and the ui is dropped
+ * for the page: do it from the event loop instead.  It's the page's from now,
+ * so nothing else is shown meanwhile.
  */
 
 static void
 settings_edges(void *opaque)
 {
 	gen_page = GEN_EDGES;
+	lws_sul_schedule(cx, 0, &sul_settings, gen_open_cb, 1);
+}
+
+static void
+settings_greys(void *opaque)
+{
+	gen_page = GEN_GREYS;
 	lws_sul_schedule(cx, 0, &sul_settings, gen_open_cb, 1);
 }
 
@@ -1582,6 +1624,20 @@ edges_press(const void *buf, size_t len)
 }
 
 /*
+ * A touch press on the grey levels page: it has nothing to press, so anywhere
+ * leaves it, once it's shown
+ */
+
+static void
+greys_press(void)
+{
+	if (lds.display_busy || rs.html != 2 || sui)
+		return;
+
+	gen_leave();
+}
+
+/*
  * A touch press on the time zone page: on one of its controls, it does what
  * that says, and on the map, it picks the zone nearest, see tz-ui.h
  */
@@ -1675,6 +1731,8 @@ smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
 						"\"event\":", "press")) {
 				if (gen_page == GEN_EDGES)
 					edges_press(buf, len);
+				else if (gen_page == GEN_GREYS)
+					greys_press();
 				else if (gen_page == GEN_TZ)
 					tz_press(buf, len);
 				else
@@ -1687,9 +1745,13 @@ smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
 			/*
 			 * A button, or pressing the status capsule: it shows
 			 * the settings, or if they're shown, closes them as
-			 * their title would, keeping a hostname being edited
+			 * their title would, keeping a hostname being edited.
+			 * The grey levels page has nothing on it to press, so
+			 * the button leaves it, on a board without touch.
 			 */
-			if (lhp_settings_shown(&settings))
+			if (gen_page == GEN_GREYS)
+				gen_leave();
+			else if (lhp_settings_shown(&settings))
 				lhp_settings_exit(&settings);
 			else
 				settings_open(0);
@@ -2018,10 +2080,12 @@ app_main(void)
 	/*
 	 * The settings, shown on the strip ui when asked for.  The edges and
 	 * time zone pages are pressed on, so they're only offered with a touch
-	 * panel
+	 * panel.  The grey levels page is left by the settings button too, so
+	 * it's offered whenever the display can show it.
 	 */
 	if (lhp_settings_init(&settings, cx, wnd, settings_exit,
 			      settings_stored, tcs ? settings_edges : NULL,
+			      lhp_greys_usable(&lds.ic) ? settings_greys : NULL,
 			      tcs ? settings_tz : NULL, &tz, NULL))
 		goto spin;
 

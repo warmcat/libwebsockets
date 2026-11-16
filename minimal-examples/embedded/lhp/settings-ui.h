@@ -29,9 +29,13 @@
  *
  *  - "Hostname": the hostname, shaded like an editbox, which pressing edits
  *
- *  - "Display", if the caller gives a callback for it: "Edges and touch",
- *    which closes the settings and calls it, eg, to show the edges and touch
- *    page, see edges-ui.h
+ *  - "Display", if the caller gives a callback for either of them:
+ *
+ *     - "Edges and touch", which closes the settings and calls its callback,
+ *       eg, to show the edges and touch page, see edges-ui.h
+ *
+ *     - "Grey levels", which closes the settings and calls its callback, eg,
+ *       to show the grey levels page, see greys-ui.h
  *
  *  - "Time", if the caller gives a callback for it: the time zones, home and
  *    away if there is one, which pressed closes the settings and calls it, eg,
@@ -71,9 +75,9 @@ typedef enum {
 
 /*
  * The most APs listed.  Each has up to LWS_WIFI_SETTINGS_AP_LINKS links, and
- * the hostname, display and time ones three more: LWS_WIFI_SETTINGS_AP_LINKS *
- * LHP_SET_AP_MAX + 3 must be no more than the 32 links the ui finds on a
- * dialog
+ * the hostname, two display and time ones four more:
+ * LWS_WIFI_SETTINGS_AP_LINKS * LHP_SET_AP_MAX + 4 must be no more than the 32
+ * links the ui finds on a dialog
  */
 #define LHP_SET_AP_MAX			12
 
@@ -100,6 +104,9 @@ typedef void (*lhp_settings_stored_cb_t)(void *opaque);
  */
 typedef void (*lhp_settings_edges_cb_t)(void *opaque);
 
+/* "Grey levels" was pressed: as for the edges callback */
+typedef void (*lhp_settings_greys_cb_t)(void *opaque);
+
 /* the time zones were pressed: as for the edges callback */
 typedef void (*lhp_settings_tz_cb_t)(void *opaque);
 
@@ -110,6 +117,7 @@ typedef struct lhp_settings {
 	lhp_settings_exit_cb_t		exit_cb;
 	lhp_settings_stored_cb_t	stored_cb;
 	lhp_settings_edges_cb_t		edges_cb;
+	lhp_settings_greys_cb_t		greys_cb;
 	lhp_settings_tz_cb_t		tz_cb;
 	const lhp_tz_t			*tz;
 	void				*opaque;
@@ -144,6 +152,8 @@ typedef struct lhp_settings {
  * \param stored_cb: NULL, or told when credentials were stored for an AP
  * \param edges_cb: NULL, or told when "Edges and touch" was pressed, which
  *		    is only shown if it's given
+ * \param greys_cb: NULL, or told when "Grey levels" was pressed, which is
+ *		    only shown if it's given
  * \param tz_cb: NULL, or told when the time zones were pressed, which are
  *		 only shown if it's given
  * \param tz: the time zones, to show, if tz_cb is given
@@ -158,6 +168,7 @@ lhp_settings_init(lhp_settings_t *s, struct lws_context *cx,
 		  lhp_settings_exit_cb_t exit_cb,
 		  lhp_settings_stored_cb_t stored_cb,
 		  lhp_settings_edges_cb_t edges_cb,
+		  lhp_settings_greys_cb_t greys_cb,
 		  lhp_settings_tz_cb_t tz_cb, const lhp_tz_t *tz,
 		  void *opaque);
 

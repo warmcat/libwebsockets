@@ -4,6 +4,7 @@ idf_component_register(SRCS
 		../../settings-ui.c
 		../../update-ui.c
 		../../edges-ui.c
+		../../greys-ui.c
 		../../tz-ui.c
 		../../lhp-ss.c
 		devices.c

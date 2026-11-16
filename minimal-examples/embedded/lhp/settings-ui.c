@@ -110,10 +110,14 @@ dlg_html(void *opaque, lws_dlo_ui_html_t *h)
 	lws_wifi_settings_html(h, s->aps, s->ap_count, !!s->wnd, hn);
 
 	/* the display's own, only on the display, not served to a browser */
+	if (s->edges_cb || s->greys_cb)
+		lws_html_w_printf(h, "<div class=\"s\">Display</div>");
 	if (s->edges_cb)
-		lws_html_w_printf(h, "<div class=\"s\">Display</div>"
-				     "<a class=\"e\" href=\"?edges\">"
+		lws_html_w_printf(h, "<a class=\"e\" href=\"?edges\">"
 				     "Edges and touch</a>");
+	if (s->greys_cb)
+		lws_html_w_printf(h, "<a class=\"e\" href=\"?greys\">"
+				     "Grey levels</a>");
 
 	if (s->tz_cb) {
 		lws_html_w_printf(h, "<div class=\"s\">Time</div>"
@@ -244,6 +248,10 @@ dlg_action(void *opaque, const char *href)
 			lhp_settings_close(s);
 			s->edges_cb(s->opaque);
 		}
+		if (s->greys_cb && !strcmp(href, "?greys")) {
+			lhp_settings_close(s);
+			s->greys_cb(s->opaque);
+		}
 		if (s->tz_cb && !strcmp(href, "?tz")) {
 			lhp_settings_close(s);
 			s->tz_cb(s->opaque);
@@ -258,6 +266,7 @@ lhp_settings_init(lhp_settings_t *s, struct lws_context *cx,
 		  lhp_settings_exit_cb_t exit_cb,
 		  lhp_settings_stored_cb_t stored_cb,
 		  lhp_settings_edges_cb_t edges_cb,
+		  lhp_settings_greys_cb_t greys_cb,
 		  lhp_settings_tz_cb_t tz_cb, const lhp_tz_t *tz,
 		  void *opaque)
 {
@@ -270,6 +279,7 @@ lhp_settings_init(lhp_settings_t *s, struct lws_context *cx,
 	s->exit_cb = exit_cb;
 	s->stored_cb = stored_cb;
 	s->edges_cb = edges_cb;
+	s->greys_cb = greys_cb;
 	s->tz_cb = tz_cb;
 	s->tz = tz;
 	s->opaque = opaque;
