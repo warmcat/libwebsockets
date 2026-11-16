@@ -42,9 +42,11 @@
  *
  *  - boxes whose width depends on their content (inline-block, absolute with
  *    auto width, blocks with width: fit-content, table cells) are laid out
- *    against the width available to them while tracking the width they would take unwrapped (max-content).
- *    At close the box shrinks to min(max-content, available): if it shrinks,
- *    nothing inside it had wrapped, so nothing needs re-laying out.
+ *    against the width available to them while tracking the width they
+ *    would take unwrapped (max-content).  At close the box shrinks to
+ *    min(max-content, available): if it shrinks, nothing inside it had
+ *    wrapped, so nothing needs re-laying out, only the blocks inside it with
+ *    auto width, at any depth, narrowed with it.
  *
  *  - table columns are sized when the table closes, from the min- and
  *    max-content widths of the cells, and the cells moved into place.  Cells
@@ -2265,7 +2267,7 @@ static lws_stateful_ret_t
 lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 	       lws_dl_rend_t *drt)
 {
-	lws_fx_t ml, mr, mt, pl, pr, pt, w, x, y, t, radii[4], base;
+	lws_fx_t ml, mr, mt, pl, pr, pt, w, w0, x, y, t, radii[4], base;
 	lws_dlo_t *parent = c ? c->dlo : NULL;
 	lhp_pstack_t *tbl = NULL, *psa = NULL;
 	lws_box_t box;
@@ -2750,6 +2752,7 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 		lws_fx_set(w, 0, 0);
 
 	/* min-width / max-width bound the content width */
+	w0 = w;
 	{
 		const lcsp_atr_t *mx = lws_css_get_prop_atr_ps(ctx, ps,
 							LCSP_PROP_MAX_WIDTH),
@@ -2845,6 +2848,13 @@ lhp_block_open(lhp_ctx_t *ctx, lhp_pstack_t *ps, lhp_pstack_t *c, int type,
 	ps->dlo->flag_cell = ps->is_cell;
 	ps->dlo->flag_block = !ps->is_ilevel && !ps->is_abs && !ps->is_row &&
 			      !ps->is_cell;
+	/*
+	 * Filling a shrink-to-fit ancestor's width, unless min / max set it,
+	 * or it settles its own width when it closes (a table, fit-content)
+	 */
+	ps->dlo->flag_fill = ps->dlo->flag_block && ps->in_shrink &&
+			     !ps->shrink && type != LHP_BOX_TABLE &&
+			     !lws_fx_comp(&w, &w0);
 
 	lws_lhp_tag_dlo_id(ctx, ps, ps->dlo);
 	lhp_set_dlo_padding_margin(ps, ps->dlo);
@@ -2966,6 +2976,46 @@ lhp_place_bottom_anchored(lws_dlo_t *dlo)
 		}
 		ch->abut_y = NULL;
 	} lws_end_foreach_dll(d);
+}
+
+/*
+ * A shrink-to-fit box narrowed by d at close: the blocks inside it that
+ * filled its provisional width, and those filling theirs in turn, narrow by
+ * the same.  The walk is a loop, not recursion, since the depth is the
+ * page's
+ */
+
+static void
+lhp_fill_narrow(lws_dlo_t *top, const lws_fx_t *d)
+{
+	struct lws_dll2 *n = lws_dll2_get_head(&top->children);
+	lws_dlo_t *ch;
+
+	if (!d->whole && !d->frac)
+		return;
+
+	while (n) {
+		ch = lws_container_of(n, lws_dlo_t, list);
+
+		if (ch->flag_fill) {
+			lws_fx_sub(&ch->box.w, &ch->box.w, d);
+			if (ch->box.w.whole < 0)
+				lws_fx_set(ch->box.w, 0, 0);
+			if (lws_dll2_get_head(&ch->children)) {
+				n = lws_dll2_get_head(&ch->children);
+				continue;
+			}
+		}
+
+		/* the next sibling, or that of the nearest ancestor with one */
+		while (!lws_dll2_get_next(n)) {
+			ch = lws_container_of(n->owner, lws_dlo_t, children);
+			if (ch == top)
+				return;
+			n = &ch->list;
+		}
+		n = lws_dll2_get_next(n);
+	}
 }
 
 static void
@@ -3151,7 +3201,13 @@ lhp_block_close(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 		lws_fx_add(&ps->dlo->box.w, &w, &pl);
 		lws_fx_add(&ps->dlo->box.w, &ps->dlo->box.w, &pr);
 
-		/* block children were given the provisional width */
+		/*
+		 * Blocks inside were given the provisional width: those
+		 * filling it, at any depth, narrow by what we did, any other
+		 * is held inside us
+		 */
+		lws_fx_sub(&t, &ps->cw, &w);
+		lhp_fill_narrow(ps->dlo, &t);
 		lws_start_foreach_dll(struct lws_dll2 *, d,
 				      lws_dll2_get_head(&ps->dlo->children)) {
 			lws_dlo_t *ch = lws_container_of(d, lws_dlo_t, list);

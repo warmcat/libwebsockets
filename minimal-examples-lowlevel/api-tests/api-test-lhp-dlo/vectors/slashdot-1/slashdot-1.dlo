@@ -12,13 +12,13 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
     rect (177.0,0.0) [112.0 x 40.0] rgba=00000000
      rect (-4.0,26.0) [36.0 x 0.0] rgba=00000000
       rect (0.0,0.0) [36.0 x 0.0] rgba=00000000
-       rect (12.0,0.0) [556.0 x 0.0] rgba=00000000
+       rect (12.0,0.0) [12.0 x 0.0] rgba=00000000
         hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
        hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/slashdot.org"
      rect (28.0,26.0) [0.0 x 0.0] rgba=00000000
      rect (24.0,26.0) [36.0 x 0.0] rgba=00000000
       rect (0.0,0.0) [36.0 x 0.0] rgba=00000000
-       rect (12.0,0.0) [556.0 x 0.0] rgba=00000000
+       rect (12.0,0.0) [12.0 x 0.0] rgba=00000000
         hit (0.0,0.0) [0.0 x 0.0] fill pointer ""
        hit (0.0,0.0) [0.0 x 0.0] fill pointer "vector:/missing/slashdot.org/polls"
      rect (56.0,0.0) [36.0 x 40.0] rgba=00000000
@@ -555,5 +555,5 @@ rect (0.0,0.0) [800.0 x 1200.0] rgba=FFCCCCCC
   rect (78.0,1269.0) [6.0 x 6.0] rgba=FF333333
   rect (78.0,1273.0) [6.0 x 6.0] rgba=FF333333
   rect (78.0,1277.0) [6.0 x 6.0] rgba=FF333333
- rect (136.0,2544.0) [41.0 x 25.6] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
+ rect (136.0,2544.0) [40.0 x 25.6] rgba=FFE5E5E5 radii=10.0,10.0,10.0,10.0
  rect (140.0,2534.0) [0.0 x 21.0] rgba=00000000

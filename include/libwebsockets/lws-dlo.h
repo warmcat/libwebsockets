@@ -151,6 +151,10 @@ typedef struct lws_dlo {
 
 	uint8_t				flag_toplevel:1; /* don't scan up with me (different owner) */
 	uint8_t				flag_block:1; /* block-level box (layout) */
+	uint8_t				flag_fill:1; /* auto width, from the
+						 * provisional width of a
+						 * shrink-to-fit ancestor:
+						 * narrowed with it (layout) */
 	uint8_t				flag_row:1;   /* table row box (layout) */
 	uint8_t				flag_cell:1;  /* table cell box (layout) */
 	uint8_t				flag_abs:1;   /* positioned box (layout) */

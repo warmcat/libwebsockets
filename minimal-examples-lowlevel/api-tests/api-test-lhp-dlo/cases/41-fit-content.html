@@ -3,7 +3,8 @@
  keeping it on a line of its own, where it used to collapse to its padding
  with the text spilling out.  With auto side margins it is centred.  A
  keyword width lhp doesn't size by (min-content) is not a length of 0
- either: the box keeps its auto width.
+ either: the box keeps its auto width.  Blocks with auto width inside a
+ fit-content box fill it, however deep, unless max-width held them narrower.
 -->
 <!doctype html>
 <html><head><style>
@@ -14,11 +15,15 @@ div { background-color: #ccf; padding-left: 8px; padding-right: 8px;
 .m { width: max-content }
 .c { width: fit-content; margin-left: auto; margin-right: auto }
 .n { width: min-content }
+.i { margin-left: 2px; margin-right: 2px; margin-bottom: 0 }
+.x { max-width: 30px }
 </style></head>
 <body>
 <div class="f">Fit content</div>
 <div class="m">Max content</div>
 <div class="c">Centred</div>
 <div class="n">Auto</div>
+<div class="f"><div class="i"><div class="i">Nested</div></div></div>
+<div class="f"><div class="i">Wider one</div><div class="i x">Max</div></div>
 After
 </body></html>
