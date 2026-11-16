@@ -14,6 +14,15 @@ get both addresses in the same order, so one of them starts on the address its
 server isn't listening on, is refused, and must connect on the next one.  Both
 clients must end up connected, each on the family its server listens on.
 
+The kernel picks each server's port as free on its own address only, and on
+the other loopback address something else, the other leg's server or another
+process, may be listening at the same number: a client starting there would
+connect to that instead of being refused.  So for the length of the test,
+each leg holds the other loopback address at its port bound, but not
+listening, which refuses connects there and stops anything else listening
+there.  A leg whose port is taken on the other address takes another, up to
+8 times.
+
 The client hears `LWS_CALLBACK_CONNECTING` for each address it tries, and
 there, before the connect() has completed, `lws_get_peer_simple()` and
 `lws_get_peer_addresses()` must both report the address being tried.  So the
