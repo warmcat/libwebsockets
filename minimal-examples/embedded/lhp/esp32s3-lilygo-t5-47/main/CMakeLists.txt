@@ -8,6 +8,7 @@ idf_component_register(SRCS
 		../../tz-ui.c
 		../../lhp-ss.c
 		devices.c
+		epd-waveform.c
 		INCLUDE_DIRS "../libwebsockets/include;${IDF_PATH}/components/spi_flash/include;${IDF_PATH}/components/nvs_flash/include")
 
 	target_link_libraries(${COMPONENT_LIB} PRIVATE websockets)

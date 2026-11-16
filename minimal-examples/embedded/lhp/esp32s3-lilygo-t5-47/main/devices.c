@@ -36,6 +36,7 @@
 
 #include "../../main.h"
 #include "freertos/semphr.h"
+#include "epd-waveform.h"
 
 #define T547_ROUTING_WATCH	0
 #define T547_ROUTING_LILYGO	1
@@ -59,6 +60,7 @@ lws_netdev_instance_wifi_t *wnd;
 lws_settings_instance_t *si;
 
 const char *carousel_urls[] = {
+        "https://libwebsockets.org/lhp-tests/cat1.html",
         "https://slashdot.org",
         "https://libwebsockets.org/lhp-tests/t4.html",
         "https://libwebsockets.org/lhp-tests/t7.html",
@@ -194,19 +196,21 @@ static const lws_epd_direct_esp32_t epd_bus = {
 	.power_off			= power_off,
 	.power_off_count		= LWS_ARRAY_SIZE(power_off),
 	/*
-	 * The ED047TC1 takes XCL up to 60MHz, 20MHz is its typical.  10MHz
-	 * is what LilyGo's own code uses, and what's been seen to work on the
-	 * board.  It's an exact division of the S3 LCD peripheral's 160MHz
-	 * clock.
+	 * The ED047TC1 takes XCL up to 60MHz, 20MHz is its typical, and
+	 * what epdiy uses on this board.  LilyGo's own code uses 10MHz, but
+	 * then a pass takes longer than the panel's frame time and the
+	 * pixels, which hold their drive between passes, are overdriven.
+	 * It's an exact division of the S3 LCD peripheral's 160MHz clock.
 	 */
-	.xcl_hz				= 10000000,
+	.xcl_hz				= 20000000,
 	.sr_first_out			= 7,
 	/*
-	 * LilyGo's own code writes the 4094 with gpio_set_level() calls,
-	 * a few hundred ns apart: it's not known yet how much faster the
-	 * board's 4094 can be clocked
+	 * On this board XLE is on the 4094, so every row costs two writes of
+	 * it, each 17 waits of this long.  LilyGo's own code writes it with
+	 * gpio_set_level() calls a few hundred ns apart.  A 74HC4094 at 3.3V
+	 * clocks well over 10MHz, so 100ns edges still leave it a good margin.
 	 */
-	.sr_edge_ns			= 300,
+	.sr_edge_ns			= 100,
 	.frame_lead_ckv			= 2,
 
 #if T547_ROUTING == T547_ROUTING_WATCH
@@ -264,48 +268,9 @@ static const lws_epd_direct_esp32_t epd_bus = {
 };
 
 /*
- * Black and white waveforms, giving each pixel about as much drive as
- * LilyGo's own code for this board does.
- *
- * It darkens white to black with 15 passes of 2 - 30us, about 102us in all,
- * and lightens black to white with 15 passes of 0.8 - 30us, about 55us.
- * Here, those are 5 and 3 passes of 20us, since every pass of an update must
- * drive for the same time.
- *
- * Its clear is 4 times 4 passes black then 4 white, of 50us each, and so is
- * ours.
+ * The panel shows 16 grey levels with our own waveform, in epd-waveform.c,
+ * made by ../epd-waveform.py: see "The 16-level waveform" in the README
  */
-
-#define B LWS_EPDD_BLACK
-#define W LWS_EPDD_WHITE
-
-static const uint8_t wf_to_black[] = {
-	B, B, B, B, B,
-}, wf_to_white[] = {
-	W, W, W,
-}, wf_clear[] = {
-	B, B, B, B, W, W, W, W,
-	B, B, B, B, W, W, W, W,
-	B, B, B, B, W, W, W, W,
-	B, B, B, B, W, W, W, W,
-};
-
-static const lws_epd_direct_waveform_bw_t wf_bw = {
-	.to_black			= wf_to_black,
-	.to_black_len			= LWS_ARRAY_SIZE(wf_to_black),
-	.to_white			= wf_to_white,
-	.to_white_len			= LWS_ARRAY_SIZE(wf_to_white),
-	.clear				= wf_clear,
-	.clear_len			= LWS_ARRAY_SIZE(wf_clear),
-	/* at least the source driver output settling time */
-	.drive_ns			= 20000,
-	.clear_drive_ns			= 50000,
-};
-
-static const lws_display_colour_t palette[] = {
-	PALETTE_RGBY(0, 0, 0),
-	PALETTE_RGBY(255, 255, 255),
-};
 
 #if T547_SCOPE_PATTERN
 
@@ -361,8 +326,8 @@ static const lws_display_epd_direct_t disp = {
 		.ic = {
 			.wh_px = { { 960,0 },		{ 540,0 } },
 			.wh_mm = { { 103,68000000 },	{ 58,32000000 } },
-			.palette		= palette,
-			.palette_depth		= LWS_ARRAY_SIZE(palette),
+			.palette		= t547_palette_16,
+			.palette_depth		= LWS_ARRAY_SIZE(t547_palette_16),
 			.type			= LWSSURF_PALETTE,
 			.greyscale		= 1, /* line buffer is Y */
 		},
@@ -377,7 +342,7 @@ static const lws_display_epd_direct_t disp = {
 		.anim_hz		= 18,
 	},
 	.panel				= &lws_epd_direct_panel_ed047tc1,
-	.wf_bw				= &wf_bw,
+	.wf				= &t547_wf_16,
 	.bus				= &epd_bus.bus,
 	.runner				= &epd_runner.runner,
 	.cb				= display_completion_cb,
