@@ -21,7 +21,8 @@
  * clients get both addresses in the same order, so whichever it is, one of
  * them starts on the address its server isn't listening on, is refused, and
  * must connect on the next one.  Both clients must end up connected, each on
- * the family its server listens on.
+ * the family its server listens on.  For it to be refused, the other address
+ * is held bound at each server's port, see refuse_other_address().
  *
  * The client hears LWS_CALLBACK_CONNECTING for each address it tries, and
  * there, before the connect() has completed, lws_get_peer_simple() and
@@ -38,9 +39,22 @@
 #include <string.h>
 #include <stdlib.h>
 #include <signal.h>
+#if defined(WIN32)
+#define sock_close		closesocket
+#define sock_errno		WSAGetLastError()
+#define SOCK_EADDRINUSE		WSAEADDRINUSE
+#else
+#include <unistd.h>
+#include <errno.h>
+#define sock_close		close
+#define sock_errno		errno
+#define SOCK_EADDRINUSE		EADDRINUSE
+#endif
 
 #define NA_NAME			"nextads.invalid"
 #define WATCHDOG_S		10
+/* how many ports a leg tries for one free on both loopback addresses */
+#define PORT_TRIES		8
 
 static const uint8_t ads4[] = { 127, 0, 0, 1 },
 		     ads6[] = { 0, 0, 0, 0, 0, 0, 0, 0,
@@ -52,6 +66,7 @@ static struct leg {
 	const char		*name;
 	const char		*iface;
 	struct lws_vhost	*vh;
+	lws_sockfd_type		refuser; /* the other address, at our port */
 	int			af;
 	int			port;
 	int			connected;
@@ -60,15 +75,87 @@ static struct leg {
 	char			first[64];	/* address of the first try */
 	char			last[64];	/* ... and of the latest */
 } legs[] = {
-	{ "listening on 127.0.0.1 only", "127.0.0.1", NULL, AF_INET,  0, 0, 0,
-	  0, "", "" },
-	{ "listening on ::1 only",	 "::1",       NULL, AF_INET6, 0, 0, 0,
-	  0, "", "" },
+	{ "listening on 127.0.0.1 only", "127.0.0.1", NULL, LWS_SOCK_INVALID,
+	  AF_INET,  0, 0, 0, 0, "", "" },
+	{ "listening on ::1 only",	 "::1",       NULL, LWS_SOCK_INVALID,
+	  AF_INET6, 0, 0, 0, 0, "", "" },
 };
 
 static struct lws_context *cx;
 static lws_sorted_usec_list_t sul_watchdog;
 static int fails, queries;
+
+/*
+ * A client starting on the loopback address of the family its server doesn't
+ * listen on must be refused there.  But the kernel picked the server's port
+ * as free on its own address only: on the other one, at the same number,
+ * there may be a listener, the other leg's or another process's, and the
+ * client would connect to that instead.
+ *
+ * So bind, without listening, the other address at the leg's port, and keep
+ * it bound while the clients run: a connect there is refused, and nobody can
+ * start listening there meanwhile.
+ *
+ * Returns 0 if a client can only be refused there, with leg->refuser set to
+ * the bound socket, or left invalid if the host has no such address at all.
+ * Returns 1 if the port is taken there, so the leg needs another one.
+ */
+static int
+refuse_other_address(struct leg *leg)
+{
+	int af = leg->af == AF_INET ? AF_INET6 : AF_INET, e;
+	lws_sockaddr46 sa46;
+	lws_sockfd_type fd;
+#if defined(WIN32) && defined(SO_EXCLUSIVEADDRUSE)
+	int one = 1;
+#endif
+
+	memset(&sa46, 0, sizeof(sa46));
+	if (lws_sa46_parse_numeric_address(af == AF_INET ? "127.0.0.1" : "::1",
+					   &sa46))
+		return 0;
+	sa46_sockport(&sa46, htons((uint16_t)leg->port));
+
+	fd = socket(af, SOCK_STREAM, 0);
+	if (fd == LWS_SOCK_INVALID)
+		/* no such family here, so nothing listens there either */
+		return 0;
+
+#if defined(WIN32) && defined(SO_EXCLUSIVEADDRUSE)
+	/* or another socket could still bind over ours */
+	setsockopt(fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (const char *)&one,
+		   sizeof(one));
+#endif
+
+	if (!bind(fd, sa46_sockaddr(&sa46), sa46_socklen(&sa46))) {
+		leg->refuser = fd;
+
+		return 0;
+	}
+
+	e = sock_errno;
+	sock_close(fd);
+	if (e == SOCK_EADDRINUSE)
+		return 1;
+
+	/* eg, ::1 isn't configured: nothing listens there either */
+	lwsl_notice("%s: can't bind the other address at %d (errno %d)\n",
+		    leg->name, leg->port, e);
+
+	return 0;
+}
+
+static void
+refusers_close(void)
+{
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(legs); n++)
+		if (legs[n].refuser != LWS_SOCK_INVALID) {
+			sock_close(legs[n].refuser);
+			legs[n].refuser = LWS_SOCK_INVALID;
+		}
+}
 
 static void
 check_done(void)
@@ -296,7 +383,7 @@ int main(int argc, const char **argv)
 	struct lws_vhost *vh_cli;
 	const char *p = getenv("LWS_ASYNCDNS_PORT");
 	lws_sockaddr46 sa46;
-	int ns_port, n, ran = 0, moved = 0;
+	int ns_port, n, tries, ran = 0, moved = 0;
 
 	signal(SIGINT, sigint_handler);
 
@@ -356,15 +443,25 @@ int main(int argc, const char **argv)
 		legs[n].port = lws_get_vhost_listen_port(legs[n].vh);
 
 		/*
-		 * The kernel picks ports per address, so ::1 can be given
-		 * the port 127.0.0.1 already has.  Then a client starting on
-		 * the other family's address would find the other leg's
-		 * server there instead of being refused.  Keep the clashing
-		 * listener while asking for another port, so the kernel
-		 * can't hand back the same one, then drop it.
+		 * The kernel picks ports per address, so the port may be
+		 * taken on the other address, by the other leg or another
+		 * process.  Keep the clashing listener while asking for
+		 * another port, so the kernel can't hand back the same one,
+		 * then drop it.
 		 */
-		while (n && legs[n].port == legs[0].port) {
+		tries = 0;
+		while (refuse_other_address(&legs[n])) {
 			struct lws_vhost *clash = legs[n].vh;
+
+			if (++tries == PORT_TRIES) {
+				lwsl_err("%s: no port free on both loopback "
+					 "addresses in %d tries\n",
+					 legs[n].name, PORT_TRIES);
+				goto bail;
+			}
+			lwsl_notice("%s: port %d is taken on the other "
+				    "address, trying another\n",
+				    legs[n].name, legs[n].port);
 
 			legs[n].vh = lws_create_vhost(cx, &info);
 			lws_vhost_destroy(clash);
@@ -433,6 +530,7 @@ int main(int argc, const char **argv)
 	check_done();
 	lws_context_default_loop_run_destroy(cx);
 	cx = NULL;
+	refusers_close();
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(legs); n++)
 		if (legs[n].vh) {
@@ -468,6 +566,7 @@ int main(int argc, const char **argv)
 
 bail:
 	lws_context_destroy(cx);
+	refusers_close();
 
 	return 1;
 }
