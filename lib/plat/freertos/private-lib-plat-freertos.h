@@ -28,6 +28,14 @@
 #define SOMAXCONN 3
 #endif
 
+/*
+ * Without esp_timer, lws_now_usecs() is gettimeofday() time, so it steps when
+ * the system clock is set, and scheduled suls must be moved by the same step
+ */
+#if !defined(LWS_ESP_PLATFORM)
+#define LWS_PLAT_NOW_USECS_IS_SYSTIME
+#endif
+
 #if defined(LWS_AMAZON_RTOS)
  int
  open(const char *path, int oflag, ...);

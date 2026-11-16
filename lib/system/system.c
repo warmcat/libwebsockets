@@ -41,17 +41,20 @@ lws_system_time_set(struct lws_context *context, lws_usec_t us,
 {
 #if defined(LWS_PLAT_FREERTOS)
 	struct timeval t;
+#if defined(LWS_PLAT_NOW_USECS_IS_SYSTIME)
 	int64_t step_us;
-
 	/*
 	 * Timers scheduled against the system clock must be moved by the
 	 * same step, or after the first time is set, eg, from 1970, they
-	 * would wait for decades
+	 * would wait for decades.  Where lws_now_usecs() is monotonic, eg,
+	 * esp_timer on ESP-IDF, the system clock stepping doesn't move them,
+	 * and moving them would leave them waiting for decades instead.
 	 */
 
 	gettimeofday(&t, NULL);
 	step_us = us - (((int64_t)t.tv_sec * LWS_US_PER_SEC) + t.tv_usec);
 	lws_sul_nonmonotonic_adjust(context, step_us);
+#endif
 
 	t.tv_sec = (time_t)(us / LWS_US_PER_SEC);
 	t.tv_usec = (suseconds_t)(us % LWS_US_PER_SEC);

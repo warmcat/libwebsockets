@@ -146,9 +146,10 @@ __lws_sul_service_ripe(lws_dll2_owner_t *own, int own_len, lws_usec_t usnow)
  * nonmonotonic clock.  Then nothing breaks so long as we do this when the
  * gettimeofday() clock is stepped.
  *
- * Linux and so on offer Posix MONOTONIC, which lws uses.  FreeRTOS doesn't
- * have a high-resolution monotonic clock and has to use gettimeofday(), which
- * requires this adjustment when it is stepped.
+ * Linux and so on offer Posix MONOTONIC, which lws uses, as does ESP-IDF
+ * with esp_timer.  Other FreeRTOS platforms don't have a high-resolution
+ * monotonic clock and have to use gettimeofday(), which requires this
+ * adjustment when it is stepped (LWS_PLAT_NOW_USECS_IS_SYSTIME).
  */
 
 lws_usec_t
