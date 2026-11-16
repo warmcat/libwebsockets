@@ -26,6 +26,7 @@
 
 #if defined(LWS_ESP_PLATFORM)
 #include <esp_memory_utils.h>
+#include <esp_timer.h>
 
 /*
  * New allocations in the bulk arena come from PSRAM, and others are left to
@@ -80,12 +81,22 @@ lws_msleep(unsigned int ms)
 	vTaskDelay(portTICK_PERIOD_MS > ms ? 1 : ms / portTICK_PERIOD_MS);
 }
 
+/*
+ * Like CLOCK_MONOTONIC on other platforms, this mustn't jump when the wall
+ * clock is set, eg, by SNTP.  On ESP-IDF, gettimeofday() is also slow: it
+ * costs 15us on an ESP32-S3, where esp_timer_get_time() is a register read.
+ */
+
 lws_usec_t
 lws_now_usecs(void)
 {
+#if defined(LWS_ESP_PLATFORM)
+	return (lws_usec_t)esp_timer_get_time();
+#else
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
 	return ((unsigned long long)tv.tv_sec * 1000000LL) + tv.tv_usec;
+#endif
 }
 
 size_t
