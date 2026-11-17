@@ -42,7 +42,14 @@
                                 "cd build && SAI_CPACK=\"-G DEB\"; ${cpack}"
 			]
 		},
+		#
+		# l2, static.  Not a default platform: Rocky 9's older gcc, glibc
+		# and OpenSSL are covered by the rk3588 Rocky 9 lane, and x86_64
+		# by the Fedora 44 and Debian 13 VMs, so it only built every
+		# default config a third time on x86_64 Linux.
+		#
 		"rocky9/x86_64-amd/gcc": {
+			"default": false,
                         "build": [
 				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
                                 "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
