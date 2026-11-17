@@ -49,7 +49,7 @@
 				"cd build && SAI_CPACK=\"-G RPM\" ${cpack}"
 			]
 		},
-		"linux-ubuntu-2404/aarch64-a72-bcm2711-rpi4/gcc": {
+		"linux-debian13/x86_64-amd/gcc": {
                         "build": [
 				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
                                 "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
@@ -58,7 +58,11 @@
 			]
 		},
 
-		"linux-debian13/x86_64-amd/gcc": {
+		#
+		# The static Debian 13 VM with docker and the quic-interop-runner,
+		# only for the qir config
+		#
+		"qir-linux-debian13/x86_64-amd/gcc": {
 			"default": false,
                         "build": [
 				"${cmake}"
@@ -432,7 +436,7 @@
 
 		"qir": {
 			"cmake":    "cd /opt/quic-interop-runner ; source venv/bin/activate ; rm -rf logs_* ; cd /opt/quic-interop-runner/lws ; if [ \"`docker ps -q`\" ] ; then docker kill $(docker ps -q) ; fi ;  docker system prune -f && docker build -f Dockerfile -t lws-quic-interop --no-cache $HOME/jobs/$SAI_VN/src && cd .. && python3 run.py -c lws -s lws --delete-successful-logs ; python3 run.py -p webtransport -c lws -s lws --delete-successful-logs -t handshake,transfer-unidirectional-receive,transfer-unidirectional-send,transfer-bidirectional-receive,transfer-bidirectional-send,transfer-datagram-receive,transfer-datagram-send",
-			"platforms":	"none, linux-debian13/x86_64-amd/gcc"
+			"platforms":	"none, qir-linux-debian13/x86_64-amd/gcc"
 		},
 
 		"mbedtls4-windows": {
