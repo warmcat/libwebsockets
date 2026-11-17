@@ -58,6 +58,7 @@
 #define RX_MAX		(64 * 1024)
 #define POLL_TRIES	50
 #define POLL_US		(200 * LWS_US_PER_MS)
+#define RAISED_POLL_US	(10 * LWS_US_PER_MS)
 #define SESSION_SECS	3
 
 /* the level the session raises us to: the most the build has, past notice */
@@ -88,6 +89,7 @@ enum {
 	ST_BAD_SECRET,		/* a shipper with the wrong secret */
 	ST_NOTHING_YET,		/* GET logs: nothing was sent */
 	ST_START,		/* POST sessions, from 30s ago */
+	ST_RAISED,		/* until the shipper has the window */
 	ST_LOGS,		/* GET logs until both markers are there */
 	ST_SYNC,		/* GET sync: our pane */
 	ST_PANE,		/* GET pane: our lines */
@@ -284,12 +286,11 @@ answered(void)
 			return;
 		}
 		session_until = (uint64_t)strtoull(t, NULL, 10);
-		if (raise_lvl && !lwsl_visible(raise_lvl)) {
-			fail("the session didn't raise the level");
-			return;
-		}
-		log_raised("log-ship-marker-during\n");
-		next(ST_LOGS, POLL_US);
+		/*
+		 * The ingestor tells the shipper of the window on its own
+		 * connection, which may be served after we have the answer
+		 */
+		next(ST_RAISED, 1);
 		return;
 
 	case ST_LOGS:
@@ -449,6 +450,18 @@ step(lws_sorted_usec_list_t *sul)
 			     "\"lvl\":\"" RAISE_NAME "\",\"src\":\"api-test\","
 			     "\"note\":\"ctest\"}", SESSION_SECS);
 		post("/api/sessions", "application/json", p);
+		break;
+	case ST_RAISED:
+		if (raise_lvl && !lwsl_visible(raise_lvl)) {
+			if (lws_log_ship_utc_us() >= session_until)
+				fail("the session didn't raise the level");
+			else
+				lws_sul_schedule(context, 0, &sul_step, step,
+						 RAISED_POLL_US);
+			break;
+		}
+		log_raised("log-ship-marker-during\n");
+		next(ST_LOGS, POLL_US);
 		break;
 	case ST_LOGS:
 		lws_snprintf(p, sizeof(p), "/api/logs?session=%s&"
