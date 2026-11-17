@@ -36,16 +36,26 @@ lws_html_w_init(lws_html_w_t *w, char *buf, size_t len)
 		*buf = '\0';
 }
 
-static void
-html_w_vprintf(lws_html_w_t *w, const char *fmt, va_list ap)
+/*
+ * The format is checked where this is called, by LWS_FORMAT() on its
+ * prototype, so it's formatted here and not in a va_list helper, which
+ * would take a format nothing checks
+ */
+
+void
+lws_html_w_printf(lws_html_w_t *w, const char *fmt, ...)
 {
 	size_t room = lws_ptr_diff_size_t(w->end, w->p);
+	va_list ap;
 	int n;
 
 	if (w->full)
 		return;
 
+	va_start(ap, fmt);
 	n = vsnprintf(w->p, room, fmt, ap);
+	va_end(ap);
+
 	if (n < 0 || (size_t)n >= room) {
 		/* what did go in is not used, but leave it terminated */
 		*w->p = '\0';
@@ -54,16 +64,6 @@ html_w_vprintf(lws_html_w_t *w, const char *fmt, va_list ap)
 	}
 
 	w->p += n;
-}
-
-void
-lws_html_w_printf(lws_html_w_t *w, const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	html_w_vprintf(w, fmt, ap);
-	va_end(ap);
 }
 
 void
