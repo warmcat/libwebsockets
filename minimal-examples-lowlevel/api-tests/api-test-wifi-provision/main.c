@@ -278,6 +278,7 @@ static struct lws_button_state *bcs;
 static void
 fake_gpio_mode(_lws_plat_gpio_t gpio, int flags)
 {
+	/* there's no pin to configure, btn_down is all there is of it */
 }
 
 static int
@@ -289,6 +290,7 @@ fake_gpio_read(_lws_plat_gpio_t gpio)
 static void
 fake_gpio_set(_lws_plat_gpio_t gpio, int val)
 {
+	/* the button is only ever read, the test sets btn_down directly */
 }
 
 static int
