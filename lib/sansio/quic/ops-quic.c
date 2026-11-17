@@ -2278,6 +2278,18 @@ lws_quic_dump(struct lws *wsi)
 		return;
 	}
 
+	/*
+	 * What decides when the connection goes idle: the deadline it has,
+	 * and for a server, whether a request came and which streams count
+	 * as one (lws_quic_server_idle_check())
+	 */
+	lwsl_wsi_notice(nwsi, "  conn: pending timeout %d, %s, %u streams",
+			(int)nwsi->pending_timeout, !qn->is_server ? "client" :
+				(qn->had_request ? "had a request" :
+						   "no request yet"),
+			(unsigned int)lws_dll2_count(
+					&nwsi->mux.child_list_owner));
+
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 		struct lws *w = lws_container_of(d, struct lws,
@@ -2285,6 +2297,22 @@ lws_quic_dump(struct lws *wsi)
 
 		if (w->quic.qs && lws_quic_stream_outstanding(qn, w, now))
 			lws_quic_dump_stream(qn, w, now);
+		else if (w->quic.qs)
+			lwsl_wsi_notice(w, "  stream %llu: %s %s, opened by "
+					"the peer %d, role %s, state 0x%x",
+				(unsigned long long)w->quic.qs->stream_id,
+				w->quic.qs->is_unidirectional ? "unidi" :
+								"bidi",
+				w->quic.qs->is_server_initiated ? "server's" :
+								 "client's",
+				/* -1: ours, the peer doesn't open it */
+				w->quic.qs->is_server_initiated ==
+								qn->is_server ?
+				-1 : lws_quic_idtr_is_opened(&qn->peer_opened[
+					w->quic.qs->is_unidirectional],
+					w->quic.qs->stream_id >> 2),
+				w->role_ops ? w->role_ops->name : "none",
+				(unsigned int)lwsi_state(w));
 	} lws_end_foreach_dll(d);
 }
 
