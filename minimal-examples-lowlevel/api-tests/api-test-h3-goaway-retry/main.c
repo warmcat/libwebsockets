@@ -68,6 +68,8 @@ struct grt_req {
 	int			status; /* 0 until it ends, -1 if it failed */
 	int			srv_hits;
 	char			srv_conn[64];
+	/* the server's connection it was heard on, while it is up */
+	struct lws		*srv_nwsi;
 	const char		*fault; /* on its first try */
 	char			want_ok;
 };
@@ -146,6 +148,18 @@ grt_ev_dump(void)
 			    "last on %s\n", reqs[n].method, reqs[n].path,
 			    reqs[n].status, reqs[n].srv_hits,
 			    reqs[n].srv_conn[0] ? reqs[n].srv_conn : "-");
+
+	/*
+	 * A server connection still up when the test gave up never went idle:
+	 * say what it holds, and what it thinks keeps it up
+	 */
+	for (n = 0; n < GRT_COUNT; n++)
+		if (reqs[n].srv_nwsi) {
+			lwsl_notice("  server connection %s heard %s on is "
+				    "still up:\n", reqs[n].srv_conn,
+				    reqs[n].path);
+			lws_quic_dump(reqs[n].srv_nwsi);
+		}
 }
 
 /* ------------------------------------------------------------- server */
@@ -172,6 +186,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_strncpy(reqs[n].srv_conn,
 					    lws_wsi_tag(lws_get_network_wsi(wsi)),
 					    sizeof(reqs[n].srv_conn));
+				reqs[n].srv_nwsi = lws_get_network_wsi(wsi);
 			}
 		pss->respond = 1;
 		lws_callback_on_writable(wsi);
@@ -197,6 +212,9 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_WSI_DESTROY:
 		/* a server connection, or one of its streams, going */
 		grt_ev("srv gone", NULL, wsi);
+		for (n = 0; n < GRT_COUNT; n++)
+			if (reqs[n].srv_nwsi == wsi)
+				reqs[n].srv_nwsi = NULL;
 		break;
 
 	default:
