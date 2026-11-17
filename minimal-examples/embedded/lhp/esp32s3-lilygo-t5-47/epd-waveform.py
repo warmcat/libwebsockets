@@ -125,9 +125,9 @@ static const uint8_t wf_update[] = {
 	 *	8     9     10    11    12    13    14    15 */''')
 for p in range(PASSES):
     cs = [f'F({code(p, t)})' for t in range(16)]
-    o.append(f'\n\t/* pass {p}, {CYCLE[p % len(CYCLE)] / 1000:g}us */')
-    o.append('\t' + ', '.join(cs[:8]) + ',')
-    o.append('\t' + ', '.join(cs[8:]) + ',')
+    o.extend((f'\n\t/* pass {p}, {CYCLE[p % len(CYCLE)] / 1000:g}us */',
+              '\t' + ', '.join(cs[:8]) + ',',
+              '\t' + ', '.join(cs[8:]) + ','))
 o.append(f'''}};
 
 /* the clear is 4 times 4 passes black then 4 white, of 50us each */

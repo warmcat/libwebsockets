@@ -88,6 +88,7 @@ which should be checked before trusting the numbers.
 """
 
 import argparse
+import itertools
 import math
 import os
 import shutil
@@ -181,22 +182,30 @@ class Image:
         self.w, self.h, self.rgb = self._parse_ppm(r.stdout)
 
     @staticmethod
+    def _ppm_field(d, pos):
+        """the next field of a PPM header from pos, past any whitespace and
+        comments, and where it ends"""
+        while True:
+            while pos < len(d) and d[pos:pos + 1].isspace():
+                pos += 1
+            if d[pos:pos + 1] != b"#":
+                break
+            while pos < len(d) and d[pos:pos + 1] not in (b"\n", b"\r"):
+                pos += 1
+        start = pos
+        while pos < len(d) and not d[pos:pos + 1].isspace():
+            pos += 1
+        if start == pos:
+            die("truncated PPM from ImageMagick")
+        return d[start:pos], pos
+
+    @staticmethod
     def _parse_ppm(d):
         fields = []
         pos = 0
         while len(fields) < 4:
-            while pos < len(d) and d[pos:pos + 1].isspace():
-                pos += 1
-            if d[pos:pos + 1] == b"#":
-                while pos < len(d) and d[pos:pos + 1] not in (b"\n", b"\r"):
-                    pos += 1
-                continue
-            start = pos
-            while pos < len(d) and not d[pos:pos + 1].isspace():
-                pos += 1
-            if start == pos:
-                die("truncated PPM from ImageMagick")
-            fields.append(d[start:pos])
+            f, pos = Image._ppm_field(d, pos)
+            fields.append(f)
         pos += 1		# the single whitespace before the pixels
         if fields[0] != b"P6" or fields[3] != b"255":
             die("unexpected PPM from ImageMagick")
@@ -395,12 +404,8 @@ class Finder:
         mags = sorted(abs(gx[i]) + abs(gy[i]) for i in range(0, w * h, 7))
         self.g_strong = max(2.0, mags[int(0.92 * len(mags))])
 
-    def lines(self):
-        """
-        Long straight edges, as (a, b, rho), a line being a x + b y = rho,
-        the strongest LINES_KEPT of them roughly along the photo, and of
-        them roughly up and down it
-        """
+    def _hough(self):
+        """votes for lines through the strong edges, by (angle, rho)"""
         w, h, gx, gy = self.w, self.h, self.gx, self.gy
         acc = {}
         for y in range(2, h - 2):
@@ -418,6 +423,38 @@ class Finder:
                     rho = int(round(x * math.cos(t) + y * math.sin(t)))
                     k = (p, rho)
                     acc[k] = acc.get(k, 0.0) + m
+        return acc
+
+    @staticmethod
+    def _family(p):
+        """
+        By the angle of its normal, p, 90 being an edge along the photo, 0
+        for a line roughly along the photo, 1 for one roughly up and down
+        it, or None
+        """
+        if abs(p - 90) <= LINE_TILT:
+            return 0
+        if p <= LINE_TILT or p >= 180 - LINE_TILT:
+            return 1
+        return None
+
+    @staticmethod
+    def _near(fam, p, rho):
+        """is there a line in fam close to (p, rho)"""
+        for (o, op) in fam:
+            dp = min(abs(p - op), 180 - abs(p - op))
+            # rho of the same line flips sign across p = 0 / 180
+            if dp <= 3 and abs(abs(o[2]) - abs(rho)) <= 6:
+                return True
+        return False
+
+    def lines(self):
+        """
+        Long straight edges, as (a, b, rho), a line being a x + b y = rho,
+        the strongest LINES_KEPT of them roughly along the photo, and of
+        them roughly up and down it
+        """
+        acc = self._hough()
 
         # an edge's votes spread over neighbouring rho
         cand = []
@@ -427,59 +464,52 @@ class Finder:
         cand.sort(reverse=True)
 
         fam = {0: [], 1: []}
-        for s, p, rho in cand:
-            # the normal's angle: 90 is an edge along the photo
-            f = 0 if abs(p - 90) <= LINE_TILT else (
-                1 if p <= LINE_TILT or p >= 180 - LINE_TILT else None)
+        for _, p, rho in cand:
+            f = self._family(p)
             if f is None or len(fam[f]) >= LINES_KEPT:
                 continue
-            t = math.radians(p)
-            ln = (math.cos(t), math.sin(t), float(rho))
-            near = False
-            for (o, op) in fam[f]:
-                dp = min(abs(p - op), 180 - abs(p - op))
-                # rho of the same line flips sign across p = 0 / 180
-                if dp <= 3 and abs(abs(o[2]) - abs(rho)) <= 6:
-                    near = True
-                    break
-            if not near:
-                fam[f].append((ln, p))
+            if not self._near(fam[f], p, rho):
+                t = math.radians(p)
+                fam[f].append(((math.cos(t), math.sin(t), float(rho)), p))
             if len(fam[0]) >= LINES_KEPT and len(fam[1]) >= LINES_KEPT:
                 break
         self.log("edges: %d along the photo, %d up and down it" %
                  (len(fam[0]), len(fam[1])))
-        return [ln for ln, p in fam[0]], [ln for ln, p in fam[1]]
+        return [ln for ln, _ in fam[0]], [ln for ln, _ in fam[1]]
+
+    def _quad(self, a0, a1, u0, u1, minspan):
+        """
+        The quadrilateral lines a0 and a1 roughly along the photo make with
+        u0 and u1 roughly up and down it, as its corners in the pattern's
+        order, if it's plausible, else None
+        """
+        w, h = self.w, self.h
+        c = [intersect(a0, u0), intersect(a0, u1),
+             intersect(a1, u1), intersect(a1, u0)]
+        if None in c or not all(1 <= x <= w - 2 and 1 <= y <= h - 2
+                                for x, y in c):
+            return None
+        if not convex(c):
+            return None
+        la = 0.5 * (math.dist(c[0], c[1]) + math.dist(c[3], c[2]))
+        lu = 0.5 * (math.dist(c[0], c[3]) + math.dist(c[1], c[2]))
+        if min(la, lu) < minspan:
+            return None
+        # the rows run along the longer sides
+        return c if la >= lu else [c[0], c[3], c[2], c[1]]
 
     def guesses(self):
         """every plausible quadrilateral two of each way of line make, as
         its corners in the pattern's order"""
         along, updown = self.lines()
-        w, h = self.w, self.h
-        minspan = MIN_SIDE * max(w, h)
+        minspan = MIN_SIDE * max(self.w, self.h)
         out = []
-        for i in range(len(along)):
-            for j in range(i + 1, len(along)):
-                for k in range(len(updown)):
-                    for m in range(k + 1, len(updown)):
-                        c = [intersect(along[i], updown[k]),
-                             intersect(along[i], updown[m]),
-                             intersect(along[j], updown[m]),
-                             intersect(along[j], updown[k])]
-                        if None in c or not all(
-                                1 <= x <= w - 2 and 1 <= y <= h - 2
-                                for x, y in c):
-                            continue
-                        if not convex(c):
-                            continue
-                        la = 0.5 * (math.dist(c[0], c[1]) +
-                                    math.dist(c[3], c[2]))
-                        lu = 0.5 * (math.dist(c[0], c[3]) +
-                                    math.dist(c[1], c[2]))
-                        if min(la, lu) < minspan:
-                            continue
-                        # the rows run along the longer sides
-                        out.append(c if la >= lu else
-                                   [c[0], c[3], c[2], c[1]])
+        for (a0, a1), (u0, u1) in itertools.product(
+                itertools.combinations(along, 2),
+                itertools.combinations(updown, 2)):
+            c = self._quad(a0, a1, u0, u1, minspan)
+            if c:
+                out.append(c)
         self.log("guesses: %d" % len(out))
         return out
 
@@ -498,7 +528,7 @@ class Finder:
             ex, ey = self.gx[yi * w + xi], self.gy[yi * w + xi]
         return ex * nx + ey * ny
 
-    def _line_score(self, H, ln, per, fine):
+    def _line_score(self, hom, ln, per, fine):
         """
         The mean step across a line of the pattern.  The line is in pieces,
         each between the same two bars, or a bar and the bezel, so stepping
@@ -507,8 +537,8 @@ class Finder:
         which way, averages out, and only the pattern's own edges count
         """
         u0, v0, u1, v1, cuts = ln
-        x0, y0 = H.xy(u0, v0)
-        x1, y1 = H.xy(u1, v1)
+        x0, y0 = hom.xy(u0, v0)
+        x1, y1 = hom.xy(u1, v1)
         ll = math.hypot(x1 - x0, y1 - y0)
         if ll < 1:
             return 0.0
@@ -519,23 +549,23 @@ class Finder:
             s = 0.0
             for k in range(per):
                 f = a + (b - a) * (k + 0.5) / per
-                x, y = H.xy(u0 + (u1 - u0) * f, v0 + (v1 - v0) * f)
+                x, y = hom.xy(u0 + (u1 - u0) * f, v0 + (v1 - v0) * f)
                 s += self._edge(x, y, nx, ny, fine)
             tot += abs(s / per) * (b - a)
         return tot
 
-    def _mask(self, H, ns):
+    def _mask(self, hom, ns):
         """
         The fraction of the outline with the bezel outside it at least as
         light as the bar inside it, as the bezel or a touch panel's mask is
         """
         w, h, Y = self.w, self.h, self.Y
-        cx, cy = H.xy(0.5, 0.5)
+        cx, cy = hom.xy(0.5, 0.5)
         sides = ((0, 0, 1, 0), (1, 0, 1, 1), (1, 1, 0, 1), (0, 1, 0, 0))
         ok = tot = 0
         for (u0, v0, u1, v1) in sides:
-            x0, y0 = H.xy(u0, v0)
-            x1, y1 = H.xy(u1, v1)
+            x0, y0 = hom.xy(u0, v0)
+            x1, y1 = hom.xy(u1, v1)
             ll = math.hypot(x1 - x0, y1 - y0)
             if ll < 1:
                 return 0.0
@@ -546,7 +576,7 @@ class Finder:
                 nx, ny = -nx, -ny
             for k in range(ns):
                 f = (k + 0.5) / ns
-                x, y = H.xy(u0 + (u1 - u0) * f, v0 + (v1 - v0) * f)
+                x, y = hom.xy(u0 + (u1 - u0) * f, v0 + (v1 - v0) * f)
                 lo = bilinear(Y, w, h, x + 4 * nx, y + 4 * ny)
                 li = bilinear(Y, w, h, x - 4 * nx, y - 4 * ny)
                 tot += 1
@@ -590,15 +620,15 @@ class Finder:
         much of the outline has the bezel outside it
         """
         try:
-            H = f.homography()
+            hom = f.homography()
         except NotFound:
             return 0.0
         per = 4 if fine else 2
         lines = self._lines(f, False) + self._outline(f)
-        tot = sum(self._line_score(H, ln, per * (1 if ln[4] and
+        tot = sum(self._line_score(hom, ln, per * (1 if ln[4] and
                                                  len(ln[4]) > 1 else 3),
                                    fine) for ln in lines)
-        return tot / len(lines) * self._mask(H, 6 * per)
+        return tot / len(lines) * self._mask(hom, 6 * per)
 
     def glance(self, f):
         """
@@ -606,31 +636,28 @@ class Finder:
         just the outline and the spine, and a little of the bezel
         """
         try:
-            H = f.homography()
+            hom = f.homography()
         except NotFound:
             return 0.0
         lines = [(0, 0, 1, 0, []), (1, 0, 1, 1, []), (0, 1, 1, 1, []),
                  (0, 0, 0, 1, []), (0, 0.5, 1, 0.5, [0.5])]
-        tot = sum(self._line_score(H, ln, 6, False) for ln in lines)
-        return tot / len(lines) * self._mask(H, 2)
+        tot = sum(self._line_score(hom, ln, 6, False) for ln in lines)
+        return tot / len(lines) * self._mask(hom, 2)
 
     def ribs_contrast(self, f):
         """the boundaries' steps over those along lines halfway between"""
-        H = f.homography()
-        on = [self._line_score(H, ln, 12, True)
+        hom = f.homography()
+        on = [self._line_score(hom, ln, 12, True)
               for ln in self._lines(f, False)[:-1]]
-        off = [self._line_score(H, ln, 12, True)
+        off = [self._line_score(hom, ln, 12, True)
                for ln in self._lines(f, True)]
         if not on or not off:
             return 0.0
         return (sum(on) / len(on)) / (sum(off) / len(off) + 0.5)
 
-    def refine(self, f):
-        """
-        Find how far the pattern runs past the ends of what can be seen, in
-        case the inset isn't right, then move everything while it fits
-        better, in smaller and smaller steps
-        """
+    def _ends(self, f):
+        """the best fit of how far the pattern runs past the ends of what
+        can be seen, from fit f, and its score"""
         nb = self.nbars
         best, bf = -1.0, f
         for a in range(-3, 4):
@@ -639,50 +666,73 @@ class Finder:
                 v = self.score(g, True)
                 if v > best:
                     best, bf = v, g
+        return bf, best
+
+    def _try_move(self, p, k, d, best):
+        """
+        Move parameter k of fit parameters p by d, keeping the move and
+        returning the new score if it fits better than best, otherwise
+        putting it back and returning None
+        """
+        p[k] += d
+        g = Fit.from_params(p)
+        if g.plausible(self.nbars):
+            v = self.score(g, True)
+            if v > best:
+                return v
+        p[k] -= d
+        return None
+
+    def _sweep(self, p, unit, step, best):
+        """move each parameter in turn by a step either way, where that
+        fits better: the best score after, and if any moved"""
+        moved = False
+        for k in range(len(p)):
+            for s in (step, -step):
+                v = self._try_move(p, k, s * unit[k], best)
+                if v is not None:
+                    best, moved = v, True
+                    break
+        return best, moved
+
+    def refine(self, f):
+        """
+        Find how far the pattern runs past the ends of what can be seen, in
+        case the inset isn't right, then move everything while it fits
+        better, in smaller and smaller steps
+        """
+        bf, best = self._ends(f)
         p = bf.params()
         # a px of the corners, and of the others, in their units
         lu, lv = bf.lengths()
         unit = [1.0] * 8 + [1.0 / lu, 1.0 / lu, 1.0 / lv]
         for step in (3.0, 1.5, 0.75, 0.35):
-            better = True
-            while better:
-                better = False
-                for k in range(len(p)):
-                    for s in (step, -step):
-                        p[k] += s * unit[k]
-                        g = Fit.from_params(p)
-                        if g.plausible(nb):
-                            v = self.score(g, True)
-                            if v > best:
-                                best = v
-                                better = True
-                                break
-                        p[k] -= s * unit[k]
+            moved = True
+            while moved:
+                best, moved = self._sweep(p, unit, step, best)
         return Fit.from_params(p), best
+
+    def _cell_mean(self, f, r, i, mx, my):
+        """the mean luma in the middle of bar i of row r, here"""
+        (u0, u1), (v0, v1) = f.bar(i, self.nbars, mx), f.row(r, my)
+        hom = f.homography()
+        s, n = 0.0, 0
+        for a in range(5):
+            for b in range(5):
+                x, y = hom.xy(u0 + (u1 - u0) * (a + 0.5) / 5,
+                              v0 + (v1 - v0) * (b + 0.5) / 5)
+                val = bilinear(self.Y, self.w, self.h, x, y)
+                if val is not None:
+                    s += val
+                    n += 1
+        if not n:
+            raise NotFound("bars outside the photo")
+        return s / n
 
     def cell_means(self, f, mx, my):
         """the mean luma in the middle of each bar, here, of each row"""
-        nb = self.nbars
-        rows = []
-        for r in range(2):
-            means = []
-            for i in range(nb):
-                (u0, u1), (v0, v1) = f.bar(i, nb, mx), f.row(r, my)
-                s, n = 0.0, 0
-                for a in range(5):
-                    for b in range(5):
-                        x, y = f.homography().xy(
-                            u0 + (u1 - u0) * (a + 0.5) / 5,
-                            v0 + (v1 - v0) * (b + 0.5) / 5)
-                        val = bilinear(self.Y, self.w, self.h, x, y)
-                        if val is not None:
-                            s += val
-                            n += 1
-                if not n:
-                    raise NotFound("bars outside the photo")
-                means.append(s / n)
-            rows.append(means)
-        return rows
+        return [[self._cell_mean(f, r, i, mx, my) for i in range(self.nbars)]
+                for r in range(2)]
 
     def check(self, f):
         """is the pattern really where fit f puts it"""
@@ -742,11 +792,11 @@ def cell_corners(fd, row, i, mx, my):
     detection image coordinates
     """
     f = fd.fit
-    H = f.homography()
+    hom = f.homography()
     (u0, u1), (v0, v1) = f.bar(i, fd.nbars, mx), f.row(row, my)
 
     def at(a, b):
-        return H.xy(u0 + (u1 - u0) * a, v0 + (v1 - v0) * b)
+        return hom.xy(u0 + (u1 - u0) * a, v0 + (v1 - v0) * b)
 
     return [at(0, 0), at(1, 0), at(1, 1), at(0, 1)], at
 
@@ -796,16 +846,17 @@ def write_overlay(path, fmt, src, fd, cells, scale):
                               (xy[1] + 0.5) * scale - 0.5)
 
     f, nb = fd.fit, fd.nbars
-    H = f.homography()
+    hom = f.homography()
     sw = max(2, int(scale * 1.5))
     mvg = ["stroke-width %d" % sw, "fill none", "stroke cyan",
            "polygon " + " ".join(p(c) for c in f.c),
-           "stroke red", "line %s %s" % (p(H.xy(0, f.d)), p(H.xy(1, f.d))),
+           "stroke red",
+           "line %s %s" % (p(hom.xy(0, f.d)), p(hom.xy(1, f.d))),
            "stroke yellow"]
     for i in range(nb + 1):
         u = f.rib(i, nb)
         if 0.0 < u < 1.0:
-            mvg.append("line %s %s" % (p(H.xy(u, 0)), p(H.xy(u, 1))))
+            mvg.append("line %s %s" % (p(hom.xy(u, 0)), p(hom.xy(u, 1))))
     mvg.append("stroke lime")
     for (row, i, level, corners) in cells:
         mvg.append("polygon " + " ".join(p(c) for c in corners))
@@ -830,7 +881,7 @@ def write_overlay(path, fmt, src, fd, cells, scale):
     write_file(path, r.stdout)
 
 
-def main():
+def parse_args():
     ap = argparse.ArgumentParser(
         description=__doc__.split("\n\n")[0].strip(),
         epilog="See the top of this script for how it works.")
@@ -862,36 +913,40 @@ def main():
         die("margins must be 0 - 0.45")
     if not 0 <= args.trim < 0.4:
         die("--trim must be 0 - 0.4")
-    # before the work of finding the pattern, not after it
-    ofmt = overlay_format(args.overlay) if args.overlay else None
+    return args
 
-    luts = luma_luts(args.linear)
-    det = Image(args.photo, DET_SIZE)
-    fd = Finder(det, luts, args.levels, args.verbose)
-    try:
-        fd.find()
-    except NotFound as e:
-        fd.log(str(e))
-        die("no %d bar grey ramp found; check the photo, or try -v" %
-            args.levels)
-    full = Image(args.photo)
-    scale = full.w / det.w
 
-    nb = args.levels
+def measure(fd, full, luts, scale, args):
+    """
+    The trimmed mean, std and count of each bar, by (row, i), and the
+    sampled part of each, as [row, i, level, corners], its level to be
+    filled in
+    """
     raw = {}
     cells = []
     for row in (0, 1):
-        for i in range(nb):
+        for i in range(fd.nbars):
             corners, at = cell_corners(fd, row, i, args.margin_x,
                                        args.margin_y)
             raw[(row, i)] = measure_cell(full, luts, at, scale, args.trim)
             cells.append([row, i, 0, corners])
+    return raw, cells
 
-    # each row is normalised by its own ends, darkest as black
+
+def ascending(raw, row, nb):
+    """does the row go from black at the left"""
+    return raw[(row, 0)][0] < raw[(row, nb - 1)][0]
+
+
+def normalise(raw, nb):
+    """
+    Each row normalised by its own ends, darkest as black, by (row, level),
+    as the percentage and the raw measurement
+    """
     norm = {}
     for row in (0, 1):
+        asc = ascending(raw, row, nb)
         ends = (raw[(row, 0)][0], raw[(row, nb - 1)][0])
-        asc = ends[0] < ends[1]
         black, white = (ends if asc else ends[::-1])
         if white - black < 1.0:
             die("no contrast between the ends of a row")
@@ -899,40 +954,37 @@ def main():
             level = i if asc else nb - 1 - i
             norm[(row, level)] = (100.0 * (raw[(row, i)][0] - black) /
                                   (white - black), raw[(row, i)])
-    for c in cells:
-        ends = (raw[(c[0], 0)][0], raw[(c[0], nb - 1)][0])
-        c[2] = c[1] if ends[0] < ends[1] else nb - 1 - c[1]
+    return norm
 
-    if args.overlay:
-        write_overlay(args.overlay, ofmt, args.photo, fd, cells, scale)
 
-    # "top" is the row that's top in the pattern: the one black at the left
-    top_row = 0 if raw[(0, 0)][0] < raw[(0, nb - 1)][0] else 1
-    bot_row = 1 - top_row
-
-    space = "linear light" if args.linear else "sRGB-encoded luma"
+def results(norm, nb, top_row):
+    """a row of results for each level, as printed"""
     rows = []
     prev = None
     for lv in range(nb):
         ideal = 100.0 * lv / (nb - 1)
-        top, (ty, tsd, tn) = norm[(top_row, lv)]
-        bot, (by, bsd, bn) = norm[(bot_row, lv)]
+        top, (ty, tsd, _) = norm[(top_row, lv)]
+        bot, (by, bsd, _) = norm[(1 - top_row, lv)]
         mean = 0.5 * (top + bot)
         rows.append((lv, ideal, mean, mean - ideal,
                      None if prev is None else mean - prev,
                      top, bot, top - bot, ty, tsd, by, bsd))
         prev = mean
+    return rows
 
-    if args.csv:
-        print("level,ideal,measured,error,step,top,bottom,top_minus_bottom,"
-              "top_luma,top_std,bottom_luma,bottom_std")
-        for r in rows:
-            print(",".join("" if v is None else
-                           ("%d" % v if k == 0 else "%.2f" % v)
-                           for k, v in enumerate(r)))
-        return
 
-    print("%s: lightness from black, %%, of %s" % (args.photo, space))
+def print_csv(rows):
+    print("level,ideal,measured,error,step,top,bottom,top_minus_bottom,"
+          "top_luma,top_std,bottom_luma,bottom_std")
+    for r in rows:
+        print(",".join("" if v is None else
+                       ("%d" % v if k == 0 else "%.2f" % v)
+                       for k, v in enumerate(r)))
+
+
+def print_table(photo, space, rows):
+    nb = len(rows)
+    print("%s: lightness from black, %%, of %s" % (photo, space))
     print("level  ideal  measured  error   step |   top  bottom  top-bot |"
           " top luma (sd)  bottom luma (sd)")
     for r in rows:
@@ -949,6 +1001,42 @@ def main():
                    max(range(nb), key=lambda k: abs(errs[k])),
                    max(diffs),
                    "monotonic" if mono else "NOT monotonic"))
+
+
+def main():
+    args = parse_args()
+    # before the work of finding the pattern, not after it
+    ofmt = overlay_format(args.overlay) if args.overlay else None
+
+    luts = luma_luts(args.linear)
+    det = Image(args.photo, DET_SIZE)
+    fd = Finder(det, luts, args.levels, args.verbose)
+    try:
+        fd.find()
+    except NotFound as e:
+        fd.log(str(e))
+        die("no %d bar grey ramp found; check the photo, or try -v" %
+            args.levels)
+    full = Image(args.photo)
+    scale = full.w / det.w
+
+    nb = args.levels
+    raw, cells = measure(fd, full, luts, scale, args)
+    norm = normalise(raw, nb)
+    for c in cells:
+        c[2] = c[1] if ascending(raw, c[0], nb) else nb - 1 - c[1]
+
+    if args.overlay:
+        write_overlay(args.overlay, ofmt, args.photo, fd, cells, scale)
+
+    # "top" is the row that's top in the pattern: the one black at the left
+    rows = results(norm, nb, 0 if ascending(raw, 0, nb) else 1)
+
+    if args.csv:
+        print_csv(rows)
+    else:
+        print_table(args.photo, "linear light" if args.linear else
+                    "sRGB-encoded luma", rows)
 
 
 if __name__ == "__main__":
