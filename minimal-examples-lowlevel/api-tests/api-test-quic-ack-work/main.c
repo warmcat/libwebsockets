@@ -78,16 +78,17 @@
  *    the ACK Delay reports (RFC 9000 13.2.5), is one the client takes an RTT
  *    sample from, not an ACK
  *
- *  - wsi/quic_stats as above, which also logs how long the server held them,
- *    the most ACK Delay each end sent and took, the most of it the RTT
- *    estimator took off a sample, and the most smoothed_rtt was after an ACK
+ *  - wsi/quic_stats as above, which also logs how long the server held them
+ *    and the last of them to come, the most ACK Delay each end sent and
+ *    took, the most of it the RTT estimator took off a sample, and the most
+ *    smoothed_rtt was after an ACK
  *
- * and the transfer must complete with the server having held a packet for
- * at least QAW_HELD_MIN_US, an ACK of it having reported that wait in its
- * ACK Delay (RFC 9000 13.2.5), and the client having taken all of it,
- * though it is far past the 25ms max_ack_delay, since its handshake was not
- * confirmed yet (RFC 9002 5.3), and having taken at least half the hold off
- * its RTT sample, down to min_rtt.  Its smoothed_rtt must also have stayed
+ * and the transfer must complete with the server having held the last of
+ * them to come, the largest, for at least QAW_HELD_MIN_US, an ACK of it having
+ * reported that wait in its ACK Delay (RFC 9000 13.2.5), and the client having
+ * taken all of it, though it is far past the 25ms max_ack_delay, since its
+ * handshake was not confirmed yet (RFC 9002 5.3), and having taken at least
+ * half the hold off its RTT sample, down to min_rtt.  Its smoothed_rtt must also have stayed
  * below a twelfth of the hold: the congestion controller used to run the RTT
  * estimator again on each sample, without the ACK Delay taken off, so an
  * eighth of the hold went into it anyway.  Either way short, the client took
@@ -131,11 +132,6 @@
  */
 #define QAW_HELD_MIN_US		(50 * LWS_US_PER_MS)
 /*
- * the ACK Delay is of the largest packet held (RFC 9000 13.2.5), which came a
- * little after the oldest, whose hold held_max is
- */
-#define QAW_HELD_SLACK_US	(2 * LWS_US_PER_MS)
-/*
  * a sample of the whole hold taken in again by the congestion controller puts
  * an eighth of it in smoothed_rtt; without it, smoothed_rtt is the RTT of the
  * handshake, some 40ms under ASan for a hold of around 1s
@@ -154,6 +150,7 @@ struct qaw_stats {
 	uint64_t		path_responses_peak;
 	uint64_t		cc_bypassed;
 	uint64_t		held_max;
+	uint64_t		held_newest_max;
 	uint64_t		ack_delay_tx_max;
 	uint64_t		ack_delay_rx_max;
 	uint64_t		ack_delay_rtt_max;
@@ -222,6 +219,7 @@ emit_cb(int level, const char *line)
 	st->path_responses_peak	= stat_get(p, "responses peak ", &bad);
 	st->cc_bypassed		= stat_get(p, "cc bypassed ", &bad);
 	st->held_max		= stat_get(p, "held max ", &bad);
+	st->held_newest_max	= stat_get(p, "held newest max ", &bad);
 	st->ack_delay_tx_max	= stat_get(p, "ack delay tx max ", &bad);
 	st->ack_delay_rx_max	= stat_get(p, "ack delay rx max ", &bad);
 	st->ack_delay_rtt_max	= stat_get(p, "ack delay off rtt max ", &bad);
@@ -305,35 +303,43 @@ challenges_check(const char *what, const struct qaw_stats *st)
 
 /*
  * --lost-finished: did the server report the wait of the 1-RTT packets it
- * held in its ACK Delay, and the client take it, see the top
+ * held in its ACK Delay, and the client take it, see the top.
+ *
+ * The ACK Delay is of the largest PN acked (RFC 9000 13.2.5), the last of the
+ * held packets to come, so it is measured against that one's hold, not the
+ * oldest's: under load the client's 1-RTT packets that the server holds can
+ * come many ms apart.
  */
 static int
 held_check(void)
 {
-	lwsl_user("server held 1-RTT packets up to %lluus and sent ACK Delay "
-		  "up to %lluus, client took ACK Delay up to %lluus, and up to "
-		  "%lluus of it off an RTT sample, its smoothed RTT up to "
-		  "%lluus\n",
+	uint64_t held = st_srv.held_newest_max;
+
+	lwsl_user("server held 1-RTT packets up to %lluus, the last of them up "
+		  "to %lluus, and sent ACK Delay up to %lluus, client took ACK "
+		  "Delay up to %lluus, and up to %lluus of it off an RTT "
+		  "sample, its smoothed RTT up to %lluus\n",
 		  (unsigned long long)st_srv.held_max,
+		  (unsigned long long)held,
 		  (unsigned long long)st_srv.ack_delay_tx_max,
 		  (unsigned long long)st_cli.ack_delay_rx_max,
 		  (unsigned long long)st_cli.ack_delay_rtt_max,
 		  (unsigned long long)st_cli.srtt_max);
 
-	if (st_srv.held_max < QAW_HELD_MIN_US) {
+	if (held < QAW_HELD_MIN_US) {
 		lwsl_err("FAIL: the server held nothing for %uus\n",
 			 (unsigned int)QAW_HELD_MIN_US);
 		return 1;
 	}
 
-	if (st_srv.ack_delay_tx_max + QAW_HELD_SLACK_US < st_srv.held_max) {
+	/* the ACK goes after the held packets are processed */
+	if (st_srv.ack_delay_tx_max < held) {
 		lwsl_err("FAIL: the server's ACK Delay left out the wait\n");
 		return 1;
 	}
 
 	/* it goes in units of 8us, ack_delay_exponent 3 */
-	if (st_cli.ack_delay_rx_max + 8 + QAW_HELD_SLACK_US <=
-							st_srv.held_max) {
+	if (st_cli.ack_delay_rx_max + 8 <= held) {
 		lwsl_err("FAIL: the client cut the server's ACK Delay\n");
 		return 1;
 	}
@@ -344,13 +350,13 @@ held_check(void)
 	 * the sample, down to min_rtt.  min_rtt may be inflated by the
 	 * server's handshake crypto, so allow it half.
 	 */
-	if (st_cli.ack_delay_rtt_max < st_srv.held_max / 2) {
+	if (st_cli.ack_delay_rtt_max < held / 2) {
 		lwsl_err("FAIL: the client took the server's hold for path "
 			 "RTT\n");
 		return 1;
 	}
 
-	if (st_cli.srtt_max >= st_srv.held_max / QAW_SRTT_HELD_DIV) {
+	if (st_cli.srtt_max >= held / QAW_SRTT_HELD_DIV) {
 		lwsl_err("FAIL: the client's smoothed RTT took in the "
 			 "server's hold\n");
 		return 1;

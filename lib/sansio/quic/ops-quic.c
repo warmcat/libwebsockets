@@ -4436,8 +4436,21 @@ lws_quic_rx_early_pkts(struct lws *wsi, struct lws_quic_netconn *qn)
 		if (r == LWS_HPI_RET_HANDLED) {
 			lwsl_wsi_info(wsi, "QUIC RX: processing held 1-RTT "
 					   "packet, %zu bytes", ep->len);
-			lws_quic_fi_stat_max(qn, early_held_max,
-					     lws_wsi_now(wsi) - ep->rx_us);
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+			{
+				lws_usec_t held = lws_wsi_now(wsi) - ep->rx_us;
+
+				lws_quic_fi_stat_max(qn, early_held_max, held);
+				/*
+				 * the last of them to come: the ACK Delay we
+				 * report for the largest PN we ack is its
+				 * hold, not the oldest's
+				 */
+				if (!lws_dll2_get_head(&owner))
+					lws_quic_fi_stat_max(qn,
+						early_held_newest_max, held);
+			}
+#endif
 			r = lws_quic_rx_dgram(wsi, (uint8_t *)&ep[1], ep->len,
 					      &ep->peer, ep->ecn, NULL,
 					      ep->rx_us);
@@ -7376,8 +7389,9 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 				"ignored %llu, ranges %llu, acked %llu, visits %llu, "
 				"in flight peak %u, excess max %llu, path "
 				"responses peak %u, cc bypassed %llu, held max "
-				"%lluus, ack delay tx max %lluus, ack delay rx "
-				"max %lluus, ack delay off rtt max %lluus, "
+				"%lluus, held newest max %lluus, ack delay tx "
+				"max %lluus, ack delay rx max %lluus, ack "
+				"delay off rtt max %lluus, "
 				"srtt max %lluus, persistent congestion %llu, "
 				"pto fresh %llu",
 				qn->is_server ? "server" : "client",
@@ -7391,6 +7405,7 @@ lws_quic_netconn_destroy(struct lws_quic_netconn **pqn)
 				(unsigned int)qn->fi_stats.path_responses_peak,
 				(unsigned long long)qn->fi_stats.cc_bypassed,
 				(unsigned long long)qn->fi_stats.early_held_max,
+				(unsigned long long)qn->fi_stats.early_held_newest_max,
 				(unsigned long long)qn->fi_stats.ack_delay_tx_max,
 				(unsigned long long)qn->fi_stats.ack_delay_rx_max,
 				(unsigned long long)qn->fi_stats.ack_delay_rtt_max,

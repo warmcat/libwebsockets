@@ -27,10 +27,11 @@ neither may have more than 12 PATH_RESPONSEs waiting or in flight at once
 With `--lost-finished`, the client's Handshake packet with its Finished in it
 is damaged on the way the first three times (`wsi/quic_corrupt_finished`), so
 the server holds the client's 1-RTT packets that came after it until the
-client's PTO sends the Finished again.  The server must have held one for at
-least 50ms, reported that wait in the ACK Delay of its ACK (RFC 9000 13.2.5),
-and the client must have taken all of it, far past the 25ms max_ack_delay,
-since its handshake was not confirmed yet (RFC 9002 5.3).  Taking the wait for
+client's PTO sends the Finished again.  The server must have held the last of
+them to come, the largest, for at least 50ms, and reported that wait in the
+ACK Delay of its ACK (RFC 9000 13.2.5), and the client must have taken all of
+it, far past the 25ms max_ack_delay, since its handshake was not confirmed yet
+(RFC 9002 5.3).  Taking the wait for
 path RTT instead backs the client's PTO off by as much, so a request lost then
 goes again too late.  The server sends nothing in 1-RTT until its handshake
 completes (`wsi/quic_no_half_rtt`), so the largest client packet it holds,

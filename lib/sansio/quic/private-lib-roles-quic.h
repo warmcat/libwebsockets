@@ -919,11 +919,13 @@ struct lws_quic_netconn {
 		uint64_t	cc_bypassed;
 		/*
 		 * the longest a 1-RTT packet that came before the handshake
-		 * completed was held, the most ACK Delay we sent, the most
-		 * we took from the peer's ACKs, and the most of that the RTT
+		 * completed was held, the longest the last of those held
+		 * together was, the most ACK Delay we sent, the most we took
+		 * from the peer's ACKs, and the most of that the RTT
 		 * estimator took off a sample, all in us
 		 */
 		uint64_t	early_held_max;
+		uint64_t	early_held_newest_max;
 		uint64_t	ack_delay_tx_max;
 		uint64_t	ack_delay_rx_max;
 		uint64_t	ack_delay_rtt_max;
