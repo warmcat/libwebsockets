@@ -126,6 +126,41 @@ def magick_cmd():
     return None
 
 
+# ImageMagick takes a filename as more than a filename, eg, "|cmd" runs cmd,
+# "coder:file" picks how it's read, "@file" reads a list of files, and a
+# leading "-" is an option.  So the paths we're given never reach its
+# command line: we read and write the files, and ImageMagick only sees
+# stdin and stdout, with the format of what it writes chosen from this list
+# by the overlay's extension.
+
+OVERLAY_FORMATS = {
+    ".png": "png",
+    ".jpg": "jpeg",
+    ".jpeg": "jpeg",
+    ".webp": "webp",
+    ".tif": "tiff",
+    ".tiff": "tiff",
+    ".bmp": "bmp",
+}
+
+
+def read_file(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError as e:
+        die("unable to read %s: %s" % (path, e.strerror))
+    return None
+
+
+def write_file(path, data):
+    try:
+        with open(path, "wb") as f:
+            f.write(data)
+    except OSError as e:
+        die("unable to write %s: %s" % (path, e.strerror))
+
+
 # ---------------------------------------------------------------------------
 # Image loading
 # ---------------------------------------------------------------------------
@@ -134,17 +169,16 @@ class Image:
     """8-bit RGB pixels, decoded and oriented by ImageMagick"""
 
     def __init__(self, path, size=None):
-        cmd = magick_cmd() + [path, "-auto-orient"]
+        cmd = magick_cmd() + ["-", "-auto-orient"]
         if size:
             cmd += ["-scale", "%dx%d" % (size, size)]
         cmd += ["-depth", "8", "ppm:-"]
-        try:
-            ppm = subprocess.run(cmd, check=True, stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE).stdout
-        except subprocess.CalledProcessError as e:
+        r = subprocess.run(cmd, input=read_file(path),
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if r.returncode:
             die("unable to decode %s: %s" %
-                (path, e.stderr.decode(errors="replace").strip()))
-        self.w, self.h, self.rgb = self._parse_ppm(ppm)
+                (path, r.stderr.decode(errors="replace").strip()))
+        self.w, self.h, self.rgb = self._parse_ppm(r.stdout)
 
     @staticmethod
     def _parse_ppm(d):
@@ -748,7 +782,15 @@ def measure_cell(img, luts, at, scale, trim):
     return mean, std, len(kept)
 
 
-def write_overlay(path, src, fd, cells, scale):
+def overlay_format(path):
+    fmt = OVERLAY_FORMATS.get(os.path.splitext(path)[1].lower())
+    if not fmt:
+        die("--overlay must end in one of %s" %
+            " ".join(sorted(OVERLAY_FORMATS)))
+    return fmt
+
+
+def write_overlay(path, fmt, src, fd, cells, scale):
     def p(xy):
         return "%.1f,%.1f" % ((xy[0] + 0.5) * scale - 0.5,
                               (xy[1] + 0.5) * scale - 0.5)
@@ -778,11 +820,14 @@ def write_overlay(path, src, fd, cells, scale):
         mf = os.path.join(td, "overlay.mvg")
         with open(mf, "w") as f:
             f.write("\n".join(mvg) + "\n")
-        cmd = magick_cmd() + [src, "-auto-orient", "-draw", "@" + mf, path]
-        r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        cmd = magick_cmd() + ["-", "-auto-orient", "-draw", "@" + mf,
+                              fmt + ":-"]
+        r = subprocess.run(cmd, input=read_file(src),
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if r.returncode:
-            die("unable to write overlay: %s" %
+            die("unable to draw overlay: %s" %
                 r.stderr.decode(errors="replace").strip())
+    write_file(path, r.stdout)
 
 
 def main():
@@ -805,7 +850,7 @@ def main():
                          "dropped from each bar (default 0.05)")
     ap.add_argument("--overlay", metavar="OUT",
                     help="write a copy of the photo showing what was found "
-                         "and sampled")
+                         "and sampled, as .png, .jpg, .webp, .tif or .bmp")
     ap.add_argument("--csv", action="store_true", help="output as CSV")
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="say what was found, on stderr")
@@ -817,6 +862,8 @@ def main():
         die("margins must be 0 - 0.45")
     if not 0 <= args.trim < 0.4:
         die("--trim must be 0 - 0.4")
+    # before the work of finding the pattern, not after it
+    ofmt = overlay_format(args.overlay) if args.overlay else None
 
     luts = luma_luts(args.linear)
     det = Image(args.photo, DET_SIZE)
@@ -857,7 +904,7 @@ def main():
         c[2] = c[1] if ends[0] < ends[1] else nb - 1 - c[1]
 
     if args.overlay:
-        write_overlay(args.overlay, args.photo, fd, cells, scale)
+        write_overlay(args.overlay, ofmt, args.photo, fd, cells, scale)
 
     # "top" is the row that's top in the pattern: the one black at the left
     top_row = 0 if raw[(0, 0)][0] < raw[(0, nb - 1)][0] else 1
