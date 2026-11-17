@@ -1132,7 +1132,8 @@ word_changes(const epdd_priv_t *priv, const uint8_t *wa, const uint8_t *t,
 	     uint32_t busy, int w, uint32_t *take)
 {
 	const lws_display_epd_direct_t *ed = lds_to_disp(priv->lds);
-	int x = w * 32, x1 = x + 32, sp = 1 << priv->span_shift, k;
+	int x = w * 32, x1 = x + 32;
+	unsigned int sp = 1u << priv->span_shift, k;
 	uint32_t diff = 0, free = 0, sm;
 
 	if (x1 > (int)ed->panel->source_px)
@@ -1142,7 +1143,7 @@ word_changes(const epdd_priv_t *priv, const uint8_t *wa, const uint8_t *t,
 		if (fld_get(wa, x, priv->bits) != fld_get(t, x, priv->bits))
 			diff |= 1u << (x & 31);
 
-	sm = sp == 32 ? 0xffffffffu : (1u << sp) - 1u;
+	sm = sp >= 32 ? 0xffffffffu : (1u << sp) - 1u;
 	for (k = 0; k < 32; k += sp)
 		if (!(busy & (sm << k)))
 			free |= sm << k;
