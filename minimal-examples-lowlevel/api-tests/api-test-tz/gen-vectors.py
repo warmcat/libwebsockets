@@ -18,10 +18,14 @@
 
 import calendar
 import os
+import re
 import sys
 import time
 
 zi = sys.argv[1] if len(sys.argv) > 1 else '/usr/share/zoneinfo'
+
+# a zone's name is a path under zi: nothing in it may lead outside
+ZONE_NAME = re.compile(r'[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)*')
 
 footers = set()
 with open(os.path.join(zi, 'zone1970.tab'), encoding='utf-8') as f:
@@ -29,6 +33,8 @@ with open(os.path.join(zi, 'zone1970.tab'), encoding='utf-8') as f:
         if line.startswith('#'):
             continue
         name = line.split('\t')[2].strip()
+        if not ZONE_NAME.fullmatch(name):
+            sys.exit('gen-vectors: unexpected zone name %r' % name)
         with open(os.path.join(zi, name), 'rb') as z:
             last = z.read().rstrip(b'\n').split(b'\n')[-1].decode('ascii')
         if last:
