@@ -551,11 +551,16 @@ lws_client_redirect_resolve(struct lws *wsi, const char *loc)
  * RFC 9110 15.4: the method a redirect is followed with, or NULL if the
  * request's own is kept.  A 303 is followed with a GET, unless it was a HEAD;
  * a 301 or 302 turns only a POST into a GET, as every browser does; 307 and
- * 308 keep the method, and so the body.
+ * 308 keep the method, and so the body.  A request with no method is a GET,
+ * and a ws upgrade where ws is built: it is kept as it is for any status, so
+ * the redirected request is an upgrade again.
  */
 static const char *
 lws_client_redirect_method(int status, const char *meth)
 {
+	if (!meth)
+		return NULL;
+
 	if (status == 303 && strcmp(meth, "HEAD"))
 		return "GET";
 
@@ -1932,8 +1937,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 		if (!lws_client_reset(&wsi, redir->ssl, redir->address,
 				      redir->port, redir->path, redir->host,
-				      lws_client_redirect_method(n,
-						meth ? meth : "GET"), 1)) {
+				      lws_client_redirect_method(n, meth), 1)) {
 			lwsl_err("Redirect failed\n");
 			cce = "HS: Redirect failed";
 			goto bail3_l;
