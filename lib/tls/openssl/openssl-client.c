@@ -228,7 +228,7 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 				if (cert) {
 					const X509_NAME *subject = X509_get_subject_name(cert);
 					if (subject)
-						X509_NAME_get_text_by_NID(subject, NID_commonName, cert_cn, sizeof(cert_cn));
+						X509_NAME_get_text_by_NID((X509_NAME *)subject, NID_commonName, cert_cn, sizeof(cert_cn));
 				}
 				lwsl_err("Hostname mismatch details: Expected='%s', Cert CN='%s'\n",
 					expected ? expected : "unknown", cert_cn);
