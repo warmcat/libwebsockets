@@ -20,6 +20,9 @@
  *    307 and 308 keep the method.  A request that stays a POST or a PUT
  *    sends its body again; one turned into a GET sends none
  *
+ *  - a ws upgrade, which has no method of its own, is redone as a ws
+ *    upgrade wherever it is redirected, by a 303 as by any other
+ *
  *  - Locations that are refused rather than guessed at: two of them, one
  *    carrying userinfo, a port outside 1 - 65535, a scheme that is not
  *    http(s), and bytes that are not a URI reference
@@ -76,6 +79,7 @@ enum {
 	HCK_DIGEST,	/* a GET with credentials, challenged for them */
 	HCK_INFO,	/* the redirect callback judges where it goes */
 	HCK_CREDS,	/* a GET with credentials, redirected */
+	HCK_WS,		/* a ws upgrade, maybe redirected */
 };
 
 static const struct hcr_case {
@@ -147,6 +151,20 @@ static const struct hcr_case {
 	{ "PUT 308 stays a PUT, with its body",
 	  "cli", "PUT", "/start?redir=308", NULL,
 	  "PUT /done host=" HCR_VHOST " len=5 conn=2", NULL, 2, HCK_REDIR, NULL, 0, 0 },
+
+#if defined(LWS_ROLE_WS)
+	/* ws upgrades */
+
+	{ "ws upgrade 301 is redone as a ws upgrade",
+	  "cli", NULL, "/start?redir=301", NULL,
+	  "GET /done host=" HCR_VHOST " len=0 conn=2 ws", NULL, 2, HCK_WS, NULL, 0, 0 },
+	{ "ws upgrade 303 is redone as a ws upgrade",
+	  "cli", NULL, "/start?redir=303", NULL,
+	  "GET /done host=" HCR_VHOST " len=0 conn=2 ws", NULL, 2, HCK_WS, NULL, 0, 0 },
+	{ "ws upgrade 307 is redone as a ws upgrade",
+	  "cli", NULL, "/start?redir=307", NULL,
+	  "GET /done host=" HCR_VHOST " len=0 conn=2 ws", NULL, 2, HCK_WS, NULL, 0, 0 },
+#endif
 
 	/* Locations refused */
 
@@ -350,14 +368,34 @@ hcr_header(const char *h, const char *end, const char *name, char *dst,
 	return 1;
 }
 
+#if defined(LWS_ROLE_WS)
+/* the Sec-WebSocket-Accept: answering key (RFC 6455 4.2.2) */
+
+static int
+hcr_ws_accept(const char *key, char *dst, int dlen)
+{
+	unsigned char hash[20];
+	char buf[128];
+	int n;
+
+	n = lws_snprintf(buf, sizeof(buf),
+			 "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", key);
+	lws_SHA1((unsigned char *)buf, (size_t)n, hash);
+
+	return lws_b64_encode_string((char *)hash, sizeof(hash), dst, dlen) < 0;
+}
+#endif
+
 /* compose the answer to one complete request, and note what we saw */
 
 static void
 hcr_answer(struct pss_srv *pss, const char *head, size_t hlen, size_t body)
 {
 	const char *sp1, *sp2, *end = head + hlen, *r;
-	char method[16], target[256], host[64], loc[128], auth[16];
+	char method[16], target[256], host[64], loc[128], auth[16],
+	     upgrade[32], key[64];
 	size_t n;
+	int ws;
 	char *o = pss->out, *oe = pss->out + sizeof(pss->out);
 
 	sp1 = memchr(head, ' ', hlen);
@@ -376,12 +414,19 @@ hcr_answer(struct pss_srv *pss, const char *head, size_t hlen, size_t body)
 		host[0] = '\0';
 	if (hcr_header(head, end, "authorization:", auth, sizeof(auth)))
 		auth[0] = '\0';
+	/* a ws upgrade asks for one, with a key to answer */
+	ws = !hcr_header(head, end, "upgrade:", upgrade, sizeof(upgrade)) &&
+	     !strcmp(upgrade, "websocket") &&
+	     !hcr_header(head, end, "sec-websocket-key:", key, sizeof(key));
 
 	n = (size_t)lws_snprintf(seen, sizeof(seen),
 				 "%s %s host=%s len=%u conn=%d", method, target,
 				 host, (unsigned int)body, pss->conn);
 	if (!strncmp(auth, "Digest ", 7))
-		lws_snprintf(seen + n, sizeof(seen) - n, " auth=digest");
+		n += (size_t)lws_snprintf(seen + n, sizeof(seen) - n,
+					  " auth=digest");
+	if (ws)
+		lws_snprintf(seen + n, sizeof(seen) - n, " ws");
 	nseen++;
 	lwsl_user("%s: server saw: %s\n", __func__, seen);
 
@@ -402,6 +447,17 @@ hcr_answer(struct pss_srv *pss, const char *head, size_t hlen, size_t body)
 					  "Location: %s\r\n", redirs[n].loc2);
 		o += lws_snprintf(o, lws_ptr_diff_size_t(oe, o),
 				  "Content-Length: 0\r\n\r\n");
+#if defined(LWS_ROLE_WS)
+	} else if (ws) {
+		char accept[32];
+
+		if (hcr_ws_accept(key, accept, sizeof(accept)))
+			return;
+		o += lws_snprintf(o, lws_ptr_diff_size_t(oe, o),
+				  "HTTP/1.1 101 Switching Protocols\r\n"
+				  "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+				  "Sec-WebSocket-Accept: %s\r\n\r\n", accept);
+#endif
 	} else if (!strcmp(target, "/auth") && !auth[0])
 		/*
 		 * Closing after the challenge, the retry can't go on this
@@ -520,7 +576,11 @@ case_check(void)
 		return;
 	}
 
-	if (status != HTTP_STATUS_OK) {
+	/*
+	 * A ws upgrade only gets CLIENT_ESTABLISHED once lws checked its 101 and
+	 * Sec-WebSocket-Accept: by then the response headers are gone
+	 */
+	if (c->kind != HCK_WS && status != HTTP_STATUS_OK) {
 		case_end("no 200 at the end");
 		return;
 	}
@@ -642,6 +702,10 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		return 1;
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+		/* a ws upgrade has no method, and no body */
+		if (c->kind == HCK_WS)
+			break;
+
 		/*
 		 * Only a request a redirect made is told where it is going,
 		 * which for these is plain http: no credentials
@@ -716,10 +780,25 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		return 0;
 
+#if defined(LWS_ROLE_WS)
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+		if (wsi != cwsi)
+			break;
+		cwsi = NULL;
+		case_check();
+		lws_set_timeout(wsi, PENDING_TIMEOUT_USER_OK, LWS_TO_KILL_ASYNC);
+		break;
+#endif
+
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		if (wsi != cwsi)
 			break;
 		cwsi = NULL;
+		if (c->kind == HCK_WS) {
+			case_end("the ws upgrade was completed as a plain http "
+				 "request");
+			break;
+		}
 		if (c->kind == HCK_TWO && !phase++) {
 			/* the first is done: the second goes once it idles */
 			lws_sul_schedule(context, 0, &sul_second, second_cb,

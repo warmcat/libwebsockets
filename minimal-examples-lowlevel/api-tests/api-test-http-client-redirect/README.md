@@ -12,6 +12,9 @@ that decide what it sends where afterwards.
    POST into a GET, a 303 turns anything but a HEAD into a GET, and 307 / 308
    keep the method.  A request that stays a POST or a PUT sends its body
    again; one turned into a GET sends none.
+ - A ws upgrade, which has no method of its own, is redone as a ws upgrade
+   wherever it is redirected: by a 303 as by a 301 or a 307 (when lws has
+   ws).
  - Locations that are refused rather than guessed at: two of them, one with
    userinfo, a port outside 1 - 65535, a scheme that is not http(s), and
    bytes that are not a URI reference.
