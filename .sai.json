@@ -291,7 +291,8 @@
 		"secure-streams-proxy-metrics": {
 			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_SYS_METRICS=1"
 		},
-		"distro_recommended": { # minimal examples also needed for ctest
+		# minimal examples also needed for ctest
+		"distro_recommended": {
 			"cmake":	"-DLWS_WITH_DISTRO_RECOMMENDED=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"rocky9-ca/aarch64-a72a55-rk3588/clang,ubuntu-noble/riscv64/gcc",
 			"cpack":	"cpack $SAI_CPACK",
