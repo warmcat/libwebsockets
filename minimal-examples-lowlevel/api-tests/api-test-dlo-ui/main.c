@@ -1487,7 +1487,11 @@ next_step(lws_sorted_usec_list_t *sul)
 		/* down to the end, which is scrolled to */
 
 		for (x0 = 0; x0 < DLG_APS; x0++)
-			lws_dlo_ui_nav(ui, LWS_DLO_UI_NAV_DOWN);
+			if (!lws_dlo_ui_nav(ui, LWS_DLO_UI_NAV_DOWN)) {
+				lwsl_err("%s: down %d refused\n", __func__, x0);
+				finish(0);
+				return;
+			}
 		if (!dlg_nav(LWS_DLO_UI_NAV_DOWN, "edit:host"))  {
 			finish(0);
 			return;
