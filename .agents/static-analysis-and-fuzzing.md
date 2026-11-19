@@ -4,7 +4,8 @@ The maintainer keeps the Coverity, CodeQL and SonarCloud dashboards clean,
 fixing even test-side false positives in code where that is reasonable.
 One commit per issue, with the checker's id in the message (eg
 "Coverity CID n").  Dispositions are: fix it, mark it false-positive with
-a reason, or a documented rule ignore.  Never a silent accept.
+a reason (not for Coverity, see below), or a documented rule ignore.
+Never a silent accept.
 
 ## Coverity
 
