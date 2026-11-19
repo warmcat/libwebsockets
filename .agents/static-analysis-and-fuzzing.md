@@ -28,8 +28,17 @@ Never a silent accept.
  - Bitwise-ORing narrow unsigned fields together (`!(a[0] | a[1] | a[2])`)
    trips the "byte_swapping" heuristic: Coverity takes them as assembled
    wire bytes and TAINTED_SCALAR follows them everywhere after.  Test them
-   with `!a[0] && !a[1] ...` instead.  `LWS_SVG_RGBA()` packs with `+`
-   and `*` under `__COVERITY__` for the same reason.
+   with `!a[0] && !a[1] ...` instead.
+ - Casting a `void *` to a struct pointer is a taint source by itself
+   ("tainted_data_downcast").  When the `void *` came from an allocator
+   Coverity sees returning an offset into a header it keeps
+   ("identity_transfer", eg `lwsac_use()`), the taint goes back to the
+   header, and the allocator's next use of its offset is flagged.
+   Growable tables written from parsed data are better on the heap with
+   `lws_realloc()` than in an lwsac.
+ - The top level of a trail doesn't show where the taint starts when it
+   starts in a callee: expand the callee's "[show details]" step before
+   guessing at the source.
  - `lws_snprintf()` returns the whole size on truncation, so `p + m` can
    be one past the end; check `m >= size - 1` before using it.
  - An `if (ptr)` guard on a pointer that cannot be NULL makes FORWARD_NULL
