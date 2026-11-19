@@ -233,7 +233,7 @@ poly_ntt(mlkem_poly *r)
 	int16_t t, zeta;
 
 	for (len = 128; len >= 2; len >>= 1)
-		for (start = 0; start < MLKEM_N; start += 2 * len) {
+		for (start = 0; start + 2 * len <= MLKEM_N; start += 2 * len) {
 			zeta = zetas[k++];
 			for (j = start; j < start + len; j++) {
 				t = fqmul(zeta, r->c[j + len]);
@@ -256,7 +256,7 @@ poly_invntt(mlkem_poly *r)
 	int16_t t, zeta;
 
 	for (len = 2; len <= 128; len <<= 1)
-		for (start = 0; start < MLKEM_N; start += 2 * len) {
+		for (start = 0; start + 2 * len <= MLKEM_N; start += 2 * len) {
 			zeta = zetas[k--];
 			for (j = start; j < start + len; j++) {
 				t = r->c[j];
