@@ -74,24 +74,11 @@ typedef struct lws_svg lws_svg_t;
 /* rgba packing is r in bits 0-7, g in 8-15, b in 16-23, alpha in 24-31, so it
  * matches lws_display_colour_t layout */
 
-#if defined(__COVERITY__)
-/*
- * The same value, but Coverity takes ORing shifted bytes together as data off
- * the wire being assembled, and then flags every use of the colour, and of
- * what it is stored in, as tainted
- */
-#define LWS_SVG_RGBA(_r, _g, _b, _a) (uint32_t)( \
-		((uint32_t)(_r) & 0xff) + \
-		((uint32_t)(_g) & 0xff) * 0x100u + \
-		((uint32_t)(_b) & 0xff) * 0x10000u + \
-		((uint32_t)(_a) & 0xff) * 0x1000000u)
-#else
 #define LWS_SVG_RGBA(_r, _g, _b, _a) (uint32_t)( \
 		((uint32_t)(_r) & 0xff) | \
 		(((uint32_t)(_g) & 0xff) << 8) | \
 		(((uint32_t)(_b) & 0xff) << 16) | \
 		(((uint32_t)(_a) & 0xff) << 24))
-#endif
 
 #define LWS_SVG_ALPHA(_c)	((uint32_t)(((_c) >> 24) & 0xff))
 
