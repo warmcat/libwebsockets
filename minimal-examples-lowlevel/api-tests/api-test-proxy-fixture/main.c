@@ -136,6 +136,9 @@ plog(const char *fmt, ...)
 			 tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
 			 tm.tm_hour, tm.tm_min, tm.tm_sec,
 			 (int)(tv.tv_usec / 100));
+	/* lws_snprintf() may say the whole size, leave room for the message */
+	if (n > (int)sizeof(line) - 2)
+		n = (int)sizeof(line) - 2;
 
 	va_start(ap, fmt);
 	n += vsnprintf(line + n, sizeof(line) - (size_t)n - 1, fmt, ap);
