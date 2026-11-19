@@ -1489,9 +1489,24 @@ parse_points(lws_svg_t *ctx, char closed)
  */
 
 /*
- * The single allocation path: everything lives in the object's lwsac.
- * Tracks the peak simultaneous footprint as the lwsac total (so it
- * includes chunk overheads and superseded growth generations).
+ * What the object holds now is its lwsac total (so including chunk overheads
+ * and superseded growth generations) and the css rules table; transient is
+ * anything held briefly on top, such as the old copy of the table being grown
+ */
+
+static void
+svg_heap_note(lws_svg_t *ctx, size_t transient)
+{
+	ctx->heap_now = (size_t)lwsac_total_alloc(ctx->ac) +
+			ctx->css_cap * sizeof(*ctx->css);
+
+	if (ctx->heap_now + transient > ctx->heap_peak)
+		ctx->heap_peak = ctx->heap_now + transient;
+}
+
+/*
+ * The single allocation path for everything but the css rules table: it lives
+ * in the object's lwsac
  */
 
 void *
@@ -1499,11 +1514,8 @@ svg_ac_use(lws_svg_t *ctx, size_t nec)
 {
 	void *p = lwsac_use(&ctx->ac, nec, 0);
 
-	if (p) {
-		ctx->heap_now = lwsac_total_alloc(ctx->ac);
-		if (ctx->heap_now > ctx->heap_peak)
-			ctx->heap_peak = ctx->heap_now;
-	}
+	if (p)
+		svg_heap_note(ctx, 0);
 
 	return p;
 }
@@ -2842,6 +2854,39 @@ css_sel_parse(const char *s, size_t len, svg_cssrule_t *r)
 	return 0;
 }
 
+/*
+ * The rules table is on the heap rather than in the lwsac, so it can grow
+ * without leaving old generations behind
+ */
+
+static int
+css_grow(lws_svg_t *ctx)
+{
+	svg_cssrule_t *n;
+	size_t old;
+	uint16_t nc;
+
+	if (ctx->css_count >= LWS_SVG_MAX_CSSRULES)
+		return 1;
+	if (ctx->css_count < ctx->css_cap)
+		return 0;
+
+	nc = ctx->css_cap ? (uint16_t)(ctx->css_cap * 2) : 8;
+	if (nc > LWS_SVG_MAX_CSSRULES)
+		nc = LWS_SVG_MAX_CSSRULES;
+
+	n = lws_realloc(ctx->css, nc * sizeof(*ctx->css), __func__);
+	if (!n)
+		return 1;
+
+	old = ctx->css_cap * sizeof(*ctx->css);
+	ctx->css = n;
+	ctx->css_cap = nc;
+	svg_heap_note(ctx, old); /* both may have existed while copying */
+
+	return 0;
+}
+
 static void
 parse_css(lws_svg_t *ctx)
 {
@@ -3018,33 +3063,8 @@ parse_css(lws_svg_t *ctx)
 						}
 					}
 
-					if (ctx->css_count <
-					    LWS_SVG_MAX_CSSRULES) {
-						if (ctx->css_count ==
-						    ctx->css_cap) {
-							/* double the table,
-							 * chained generation */
-							uint16_t nc =
-								ctx->css_cap ?
-								 (uint16_t)(ctx->css_cap * 2) : 8;
-							svg_cssrule_t *n =
-								svg_ac_use(ctx,
-									(size_t)nc *
-									sizeof(*ctx->css));
-
-							if (n) {
-								if (ctx->css)
-									memcpy(n, ctx->css,
-									       (size_t)ctx->css_count *
-									       sizeof(*n));
-								ctx->css = n;
-								ctx->css_cap = nc;
-							}
-						}
-						if (ctx->css_count <
-						    ctx->css_cap)
-							ctx->css[ctx->css_count++] = r;
-					}
+					if (!css_grow(ctx))
+						ctx->css[ctx->css_count++] = r;
 				}
 
 				s = c < de ? c + 1 : de;
@@ -4069,10 +4089,10 @@ lws_svg_free(lws_svg_t **svg)
 		return;
 
 	/*
-	 * The whole object is one lwsac, so this single free covers the
-	 * context, working buffers, stylesheets and scene.  The peak is
-	 * the lwsac total at its largest, so it includes chunk overheads
-	 * and superseded working-buffer growth generations.
+	 * The whole object but the css rules table is one lwsac, so this
+	 * and the table's free cover the context, working buffers,
+	 * stylesheets and scene.  The peak includes the lwsac's chunk
+	 * overheads and superseded working-buffer growth generations.
 	 */
 
 	/*
@@ -4093,6 +4113,8 @@ lws_svg_free(lws_svg_t **svg)
 		  (unsigned long)ctx->wsubs_size,
 		  (unsigned long)svg_scratch.xings_size,
 		  (unsigned long)svg_scratch.aa_d_size);
+
+	lws_free_set_NULL(ctx->css);
 
 	lws_dll2_remove(&ctx->scratch_list);
 	svg_scratch_unref();

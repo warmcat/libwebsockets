@@ -361,7 +361,7 @@ struct lws_svg {
 
 	/* css rules parsed out of <style> blocks */
 
-	svg_cssrule_t		*css;	/* grown by doubling generations */
+	svg_cssrule_t		*css;	/* heap, doubled as it fills */
 	uint16_t		css_count, css_cap;
 	char			in_style;
 
@@ -453,12 +453,13 @@ void svg_scratch_ref(void);
 void svg_scratch_unref(void);
 
 /*
- * Allocation and heap accounting: the whole svg object (context, working
- * buffers, stylesheets and retained scene) lives in a single lwsac chained
- * off ctx->ac, grown with chained doubling generations for the working
- * buffers.  svg_ac_use() is the single allocation path, and tracks the
- * peak simultaneous footprint (as lwsac total, so including chunk
- * overheads and superseded growth generations) for a destroy-time log.
+ * Allocation and heap accounting: the svg object (context, working buffers
+ * and retained scene) lives in a single lwsac chained off ctx->ac, grown
+ * with chained doubling generations for the working buffers; only the css
+ * rules table is on the heap.  svg_ac_use() is the allocation path for the
+ * lwsac, and tracks the peak simultaneous footprint (as lwsac total, so
+ * including chunk overheads and superseded growth generations, plus the
+ * rules table) for a destroy-time log.
  */
 void *svg_ac_use(lws_svg_t *ctx, size_t nec);
 

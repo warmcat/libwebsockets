@@ -1685,6 +1685,29 @@ build_corpus_css(void)
 	cc->area_tol = 0;
 	cc->exp_w = cc->exp_h = 64;
 
+	/*
+	 * More rules than the table starts with: the first rule must survive
+	 * the table growing, twice, for the rect to be green
+	 */
+
+#define CSS_DECOY(_n) ".d" #_n "{fill:#ff0000}"
+
+	cc = cc_add("css-many-rules",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">"
+		"<style>.a{fill:#00ff00}"
+		CSS_DECOY(1) CSS_DECOY(2) CSS_DECOY(3) CSS_DECOY(4)
+		CSS_DECOY(5) CSS_DECOY(6) CSS_DECOY(7) CSS_DECOY(8)
+		CSS_DECOY(9) CSS_DECOY(10) CSS_DECOY(11) CSS_DECOY(12)
+		CSS_DECOY(13) CSS_DECOY(14) CSS_DECOY(15) CSS_DECOY(16)
+		CSS_DECOY(17) CSS_DECOY(18) CSS_DECOY(19) CSS_DECOY(20)
+		"</style>"
+		"<rect class=\"a\" x=\"4\" y=\"4\" width=\"10\" height=\"10\"/>"
+		"</svg>");
+	cc->exp_rgba = LWS_SVG_RGBA(0, 0xff, 0, 255);
+	cc->exp_area = 100;
+	cc->area_tol = 0;
+	cc->exp_w = cc->exp_h = 64;
+
 	/* css fill-opacity and fill-rule (evenodd hollows the overlap) */
 
 	cc = cc_add("css-fillop",
