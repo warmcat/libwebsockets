@@ -145,7 +145,8 @@ lws_display_blit(lws_display_state_t *lds, const uint8_t *src, lws_box_t *box,
 	lws_box_t b;
 	uint8_t *line;
 
-	if (!(lds->inset[0] | lds->inset[1] | lds->inset[2] | lds->inset[3]))
+	if (!lds->inset[0] && !lds->inset[1] && !lds->inset[2] &&
+	    !lds->inset[3])
 		return lds->disp->blit(lds, src, box, ids);
 
 	/* where it is on the surface, all the width of it */
