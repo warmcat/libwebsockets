@@ -1579,6 +1579,7 @@ svg_heap_note(lws_svg_t *ctx, size_t transient)
 	ctx->heap_now = (size_t)lwsac_total_alloc(ctx->ac) +
 			ctx->wpts_size * sizeof(*ctx->wpts) +
 			ctx->wsubs_size * sizeof(*ctx->wsubs) +
+			ctx->css_cap * sizeof(*ctx->css) +
 			ctx->vsize + ctx->apend_heap;
 
 	if (ctx->heap_now + transient > ctx->heap_peak)
@@ -3040,6 +3041,39 @@ css_sel_parse(const char *s, size_t len, svg_cssrule_t *r)
 	return 0;
 }
 
+/*
+ * The rules table is a working buffer like wpts, on the heap rather than in
+ * the lwsac, so it can grow without leaving old generations behind
+ */
+
+static int
+css_grow(lws_svg_t *ctx)
+{
+	svg_cssrule_t *n;
+	size_t old;
+	uint16_t nc;
+
+	if (ctx->css_count >= LWS_SVG_MAX_CSSRULES)
+		return 1;
+	if (ctx->css_count < ctx->css_cap)
+		return 0;
+
+	nc = ctx->css_cap ? (uint16_t)(ctx->css_cap * 2) : 8;
+	if (nc > LWS_SVG_MAX_CSSRULES)
+		nc = LWS_SVG_MAX_CSSRULES;
+
+	n = lws_realloc(ctx->css, nc * sizeof(*ctx->css), __func__);
+	if (!n)
+		return 1;
+
+	old = ctx->css_cap * sizeof(*ctx->css);
+	ctx->css = n;
+	ctx->css_cap = nc;
+	svg_heap_note(ctx, old); /* both may have existed while copying */
+
+	return 0;
+}
+
 static void
 parse_css(lws_svg_t *ctx)
 {
@@ -3216,33 +3250,8 @@ parse_css(lws_svg_t *ctx)
 						}
 					}
 
-					if (ctx->css_count <
-					    LWS_SVG_MAX_CSSRULES) {
-						if (ctx->css_count ==
-						    ctx->css_cap) {
-							/* double the table,
-							 * chained generation */
-							uint16_t nc =
-								ctx->css_cap ?
-								 (uint16_t)(ctx->css_cap * 2) : 8;
-							svg_cssrule_t *n =
-								svg_ac_use(ctx,
-									(size_t)nc *
-									sizeof(*ctx->css));
-
-							if (n) {
-								if (ctx->css)
-									memcpy(n, ctx->css,
-									       (size_t)ctx->css_count *
-									       sizeof(*n));
-								ctx->css = n;
-								ctx->css_cap = nc;
-							}
-						}
-						if (ctx->css_count <
-						    ctx->css_cap)
-							ctx->css[ctx->css_count++] = r;
-					}
+					if (!css_grow(ctx))
+						ctx->css[ctx->css_count++] = r;
 				}
 
 				s = c < de ? c + 1 : de;
@@ -4350,8 +4359,8 @@ lws_svg_free(lws_svg_t **svg)
 	work_free(ctx);
 
 	/*
-	 * The peak is of this object's own lwsac (context, stylesheets and
-	 * scene) and its working buffers while it was parsing; the
+	 * The peak is of this object's own lwsac (context and scene), its
+	 * stylesheet rules and its working buffers while it was parsing; the
 	 * rasterization scratch is a single pool shared with any other live
 	 * svg objects, and shrinks with the largest demand.
 	 */
@@ -4364,6 +4373,8 @@ lws_svg_free(lws_svg_t **svg)
 		  (unsigned int)ctx->css_count,
 		  (unsigned long)svg_scratch.xings_size,
 		  (unsigned long)svg_scratch.aa_d_size);
+
+	lws_free_set_NULL(ctx->css);
 
 	/* the lwsac holds everything else, including the context itself */
 

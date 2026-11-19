@@ -501,7 +501,7 @@ struct lws_svg {
 
 	/* css rules parsed out of <style> blocks */
 
-	svg_cssrule_t		*css;	/* grown by doubling generations */
+	svg_cssrule_t		*css;	/* heap, doubled as it fills */
 	uint16_t		css_count, css_cap;
 	char			in_style;
 
