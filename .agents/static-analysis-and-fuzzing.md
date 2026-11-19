@@ -8,6 +8,12 @@ a reason, or a documented rule ignore.  Never a silent accept.
 
 ## Coverity
 
+ - Don't settle for marking a Coverity false positive: users run lws
+   through Coverity too, and a triage mark only exists in the
+   maintainer's project, so they still see it as a real defect.  Change
+   the code so it isn't flagged, or hide what Coverity misreads behind
+   `#if defined(__COVERITY__)` (there's precedent in `lib/`), keeping the
+   Coverity-only form equal in meaning so the rest still gets analysed.
  - **Taint follows arithmetic.**  After
    `if (o > len) fail; len -= o; memmove(buf, buf + o, len)` the length is
    still flagged, because `len -= o` re-taints it.  What passes: compute
@@ -18,6 +24,11 @@ a reason, or a documented rule ignore.  Never a silent accept.
    bounding the sum inside the library didn't clear it.  What cleared it
    was not indexing by the return at all (eg `strlen()` the NUL-terminated
    copy).
+ - Bitwise-ORing narrow unsigned fields together (`!(a[0] | a[1] | a[2])`)
+   trips the "byte_swapping" heuristic: Coverity takes them as assembled
+   wire bytes and TAINTED_SCALAR follows them everywhere after.  Test them
+   with `!a[0] && !a[1] ...` instead.  `LWS_SVG_RGBA()` packs with `+`
+   and `*` under `__COVERITY__` for the same reason.
  - `lws_snprintf()` returns the whole size on truncation, so `p + m` can
    be one past the end; check `m >= size - 1` before using it.
  - An `if (ptr)` guard on a pointer that cannot be NULL makes FORWARD_NULL
