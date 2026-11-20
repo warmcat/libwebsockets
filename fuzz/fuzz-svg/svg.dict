@@ -2,7 +2,7 @@
 # libFuzzer dictionary for fuzz-svg, made by fuzz/gen-dicts.py
 #
 # svg and xml syntax, path commands, transforms, then the element,
-# attribute and value names lib/misc/svg.c knows.
+# attribute and value names lib/misc/svg.c knows, and SMIL's.
 #
 
 "<svg"

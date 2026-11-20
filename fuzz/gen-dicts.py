@@ -118,8 +118,12 @@ svg=['<svg','</svg>','<?xml version="1.0"?>','<!--','-->','<','</','/>','>','="'
  'viewBox="','width="','height="','d="','M','m','L','l','H','h','V','v','C','c','S','s','Q','q','T','t','A','a','Z','z',
  'transform="','matrix(','translate(','rotate(','scale(','skewX(','skewY(','#','#fff','rgb(','url(#','none',
  'e-5','1e9','-',',','.',' ','%','px']+lits('lib/misc/svg.c')
+# the SMIL animation subset's names, which lits() can't see, being camelCase
+svg+=['animateTransform','animateMotion','attributeName','attributeType','type','skewX','skewY','values','from','to',
+ 'by','keyTimes','keySplines','calcMode','discrete','linear','paced','spline','begin','dur','repeatCount','repeatDur',
+ 'indefinite','freeze','remove','additive','sum','replace','auto','auto-reverse','keyPoints','href','ms','min']
 write('svg',['svg and xml syntax, path commands, transforms, then the element,',
-             'attribute and value names lib/misc/svg.c knows.'],svg)
+             'attribute and value names lib/misc/svg.c knows, and SMIL\'s.'],svg)
 
 # hl: the language drivers' keywords and the markup of each
 hl=lits('lib/misc/hl-c.c')+['#include','#define','#if','/*','*/','//','"','\\"',"'",'\\','0x','1e','0b','u8"','L"',
