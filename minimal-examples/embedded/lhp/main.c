@@ -1174,6 +1174,18 @@ ui_kick_cb(lws_sorted_usec_list_t *sul)
 			/* there's no spinner to move on */
 			return;
 
+		if (st == LWS_SYSTATE_AWAITING_MODAL_UPDATING &&
+		    update_pc_shown >= 0)
+			/*
+			 * Nothing is fetched until we agree to MODAL_UPDATING,
+			 * which we only do while the display is idle: on a
+			 * display whose updates take longer than the spinner's
+			 * interval, eg, an EPD, moving it on would keep the
+			 * display busy, and the update never starts.  It moves
+			 * once we're there, see system_notify_cb()
+			 */
+			return;
+
 		/*
 		 * The first is shown at once, then no more often than the
 		 * spinner is moved on, with the progress by then
@@ -1890,8 +1902,12 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 		boot_states(current);
 
-		if (current == LWS_SYSTATE_AWAITING_MODAL_UPDATING)
-			/* the update display takes over the display */
+		if (current == LWS_SYSTATE_AWAITING_MODAL_UPDATING ||
+		    current == LWS_SYSTATE_MODAL_UPDATING)
+			/*
+			 * The update display takes over the display, and once
+			 * fetching, its spinner moves on
+			 */
 			ui_kick();
 
 		if (current == LWS_SYSTATE_OPERATIONAL) {
