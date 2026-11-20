@@ -24,6 +24,10 @@
  * lws_http_basic_auth_user() reports: it must be the user the credentials
  * were for, without the headers.
  *
+ * /locked serves the same files behind the same login file, from a mount
+ * with no protocol of its own, which takes a request by its method: OPTIONS
+ * must meet its gates on h1 as on h2 and h3, not miss it for /.
+ *
  * A ws upgrade meets the same gates as an http request to its path (G-489),
  * over h1, h2 over tls and h3:
  *
@@ -86,6 +90,7 @@ struct xcase {
 	uint8_t		expect;
 	const char	*path;
 	const char	*ws_pcol;	/* the ws protocol a ws case offers */
+	const char	*method;	/* an http case's, if not GET */
 };
 
 #define PRIVATE_MARK	"lws-basic-auth-private"
@@ -95,16 +100,20 @@ struct xcase {
 #define WS_BACKEND_MARK	"backend user=(nobody)"
 
 #define XP_CASES(x) \
-	{ x, CR_NONE,  EX_CHALLENGE,   "/private/index.html", NULL }, \
-	{ x, CR_WRONG, EX_CHALLENGE,   "/private/index.html", NULL }, \
-	{ x, CR_RIGHT, EX_PRIVATE,     "/private/index.html", NULL }, \
-	{ x, CR_NONE,  EX_PUBLIC,      "/index.html", NULL }, \
-	{ x, CR_NONE,  EX_NOT_PRIVATE, "/PRIVATE/index.html", NULL }, \
-	{ x, CR_NONE,  EX_NOT_PRIVATE, "/Private/index.html", NULL }, \
-	{ x, CR_NONE,  EX_NOT_PRIVATE, "/private./index.html", NULL }, \
-	{ x, CR_NONE,  EX_NOT_PRIVATE, "/private%20/index.html", NULL }, \
-	{ x, CR_NONE,  EX_CHALLENGE,   "/who", NULL }, \
-	{ x, CR_RIGHT, EX_WHO,         "/who", NULL }
+	{ x, CR_NONE,  EX_CHALLENGE,   "/private/index.html", NULL, NULL }, \
+	{ x, CR_WRONG, EX_CHALLENGE,   "/private/index.html", NULL, NULL }, \
+	{ x, CR_RIGHT, EX_PRIVATE,     "/private/index.html", NULL, NULL }, \
+	{ x, CR_NONE,  EX_PUBLIC,      "/index.html", NULL, NULL }, \
+	{ x, CR_NONE,  EX_NOT_PRIVATE, "/PRIVATE/index.html", NULL, NULL }, \
+	{ x, CR_NONE,  EX_NOT_PRIVATE, "/Private/index.html", NULL, NULL }, \
+	{ x, CR_NONE,  EX_NOT_PRIVATE, "/private./index.html", NULL, NULL }, \
+	{ x, CR_NONE,  EX_NOT_PRIVATE, "/private%20/index.html", NULL, NULL }, \
+	{ x, CR_NONE,  EX_CHALLENGE,   "/who", NULL, NULL }, \
+	{ x, CR_RIGHT, EX_WHO,         "/who", NULL, NULL }, \
+	/* the mount's gates are met by every method it takes */ \
+	{ x, CR_NONE,  EX_CHALLENGE,   "/locked/index.html", NULL, NULL }, \
+	{ x, CR_NONE,  EX_CHALLENGE,   "/locked/index.html", NULL, "OPTIONS" }, \
+	{ x, CR_RIGHT, EX_PRIVATE,     "/locked/index.html", NULL, "OPTIONS" }
 
 #if defined(LWS_ROLE_WS)
 /*
@@ -112,11 +121,11 @@ struct xcase {
  * the mount's basic auth in front of it
  */
 #define WS_LOCAL_CASES(x) \
-	{ x, CR_NONE,  EX_WS_CHALLENGE, "/private/ws", "ba-ws-open" }, \
-	{ x, CR_WRONG, EX_WS_CHALLENGE, "/private/ws", "ba-ws-open" }, \
-	{ x, CR_RIGHT, EX_WS_FRONT,     "/private/ws", "ba-ws-open" }, \
-	{ x, CR_NONE,  EX_WS_CHALLENGE, "/private/ws", "ba-ws" }, \
-	{ x, CR_RIGHT, EX_WS_FRONT,     "/private/ws", "ba-ws" },
+	{ x, CR_NONE,  EX_WS_CHALLENGE, "/private/ws", "ba-ws-open", NULL }, \
+	{ x, CR_WRONG, EX_WS_CHALLENGE, "/private/ws", "ba-ws-open", NULL }, \
+	{ x, CR_RIGHT, EX_WS_FRONT,     "/private/ws", "ba-ws-open", NULL }, \
+	{ x, CR_NONE,  EX_WS_CHALLENGE, "/private/ws", "ba-ws", NULL }, \
+	{ x, CR_RIGHT, EX_WS_FRONT,     "/private/ws", "ba-ws", NULL },
 #else
 #define WS_LOCAL_CASES(x)
 #endif
@@ -124,10 +133,10 @@ struct xcase {
 #if defined(LWS_ROLE_WS) && defined(LWS_WITH_HTTP_PROXY)
 #define BA_WS_PROXY
 #define WS_PROXY_CASES(x) \
-	{ x, CR_NONE,  EX_WS_CHALLENGE, "/proxied/ws", "ba-ws" }, \
-	{ x, CR_WRONG, EX_WS_CHALLENGE, "/proxied/ws", "ba-ws" }, \
-	{ x, CR_RIGHT, EX_WS_REFUSED,   "/proxied/refuse", "ba-ws" }, \
-	{ x, CR_RIGHT, EX_WS_BACKEND,   "/proxied/ws", "ba-ws" },
+	{ x, CR_NONE,  EX_WS_CHALLENGE, "/proxied/ws", "ba-ws", NULL }, \
+	{ x, CR_WRONG, EX_WS_CHALLENGE, "/proxied/ws", "ba-ws", NULL }, \
+	{ x, CR_RIGHT, EX_WS_REFUSED,   "/proxied/refuse", "ba-ws", NULL }, \
+	{ x, CR_RIGHT, EX_WS_BACKEND,   "/proxied/ws", "ba-ws", NULL },
 #else
 #define WS_PROXY_CASES(x)
 #endif
@@ -299,8 +308,22 @@ static const struct lws_http_mount mount_who = {
 	.basic_auth_login_file	= "./basic-auth.txt",
 };
 
-static const struct lws_http_mount mount_private = {
+/*
+ * /locked: the files and the login file of /private, on a mount with no
+ * protocol of its own, which takes a request by its method
+ */
+static const struct lws_http_mount mount_locked = {
 	.mount_next		= &mount_who,
+	.mountpoint		= "/locked",
+	.origin			= "./docroot/private",
+	.def			= "index.html",
+	.origin_protocol	= LWSMPRO_FILE,
+	.mountpoint_len		= 7,
+	.basic_auth_login_file	= "./basic-auth.txt",
+};
+
+static const struct lws_http_mount mount_private = {
+	.mount_next		= &mount_locked,
 	.mountpoint		= "/private",
 	.origin			= "./docroot/private",
 	.def			= "index.html",
@@ -329,8 +352,9 @@ case_done(const char *why)
 	const struct xcase *c = &cases[cur];
 
 	if (why) {
-		lwsl_err("--- %s, %s%s%s, %s credentials: FAIL: %s ---\n",
-			 xport_names[c->xport], c->path,
+		lwsl_err("--- %s, %s%s%s%s%s, %s credentials: FAIL: %s ---\n",
+			 xport_names[c->xport], c->method ? c->method : "",
+			 c->method ? " " : "", c->path,
 			 c->ws_pcol ? " ws " : "",
 			 c->ws_pcol ? c->ws_pcol : "", creds_names[c->creds],
 			 why);
@@ -338,8 +362,9 @@ case_done(const char *why)
 		return;
 	}
 
-	lwsl_user("--- %s, %s%s%s, %s credentials: %d: PASS ---\n",
-		  xport_names[c->xport], c->path, c->ws_pcol ? " ws " : "",
+	lwsl_user("--- %s, %s%s%s%s%s, %s credentials: %d: PASS ---\n",
+		  xport_names[c->xport], c->method ? c->method : "",
+		  c->method ? " " : "", c->path, c->ws_pcol ? " ws " : "",
 		  c->ws_pcol ? c->ws_pcol : "", creds_names[c->creds],
 		  cli.status);
 	lws_sul_schedule(context, 0, &sul_next, next_case, 1);
@@ -736,7 +761,7 @@ next_case(lws_sorted_usec_list_t *sul)
 		/* a ws upgrade, offering the case's protocol */
 		i.protocol	= c->ws_pcol;
 	else {
-		i.method	= "GET";
+		i.method	= c->method ? c->method : "GET";
 		i.protocol	= "cli";
 	}
 	i.local_protocol_name	= "cli";
