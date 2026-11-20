@@ -295,6 +295,31 @@ it changes, keeping where it's scrolled to.  The dialog is closed by showing
 another page, eg, `lws_dlo_ui_frame()` to go back to what the application was
 showing.
 
+On a landscape display that isn't round, the list page can have an aside,
+`lws_dlo_ui_set_aside()`: the title and list strips become a column at the
+left, eg, about 200px of a 960 x 540 display, and the rest of the display
+right of them shows html the caller writes, eg, a picture of the product from
+the dlo filesystem while the list says how booting is going.  It's laid out
+with the list, isn't pressed, and only goes with the list page: the other
+pages take the whole display.  A display too small for both, or that isn't
+landscape, shows the list page as it does without one.
+
+```
+static void
+my_aside(void *opaque, lws_dlo_ui_html_t *h)
+{
+	lws_html_w_printf(h, "<img src=\"product.jpg\">");	/* from dlofs */
+}
+
+	lws_dlo_ui_aside_t a;
+
+	memset(&a, 0, sizeof(a));
+	a.html = my_aside;
+	a.css = "#a { text-align: center }";	/* optional */
+
+	lws_dlo_ui_set_aside(ui, &a);
+```
+
 Each strip only moves for drags that begin in it, and dragging never types
 anything.
 

@@ -61,6 +61,19 @@ a framebuffer and notes the window of each update.  It checks
    `lws_dlo_ui_dialog_changed()` draws it again where it was; dragging it
    scrolls it without pressing anything, and showing the list ends it
 
+ - on a taller rectangular display, the title and the status capsule are
+   sized to fit in the title strip.  It isn't landscape, so an aside set on it
+   isn't shown
+
+ - on a pretend 480 x 240 landscape display, the list page with an aside
+   (`lws_dlo_ui_set_aside()`): the title strip, its capsule and the list are
+   a column at the left, and the aside, the caller's html with its css and an
+   image from the dlo filesystem, is drawn right of it.  Pressing the aside
+   picks nothing, and a drag that began on it doesn't scroll the list.
+   `lws_dlo_ui_aside_changed()` draws all of the display again, changing the
+   list sends only the list's band, and taking the aside away gives the
+   strips the whole display again
+
  - destroying the ui gives back all the heap it took, checked the second
    time, once the context has made what it makes on first use
 

@@ -66,7 +66,16 @@
  *
  *  - on a taller rectangular display, where the title strip stops growing,
  *    the title and the status capsule are sized to fit in it, rather than
- *    starting above the top of the display
+ *    starting above the top of the display.  It isn't landscape, so an aside
+ *    set on it isn't shown: the strips take the whole display
+ *
+ *  - on a landscape display, the list page with an aside: the title strip,
+ *    its capsule and the list are a column at the left, and the aside, the
+ *    caller's html with its css and an image from the dlo filesystem, is drawn
+ *    right of it.  Pressing the aside picks nothing, and a drag that began on
+ *    it doesn't scroll the list.  lws_dlo_ui_aside_changed() draws all of
+ *    the display again, changing the list only the list's band of lines, and
+ *    taking the aside away gives the strips the whole display again
  *
  *  - destroying the ui gives back all the heap it took.  The context makes
  *    some things the first time they are used, eg, the vhost the secure
@@ -96,6 +105,16 @@
 #define TALL_TITLE_H	40
 /* and its rows are for 48px icons */
 #define TALL_ROW_H	54
+/*
+ * A landscape one: its title strip is an eighth of it, its rows are for 32px
+ * icons, and the column of strips beside an aside is as wide as a row's icon
+ * and 8 times the 16px row text, with the padding
+ */
+#define WIDE_W		480
+#define WIDE_H		240
+#define WIDE_TITLE_H	(WIDE_H / 8)
+#define WIDE_ROW_H	36
+#define WIDE_AX		(32 + 4 * 2 + 8 * 16)
 
 /* the second time, the title strip is white with red text */
 static const char css_red_title[] =
@@ -166,8 +185,14 @@ static int settings_clicks, frame_redraws, body_y;
 /* the title strip as the ui drew it, for the caller drawing it */
 static uint8_t title_band[W * (H / 6) * 3];
 
-/* what the display shows, RGB, as tall as the tallest pretend display */
+/*
+ * What the display shows, RGB, as big as the biggest pretend display, and how
+ * many px wide its lines are, for the display it is
+ */
 static uint8_t fb[W * TALL_H * 3];
+static int fbw = W;
+
+typedef char fb_holds_wide[sizeof(fb) >= WIDE_W * WIDE_H * 3 ? 1 : -1];
 /* the dialog's panel band, as it was drawn */
 static uint8_t panel_band[W * (H - TITLE_H) * 3];
 /* the links pressed on the dialog, and the last one's href */
@@ -203,7 +228,7 @@ pretend_blit(lws_display_state_t *lds, const uint8_t *src, lws_box_t *box,
 			fail = 1;
 			return 0;
 		}
-		memcpy(&fb[y * W * 3], src, W * 3);
+		memcpy(&fb[y * fbw * 3], src, (size_t)fbw * 3);
 		lines++;
 		return 0;
 	}
@@ -255,7 +280,7 @@ static const lws_display_t disp_whole = {
 	},
 };
 
-/* a taller rectangular one */
+/* a taller rectangular one, and a landscape one */
 
 static const lws_display_t disp_tall = {
 	.blit			= pretend_blit,
@@ -263,6 +288,17 @@ static const lws_display_t disp_tall = {
 	.ic = {
 		.wh_px		= { { W, 0 }, { TALL_H, 0 } },
 		.wh_mm		= { { 32, 0 }, { 64, 0 } },
+		.type		= LWSSURF_TRUECOLOR32,
+		.band		= 1,
+	},
+};
+
+static const lws_display_t disp_wide = {
+	.blit			= pretend_blit,
+	.name			= "pretend 480 x 240",
+	.ic = {
+		.wh_px		= { { WIDE_W, 0 }, { WIDE_H, 0 } },
+		.wh_mm		= { { 64, 0 }, { 32, 0 } },
 		.type		= LWSSURF_TRUECOLOR32,
 		.band		= 1,
 	},
@@ -353,6 +389,29 @@ dlg_html(void *opaque, lws_dlo_ui_html_t *h)
 	lws_html_w_printf(h, "</div><a href=\"edit:host\">lws-2c96fc</a>");
 }
 
+/* the aside: the icon, big, on green */
+
+static const char aside_css[] =
+	"#a { background-color: #0c0 } #ai { width: 96px; height: 96px }";
+
+static void
+aside_html(void *opaque, lws_dlo_ui_html_t *h)
+{
+	lws_html_w_printf(h, "<img id=\"ai\" src=\"icon.svg\">");
+}
+
+static int
+aside_set(void)
+{
+	lws_dlo_ui_aside_t a;
+
+	memset(&a, 0, sizeof(a));
+	a.html = aside_html;
+	a.css = aside_css;
+
+	return lws_dlo_ui_set_aside(ui, &a);
+}
+
 static void
 dlg_action(void *opaque, const char *href)
 {
@@ -385,7 +444,7 @@ dialog_open(void)
 static int
 dark(int x, int y)
 {
-	const uint8_t *p = &fb[(y * W + x) * 3];
+	const uint8_t *p = &fb[(y * fbw + x) * 3];
 
 	return p[0] + p[1] + p[2] < 3 * 160;
 }
@@ -411,7 +470,7 @@ colour_in(int x0, int y0, int x1, int y1, int r, int g, int b)
 
 	for (y = y0; y < y1; y++)
 		for (x = x0; x < x1; x++) {
-			const uint8_t *p = &fb[(y * W + x) * 3];
+			const uint8_t *p = &fb[(y * fbw + x) * 3];
 
 			n += abs(p[0] - r) < 24 && abs(p[1] - g) < 24 &&
 			     abs(p[2] - b) < 24;
@@ -812,6 +871,52 @@ start_tall(void)
 
 	lws_dlo_ui_set_title(ui, "AP");
 	lws_dlo_ui_set_status(ui, &st);
+	/* it's not landscape: this isn't shown */
+	if (aside_set()) {
+		lwsl_err("tall aside refused\n");
+		return 1;
+	}
+	lws_dlo_ui_set_list(ui, ROWS, -1);
+
+	return 0;
+}
+
+/* the strip ui on the landscape display, with an aside and a capsule */
+
+static int
+start_wide(void)
+{
+	lws_dlo_ui_status_t st = { 3, 60, 0 };
+	lws_dlo_ui_info_t ui_info;
+
+	lds.disp = &disp_wide;
+	/* as lws_display_state_init() would */
+	lws_display_set_inset(&lds, disp_wide.inset);
+	fbw = WIDE_W;
+	memset(fb, 0xff, sizeof(fb));
+	picked = -1;
+
+	heap_before = lws_get_allocated_heap();
+
+	memset(&ui_info, 0, sizeof(ui_info));
+	ui_info.cx = cx;
+	ui_info.lds = &lds;
+	ui_info.row = row_cb;
+	ui_info.pick = pick_cb;
+	ui_info.status_button = "settings";
+
+	ui = lws_dlo_ui_create(&ui_info);
+	if (!ui) {
+		lwsl_err("wide ui create failed\n");
+		return 1;
+	}
+
+	lws_dlo_ui_set_title(ui, "Boot");
+	lws_dlo_ui_set_status(ui, &st);
+	if (aside_set()) {
+		lwsl_err("wide aside refused\n");
+		return 1;
+	}
 	lws_dlo_ui_set_list(ui, ROWS, -1);
 
 	return 0;
@@ -1675,6 +1780,118 @@ next_step(lws_sorted_usec_list_t *sul)
 		}
 
 		lws_dlo_ui_destroy(&ui);
+		if (start_wide())
+			finish(0);
+		break;
+
+	case 31:
+		if (!updated("wide", 0, WIDE_H)) {
+			finish(0);
+			return;
+		}
+
+		/* the title strip is only the column at the left */
+		if (colour_in(0, 0, WIDE_AX, 1, 0x24, 0x47, 0x6b) != WIDE_AX ||
+		    colour_in(WIDE_AX, 0, WIDE_W, WIDE_TITLE_H,
+			      0x24, 0x47, 0x6b)) {
+			lwsl_err("wide: title strip not the column\n");
+			finish(0);
+			return;
+		}
+		/* with the capsule at its right end */
+		if (colour_in(WIDE_AX / 2, 0, WIDE_AX, WIDE_TITLE_H,
+			      0xff, 0xff, 0xff) < 40) {
+			lwsl_err("wide: no capsule in the column\n");
+			finish(0);
+			return;
+		}
+		/* the rows are in the column */
+		if (!dark_in(0, WIDE_TITLE_H, WIDE_AX, WIDE_TITLE_H +
+			     WIDE_ROW_H)) {
+			lwsl_err("wide: rows not drawn\n");
+			finish(0);
+			return;
+		}
+		/* the aside, its css and its image, is all right of it */
+		if (colour_in(WIDE_AX, 0, WIDE_W, WIDE_H, 0, 0xcc, 0) <
+					(WIDE_W - WIDE_AX) * WIDE_H / 2 ||
+		    colour_in(0, 0, WIDE_AX, WIDE_H, 0, 0xcc, 0) ||
+		    colour_in(WIDE_AX, 0, WIDE_W, WIDE_H, 0x2a, 0x7f, 0xff) <
+								    96 * 48) {
+			lwsl_err("wide: aside not drawn right of the column\n");
+			finish(0);
+			return;
+		}
+
+		/* a drag beginning on the aside doesn't scroll the list */
+		drag(WIDE_AX + 50, WIDE_H / 2, 0, -50);
+		/* pressing the aside, where row 3 is, picks nothing */
+		touch("press", WIDE_AX + 50,
+		      WIDE_TITLE_H + 3 * WIDE_ROW_H + WIDE_ROW_H / 2, 0, 0);
+		if (picked != -1) {
+			lwsl_err("wide: aside press picked %d\n", picked);
+			finish(0);
+			return;
+		}
+		/* row 3 in the column is where it was */
+		touch("press", WIDE_AX / 2,
+		      WIDE_TITLE_H + 3 * WIDE_ROW_H + WIDE_ROW_H / 2, 0, 0);
+		if (picked != 3) {
+			lwsl_err("wide: row press picked %d\n", picked);
+			finish(0);
+			return;
+		}
+
+		lws_dlo_ui_aside_changed(ui);
+		break;
+
+	case 32:
+		if (!updated("wide aside changed", 0, WIDE_H)) {
+			finish(0);
+			return;
+		}
+
+		/* only the list's band, the aside's part of it as it was */
+		lws_dlo_ui_set_list(ui, ROWS, 5);
+		break;
+
+	case 33:
+		if (!updated("wide list", WIDE_TITLE_H, WIDE_H)) {
+			finish(0);
+			return;
+		}
+		if (colour_in(WIDE_AX, WIDE_TITLE_H, WIDE_W, WIDE_H,
+			      0, 0xcc, 0) < (WIDE_W - WIDE_AX) *
+					    (WIDE_H - WIDE_TITLE_H) / 2) {
+			lwsl_err("wide: list band lost the aside\n");
+			finish(0);
+			return;
+		}
+
+		/* without the aside, the strips take the whole display */
+		lws_dlo_ui_set_aside(ui, NULL);
+		break;
+
+	case 34:
+		if (!updated("wide no aside", 0, WIDE_H)) {
+			finish(0);
+			return;
+		}
+		if (colour_in(0, 0, WIDE_W, 1, 0x24, 0x47, 0x6b) != WIDE_W ||
+		    colour_in(0, 0, WIDE_W, WIDE_H, 0, 0xcc, 0)) {
+			lwsl_err("wide: strips not the whole display\n");
+			finish(0);
+			return;
+		}
+
+		lws_dlo_ui_destroy(&ui);
+		if (lws_get_allocated_heap() > heap_before) {
+			lwsl_err("wide ui kept %u bytes of heap\n",
+				 (unsigned int)(lws_get_allocated_heap() -
+						heap_before));
+			finish(0);
+			return;
+		}
 		finish(1);
 		break;
 	}

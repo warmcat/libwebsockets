@@ -52,6 +52,13 @@
  *
  * The status capsule, and its icons, are boxes styled by the css, so they
  * need nothing from the dlo filesystem and are sized for the display.
+ *
+ * With an aside, the list page's strips are a column at the left: what the
+ * strips use of the display is kept to it by ui_span(), which everything
+ * placing them goes through.  The aside is the caller's html in #a, to the
+ * right of the column, as tall as the display.  Bands of lines are still the
+ * whole width of the display, so drawing a strip draws the aside's part of
+ * the same lines again, as it was.
  */
 
 #include <private-lib-core.h>
@@ -69,6 +76,8 @@ enum {
 	UI_STRIP_KEYS			= (1 << 3),
 	UI_STRIP_BODY			= (1 << 4),	/* the caller's */
 	UI_STRIP_PANEL			= (1 << 5),	/* the caller's html */
+	UI_STRIP_ASIDE			= (1 << 6),	/* the caller's, beside
+							 * the list page */
 };
 
 /* the strips each page has */
@@ -81,7 +90,7 @@ enum {
 
 /* the most links a dialog's panel can have, that can be pressed */
 #define UI_HITS_MAX			32
-/* the default for the most html the panel can be */
+/* the default for the most html the panel, or the aside, can be */
 #define UI_DIALOG_HTML_MAX		4096
 /*
  * lhp drops what it would lay out below the surface, so the dialog is laid
@@ -217,6 +226,12 @@ struct lws_dlo_ui {
 						       * left is on the display,
 						       * not scrolled */
 
+	/* the list page's aside */
+
+	lws_dlo_ui_aside_t		aside;	/* .css is aside_css, .html NULL
+						 * if there's none */
+	char				*aside_css; /* the caller's, or NULL */
+
 	char				*page;	/* the html we made, while it is
 						 * registered in the dlo fs */
 	size_t				page_len; /* allocated */
@@ -304,6 +319,48 @@ ui_icon_name_ok(const char *s)
 	return 1;
 }
 
+/*
+ * Where the aside starts across the display, which is how wide the column of
+ * the list page's strips is, or 0 if there's no aside shown.  It's only on the
+ * list page, of a landscape display that isn't round, if both the column and
+ * the aside are left enough of it
+ */
+
+static int
+ui_aside_x(const struct lws_dlo_ui *ui)
+{
+	int min = ui->icon + 4 * ui->pad + 8 * ui->fs_row, col;
+
+	if (ui->page_strips != UI_PAGE_LIST || !ui->aside.html ||
+	    ui->i.lds->ic.round || ui->w <= ui->h)
+		return 0;
+
+	col = ui->aside.col_w > 0 ? ui->aside.col_w : (ui->h * 3) / 8;
+	if (col < min)
+		col = min;
+
+	return ui->w - col < col ? 0 : col;
+}
+
+/* how wide what the strips of the page shown take is */
+
+static int
+ui_strips_w(const struct lws_dlo_ui *ui)
+{
+	int ax = ui_aside_x(ui);
+
+	return ax ? ax : ui->w;
+}
+
+/* the strips of the page shown, and the aside if it's beside them */
+
+static uint8_t
+ui_shown(const struct lws_dlo_ui *ui)
+{
+	return (uint8_t)(ui->page_strips |
+			 (ui_aside_x(ui) ? UI_STRIP_ASIDE : 0));
+}
+
 /* the most the list can be scrolled down by */
 
 static int
@@ -345,6 +402,10 @@ ui_strip_band(const struct lws_dlo_ui *ui, int strip, int *y0, int *y1)
 		*y0 = eb;
 		*y1 = ui->h;
 		break;
+	case UI_STRIP_ASIDE:
+		*y0 = 0;
+		*y1 = ui->h;
+		break;
 	default: /* UI_STRIP_LIST, UI_STRIP_BODY, UI_STRIP_PANEL */
 
 		*y0 = ui->title_h;
@@ -353,12 +414,15 @@ ui_strip_band(const struct lws_dlo_ui *ui, int strip, int *y0, int *y1)
 	}
 }
 
-/* which of the current page's strips line y is in */
+/* which of the current page's strips x, y is in, or the aside */
 
 static int
-ui_strip_at(const struct lws_dlo_ui *ui, int y)
+ui_strip_at(const struct lws_dlo_ui *ui, int x, int y)
 {
 	int s, y0, y1;
+
+	if (x >= ui_strips_w(ui))
+		return UI_STRIP_ASIDE;
 
 	for (s = UI_STRIP_TITLE; s <= UI_STRIP_PANEL; s <<= 1) {
 		if (!(ui->page_strips & s))
@@ -371,11 +435,16 @@ ui_strip_at(const struct lws_dlo_ui *ui, int y)
 	return 0;
 }
 
-/* the columns that can be seen across lines y0 to y1, on the display */
+/*
+ * The columns that can be seen across lines y0 to y1, on the display, that the
+ * strips can use: with an aside, only those of the column left of it
+ */
 
 static void
 ui_span(const struct lws_dlo_ui *ui, int y0, int y1, int *x0, int *x1)
 {
+	int sw = ui_strips_w(ui);
+
 	if (y0 < 0)
 		y0 = 0;
 	if (y1 > ui->h)
@@ -383,6 +452,11 @@ ui_span(const struct lws_dlo_ui *ui, int y0, int y1, int *x0, int *x1)
 
 	if (lws_surface_visible_span(&ui->i.lds->ic, y0, y1, x0, x1))
 		*x0 = *x1 = 0;
+
+	if (*x1 > sw)
+		*x1 = sw;
+	if (*x0 > *x1)
+		*x0 = *x1;
 }
 
 /*
@@ -668,6 +742,7 @@ static const char * const ui_css =
 	"body { background-color: #fff; color: #000; font-family: sans }"
 	"#ui { position: absolute; left: 0; top: 0 }"
 	"#t, #l, #e, #k, #p { position: absolute; left: 0; overflow: hidden }"
+	"#a { position: absolute; top: 0; overflow: hidden }"
 	/* what's wider than the panel is clipped, to be inside the circle */
 	"#pc { position: absolute; overflow: hidden }"
 	"#tt { position: absolute; text-align: center; white-space: nowrap;"
@@ -894,19 +969,22 @@ static int
 ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 {
 	int lh = ui->h - ui->title_h, tl = (ui->fs_title * 6) / 5,
-	    x0, x1, y0, n, first, last, ry, ix0,
-	    ix1, round = ui->i.lds->ic.round;
+	    x0, x1, y0, n, first, last, ry, ix0, ix1,
+	    round = ui->i.lds->ic.round, sw = ui_strips_w(ui);
 	lws_dlo_ui_row_t row;
 	lws_html_w_t w;
 
 	lws_html_w_init(&w, buf, len);
+
+	/* the capsule is at the right of the strips, as wide as they are now */
+	ui_status_place(ui);
 
 	lws_html_w_printf(&w, "<!doctype html><html><head><meta charset=\"utf-8\">"
 		      "<style>%s%s", ui_css, ui->css ? ui->css : "");
 
 	lws_html_w_printf(&w, "#ui { width: %dpx; height: %dpx }"
 		      "#t { top: 0; width: %dpx; height: %dpx }",
-		      ui->w, ui->h, ui->w, ui->title_h);
+		      ui->w, ui->h, sw, ui->title_h);
 
 	/* the title's line sits at the bottom of its strip */
 
@@ -961,7 +1039,19 @@ ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 	}
 
 	lws_html_w_printf(&w, "#l { top: %dpx; width: %dpx; height: %dpx }",
-		      ui->title_h, ui->w, lh);
+		      ui->title_h, sw, lh);
+
+	if (sw != ui->w) {
+		/*
+		 * The aside, right of the strips, as tall as the display.  The
+		 * caller's css comes first, so it can't move it
+		 */
+		if (ui->aside_css)
+			lws_html_w_printf(&w, "%s", ui->aside_css);
+		lws_html_w_printf(&w, "#a { left: %dpx; width: %dpx;"
+				  " height: %dpx; font-size: %dpx }",
+				  sw, ui->w - sw, ui->h, ui->fs_row);
+	}
 
 	/*
 	 * Only the rows that can be seen are in the html, each positioned
@@ -1033,7 +1123,15 @@ ui_html(struct lws_dlo_ui *ui, char *buf, size_t len)
 		lws_html_w_printf(&w, "</div></div>");
 	}
 
-	lws_html_w_printf(&w, "</div></div></body></html>");
+	lws_html_w_printf(&w, "</div>");
+
+	if (sw != ui->w) {
+		lws_html_w_printf(&w, "<div id=\"a\">");
+		ui->aside.html(ui->aside.opaque, &w);
+		lws_html_w_printf(&w, "</div>");
+	}
+
+	lws_html_w_printf(&w, "</div></body></html>");
 
 done:
 	return lws_html_w_len(&w, buf);
@@ -1081,6 +1179,10 @@ ui_layout(struct lws_dlo_ui *ui)
 		break;
 	default:
 		len += (size_t)((ui->h / ui->row_h) + 2) * 512;
+		if (ui_aside_x(ui))
+			len += (ui->aside_css ? strlen(ui->aside_css) : 0) +
+			       (ui->aside.html_max ? ui->aside.html_max :
+						     UI_DIALOG_HTML_MAX);
 		break;
 	}
 	ui_page_drop(ui);
@@ -1358,7 +1460,7 @@ ui_scan_start(struct lws_dlo_ui *ui)
 	int s, y0, y1, b0 = ui->h, b1 = 0;
 	lws_box_t box;
 
-	ui->drawing = ui->dirty & ui->page_strips;
+	ui->drawing = ui->dirty & ui_shown(ui);
 	ui->dirty = 0;
 
 	/* of the frame, we draw its body, white, only when drawing all of it */
@@ -1372,7 +1474,7 @@ ui_scan_start(struct lws_dlo_ui *ui)
 	 * everything
 	 */
 
-	for (s = UI_STRIP_TITLE; s <= UI_STRIP_PANEL; s <<= 1) {
+	for (s = UI_STRIP_TITLE; s <= UI_STRIP_ASIDE; s <<= 1) {
 		if (!(ui->drawing & s))
 			continue;
 		ui_strip_band(ui, s, &y0, &y1);
@@ -1803,6 +1905,7 @@ lws_dlo_ui_destroy(struct lws_dlo_ui **pui)
 	ui_page_drop(ui);
 	lws_explicit_bzero(ui->edit, sizeof(ui->edit));
 	lws_free_set_NULL(ui->dlg_css);
+	lws_free_set_NULL(ui->aside_css);
 
 	lws_free_set_NULL(*pui);
 }
@@ -1860,7 +1963,7 @@ lws_dlo_ui_set_list(struct lws_dlo_ui *ui, int count, int focus)
 		ui->drag = 0;
 		ui->frame_full = 0;
 		ui->frame_lines = 0;
-		ui->dirty |= UI_PAGE_LIST;
+		ui->dirty |= UI_PAGE_LIST | UI_STRIP_ASIDE;
 	}
 
 	ui->stale = 1;
@@ -1876,7 +1979,8 @@ ui_page_show(struct lws_dlo_ui *ui, uint8_t strips)
 	ui->page_strips = strips;
 	ui->drag = 0;
 	ui->stale = 1;
-	ui->dirty |= strips;
+	/* and the aside, if it's beside the list page */
+	ui->dirty |= ui_shown(ui);
 	lws_dlo_ui_kick(ui);
 }
 
@@ -2033,6 +2137,60 @@ lws_dlo_ui_dialog_changed(struct lws_dlo_ui *ui)
 
 	ui->stale = 1;
 	ui->dirty |= UI_STRIP_PANEL;
+	lws_dlo_ui_kick(ui);
+}
+
+int
+lws_dlo_ui_set_aside(struct lws_dlo_ui *ui, const lws_dlo_ui_aside_t *a)
+{
+	char *css = NULL;
+	size_t cl;
+
+	if (a && !a->html)
+		return 1;
+
+	if (a && a->css) {
+		/* it goes in a style element: it mustn't be able to end it */
+		cl = strlen(a->css);
+		if (cl > UI_CSS_MAX || strchr(a->css, '<')) {
+			lwsl_err("%s: css refused\n", __func__);
+			return 1;
+		}
+		css = lws_malloc(cl + 1, __func__);
+		if (!css)
+			return 1;
+		memcpy(css, a->css, cl + 1);
+	}
+
+	lws_free_set_NULL(ui->aside_css);
+	ui->aside_css = css;
+	if (a)
+		ui->aside = *a;
+	else
+		memset(&ui->aside, 0, sizeof(ui->aside));
+	ui->aside.css = NULL; /* it is ui->aside_css */
+
+	if (ui->page_strips != UI_PAGE_LIST)
+		/* it's beside the list page when it's shown */
+		return 0;
+
+	/* the strips move, or take the whole display again: all of it */
+	ui->stale = 1;
+	ui->dirty |= UI_PAGE_LIST | UI_STRIP_ASIDE;
+	lws_dlo_ui_kick(ui);
+
+	return 0;
+}
+
+void
+lws_dlo_ui_aside_changed(struct lws_dlo_ui *ui)
+{
+	if (!ui_aside_x(ui))
+		/* it's written again when it's shown again anyway */
+		return;
+
+	ui->stale = 1;
+	ui->dirty |= UI_STRIP_ASIDE;
 	lws_dlo_ui_kick(ui);
 }
 
@@ -2278,7 +2436,7 @@ lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len)
 	    x < 0 || x >= ui->w || y < 0 || y >= ui->h)
 		return 0;
 
-	strip = ui_strip_at(ui, y);
+	strip = ui_strip_at(ui, x, y);
 
 	if (ui->nav && ui->page_strips == UI_PAGE_DIALOG) {
 		/* it's being touched: the cursor goes, without a new layout */
@@ -2386,9 +2544,9 @@ lws_dlo_ui_touch(struct lws_dlo_ui *ui, const void *buf, size_t len)
 	switch (strip) {
 	case UI_STRIP_TITLE:
 		v = ui->cap_x0 - ui->row_h / 2;
-		if (v <= ui->w / 2)
+		if (v <= ui_strips_w(ui) / 2)
 			/* the middle, where the title is, stays the title */
-			v = ui->w / 2 + 1;
+			v = ui_strips_w(ui) / 2 + 1;
 		if (ui->cap_x1 != ui->cap_x0 && ui->status_button[0] &&
 		    x >= (v < ui->cap_x0 ? v : ui->cap_x0)) {
 			/*

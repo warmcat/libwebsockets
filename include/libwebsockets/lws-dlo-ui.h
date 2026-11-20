@@ -84,6 +84,13 @@
  *    for each href; editing a field is the edit page, which comes back to the
  *    dialog when it ends.
  *
+ * On a landscape display that isn't round, the list page can have an aside,
+ * see lws_dlo_ui_set_aside(): its strips are then a column at the left of the
+ * display, and the rest of it, right of them, is html the caller writes, eg,
+ * a picture of the product from the dlo filesystem, while the list says how
+ * booting is going.  It's only ever shown on the list page: the other pages
+ * take the whole display as before.
+ *
  * Each strip moves only by drags that begin in it, and dragging never changes
  * what was typed; only pressing keys does.
  *
@@ -120,6 +127,8 @@
  *    is on it
  *  - #p: the dialog's panel, #pc: the caller's html in it, which the caller
  *    styles with its own css, see lws_dlo_ui_dialog_t .css
+ *  - #a: the aside, holding the caller's html, which the caller styles with
+ *    its own css, see lws_dlo_ui_aside_t .css
  *
  * The positions and sizes of these follow from the display, and are set by
  * the ui after the caller's css, so css can't change them; colours, borders
@@ -201,16 +210,20 @@ typedef void (*lws_dlo_ui_frame_redraw_cb_t)(void *opaque);
 typedef int (*lws_dlo_ui_done_cb_t)(void *opaque, const char *text);
 
 /*
- * Writing the html of a dialog's panel, see lws_dlo_ui_dialog_t .html: the
- * caller's markup with lws_html_w_printf(), and anything that isn't the
- * caller's own, eg, an SSID, with lws_html_w_text(), which escapes it.  If
- * the html becomes longer than lws_dlo_ui_dialog_t .html_max, the rest isn't
- * written, and the panel isn't shown.
+ * Writing the caller's html, of a dialog's panel, see lws_dlo_ui_dialog_t
+ * .html, or of the aside, see lws_dlo_ui_aside_t .html: the caller's markup
+ * with lws_html_w_printf(), and anything that isn't the caller's own, eg, an
+ * SSID, with lws_html_w_text(), which escapes it.  If the html becomes longer
+ * than the .html_max it was given, the rest isn't written, and the page isn't
+ * shown.
  */
 typedef lws_html_w_t lws_dlo_ui_html_t;
 
+/* write the caller's html, eg, of the dialog's panel or the aside */
+typedef void (*lws_dlo_ui_html_cb_t)(void *opaque, lws_dlo_ui_html_t *h);
+
 /* write the panel's html, see lws_dlo_ui_dialog() */
-typedef void (*lws_dlo_ui_dialog_html_cb_t)(void *opaque, lws_dlo_ui_html_t *h);
+typedef lws_dlo_ui_html_cb_t lws_dlo_ui_dialog_html_cb_t;
 
 /*
  * The link to href was pressed on the dialog's panel.  As for done, it may
@@ -320,6 +333,25 @@ typedef struct lws_dlo_ui_dialog {
 	/**< the most the panel's html can be, or 0 for 4KB: if what .html
 	 * writes is longer, it isn't shown */
 } lws_dlo_ui_dialog_t;
+
+/* what the list page's aside shows, see lws_dlo_ui_set_aside() */
+
+typedef struct lws_dlo_ui_aside {
+	lws_dlo_ui_html_cb_t		html;
+	/**< writes the aside's html, each time the list page is laid out */
+	void				*opaque;
+	/**< passed to .html */
+	const char			*css;
+	/**< NULL, or css for the aside's html, after the ui's.  It is copied.
+	 * It is the caller's own: it can't contain '<', and is limited to 2KB */
+	size_t				html_max;
+	/**< the most the aside's html can be, or 0 for 4KB: if what .html
+	 * writes is longer, the list page isn't shown */
+	int				col_w;
+	/**< how wide the column of the strips at the left is, in px, or 0 for
+	 * the ui to choose, about 3/8 of the display's height.  It's never
+	 * less than the ui needs for a row's icon and a few words */
+} lws_dlo_ui_aside_t;
 
 /**
  * lws_dlo_ui_create() - make a strip ui on a display
@@ -457,6 +489,44 @@ lws_dlo_ui_dialog(struct lws_dlo_ui *ui, const lws_dlo_ui_dialog_t *d);
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_dlo_ui_dialog_changed(struct lws_dlo_ui *ui);
+
+/**
+ * lws_dlo_ui_set_aside() - show the caller's html beside the list page
+ *
+ * \param ui: the ui
+ * \param a: what the aside shows, and its callback, copied, or NULL for none
+ *
+ * On a landscape display that isn't round, the list page's title and list
+ * strips are a column at the left of the display, a->col_w wide, and the
+ * rest of the display to the right of them is the aside: a->html writes
+ * it, in a div, so it can be a fragment, eg, an <img> of a picture in the dlo
+ * filesystem, by its name there.  It can't be pressed: touches on it are not
+ * the ui's, and a drag that begins on it moves nothing.
+ *
+ * It's laid out with the list each time it is, and only drawn again as part
+ * of the bands of lines that changed, eg, the list's.  On a display that the
+ * aside would leave too little of for the column, or the column too little
+ * of for the aside, or which isn't landscape, or is round, the list page has
+ * no aside, and takes the whole display as it does without one.  It's only
+ * ever beside the list page: the others take the whole display.
+ *
+ * Returns 0 if it was set, or nonzero if a has no html callback, or its css is
+ * refused, or OOM, when the aside is left as it was.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dlo_ui_set_aside(struct lws_dlo_ui *ui, const lws_dlo_ui_aside_t *a);
+
+/**
+ * lws_dlo_ui_aside_changed() - what the aside shows changed
+ *
+ * \param ui: the ui
+ *
+ * The aside's html is written again, laid out and drawn, with the list page,
+ * when the display is next free.  If the list page isn't shown, it's written
+ * again when it's shown again anyway.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_dlo_ui_aside_changed(struct lws_dlo_ui *ui);
 
 /**
  * lws_dlo_ui_frame() - show the frame page, the title strip over a body
