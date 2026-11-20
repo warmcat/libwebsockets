@@ -68,7 +68,9 @@ a framebuffer and notes the window of each update.  It checks
  - on a pretend 480 x 240 landscape display, the list page with an aside
    (`lws_dlo_ui_set_aside()`): the title strip, its capsule and the list are
    a column at the left, and the aside, the caller's html with its css and an
-   image from the dlo filesystem, is drawn right of it.  Pressing the aside
+   image from the dlo filesystem, is drawn right of it, the column as wide as
+   `lws_dlo_ui_aside_width()` says, which is 0 for the other displays.
+   Pressing the aside
    picks nothing, and a drag that began on it doesn't scroll the list.
    `lws_dlo_ui_aside_changed()` draws all of the display again, changing the
    list sends only the list's band, and taking the aside away gives the

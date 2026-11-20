@@ -320,26 +320,49 @@ ui_icon_name_ok(const char *s)
 }
 
 /*
+ * The sizes of the list's rows follow from the display's height: tall enough
+ * for an icon a finger can press, where the display is big enough for that
+ */
+
+static void
+ui_row_sizes(int h, int *icon, int *pad, int *fs_row)
+{
+	*icon = h >= 400 ? 48 : (h >= 200 ? 32 : (h >= 100 ? 24 : 16));
+	*pad = *icon / 16 ? *icon / 16 : 1;
+	*fs_row = *icon >= 32 ? 16 : (*icon >= 24 ? 12 : 10);
+}
+
+int
+lws_dlo_ui_aside_width(const lws_surface_info_t *ic, int col_w)
+{
+	int w = ic->wh_px[0].whole, h = ic->wh_px[1].whole, icon, pad, fs,
+	    col;
+
+	if (ic->round || w <= h)
+		return 0;
+
+	/* at least a row's icon and a few words */
+	ui_row_sizes(h, &icon, &pad, &fs);
+	col = col_w > 0 ? col_w : (h * 3) / 8;
+	if (col < icon + 4 * pad + 8 * fs)
+		col = icon + 4 * pad + 8 * fs;
+
+	return w - col < col ? 0 : col;
+}
+
+/*
  * Where the aside starts across the display, which is how wide the column of
  * the list page's strips is, or 0 if there's no aside shown.  It's only on the
- * list page, of a landscape display that isn't round, if both the column and
- * the aside are left enough of it
+ * list page
  */
 
 static int
 ui_aside_x(const struct lws_dlo_ui *ui)
 {
-	int min = ui->icon + 4 * ui->pad + 8 * ui->fs_row, col;
-
-	if (ui->page_strips != UI_PAGE_LIST || !ui->aside.html ||
-	    ui->i.lds->ic.round || ui->w <= ui->h)
+	if (ui->page_strips != UI_PAGE_LIST || !ui->aside.html)
 		return 0;
 
-	col = ui->aside.col_w > 0 ? ui->aside.col_w : (ui->h * 3) / 8;
-	if (col < min)
-		col = min;
-
-	return ui->w - col < col ? 0 : col;
+	return lws_dlo_ui_aside_width(&ui->i.lds->ic, ui->aside.col_w);
 }
 
 /* how wide what the strips of the page shown take is */
@@ -1827,9 +1850,7 @@ lws_dlo_ui_create(const lws_dlo_ui_info_t *info)
 	if (ui->title_h > 40)
 		ui->title_h = 40;
 
-	ui->icon = ui->h >= 400 ? 48 : (ui->h >= 200 ? 32 :
-					(ui->h >= 100 ? 24 : 16));
-	ui->pad = ui->icon / 16 ? ui->icon / 16 : 1;
+	ui_row_sizes(ui->h, &ui->icon, &ui->pad, &ui->fs_row);
 	ui->row_h = ui->icon + 2 * ui->pad;
 
 	/*
@@ -1843,7 +1864,6 @@ lws_dlo_ui_create(const lws_dlo_ui_info_t *info)
 		ui->fs_title = ((ui->title_h - ui->pad) * 5) / 6;
 	if (ui->fs_title < 10)
 		ui->fs_title = 10;
-	ui->fs_row = ui->icon >= 32 ? 16 : (ui->icon >= 24 ? 12 : 10);
 
 	if (ui->w < 16 || ui->h < ui->title_h + ui->row_h * 3) {
 		lwsl_err("%s: display too small\n", __func__);
