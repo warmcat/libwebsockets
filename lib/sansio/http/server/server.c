@@ -914,6 +914,11 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 					 lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) ||
 					 lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) ||
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
+					 /*
+					  * as h2 and h3 do, by their :path, so
+					  * the mount's gates see it on each
+					  */
+					 lws_hdr_total_length(wsi, WSI_TOKEN_OPTIONS_URI) ||
 					 lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI) ||
 					 lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) ||
 					 lws_hdr_total_length(wsi, WSI_TOKEN_DELETE_URI) ||
