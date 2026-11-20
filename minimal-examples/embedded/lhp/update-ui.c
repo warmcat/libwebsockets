@@ -157,10 +157,13 @@ lhp_update_progress(lws_display_render_state_t *rs, int pc)
 }
 
 int
-lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
-		const char *variant, int pc, int spinner)
+lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic_disp,
+		const char *variant, int pc, int spinner,
+		const lhp_update_aside_t *aside)
 {
-	int w = ic->wh_px[0].whole, h = ic->wh_px[1].whole, th, fs, tl, pad,
+	const lws_surface_info_t *ic = ic_disp;
+	lws_surface_info_t col_ic;
+	int w, h, th, fs, tl, pad,
 	    bh, by, bx0, bx1, bw, bx, fw, gap, vl, vfs, vy, py = 0, is = 0,
 	    iy = 0, a, ay, b, by2, inside, pfs, pl;
 	uw_t uw;
@@ -168,6 +171,31 @@ lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
 	uw.p = buf;
 	uw.end = buf + len;
 	uw.full = 0;
+
+	if (aside && aside->css && strchr(aside->css, '<'))
+		/* it goes in our style element: it mustn't end it */
+		return -1;
+
+	if (aside && aside->col > 0 &&
+	    aside->col < ic_disp->wh_px[0].whole) {
+		/*
+		 * Everything of the update is placed in the column, as if it
+		 * were the display, as many px to the mm
+		 */
+		lws_fx_t c, r;
+
+		col_ic = *ic_disp;
+		col_ic.wh_px[0].whole = aside->col;
+		col_ic.wh_px[0].frac = 0;
+		lws_fx_set(c, aside->col, 0);
+		lws_fx_div(&r, &c, &ic_disp->wh_px[0]);
+		lws_fx_mul(&col_ic.wh_mm[0], &ic_disp->wh_mm[0], &r);
+		ic = &col_ic;
+	} else
+		aside = NULL;
+
+	w = ic->wh_px[0].whole;
+	h = ic->wh_px[1].whole;
 
 	if (pc < 0)
 		pc = 0;
@@ -320,6 +348,17 @@ lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
 			       "#i img { width: 100%%; height: 100%% }",
 			       (w - is) / 2, iy, is, is);
 
+	if (aside)
+		/*
+		 * Right of the column, as tall as the display, where the strip
+		 * ui puts its aside.  The caller's css comes first, so it can't
+		 * move it
+		 */
+		uw_printf(&uw, "%s#a { position: absolute; left: %dpx; top: 0;"
+			       " width: %dpx; height: %dpx; overflow: hidden }",
+			       aside->css ? aside->css : "", w,
+			       (int)ic_disp->wh_px[0].whole - w, h);
+
 	uw_printf(&uw, "</style></head><body>"
 		       "<div id=\"t\"></div><div id=\"tt\">Updating</div>"
 		       "<div id=\"v\">");
@@ -349,6 +388,11 @@ lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
 	if (is)
 		uw_printf(&uw, "<div id=\"i\"><img src=\"file://dlofs/"
 			       LHP_UPDATE_ICON "\"></div>");
+
+	if (aside)
+		/* the caller's own markup */
+		uw_printf(&uw, "<div id=\"a\">%s</div>",
+			  aside->html ? aside->html : "");
 
 	uw_printf(&uw, "</body></html>");
 

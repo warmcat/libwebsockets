@@ -59,7 +59,9 @@ shown right of it, as the strip ui's aside (`lws_dlo_ui_set_aside()`).  It's
 made from `boot.html`, `boot.css` and any `boot-*` files it shows, eg,
 `boot-picture.jpg`, in `product/`, see "Product header" below.  The common
 one shows the maker's logo and name and the model's name; the T5 has its own,
-a JPEG picture.  It goes with the boot list when booting is over: on an EPD,
+a JPEG picture.  If an update is found while booting, its progress is shown
+in the same column, with the same aside beside it, so only the column
+changes.  It goes with the boot list when booting is over: on an EPD,
 the white page that cleans the boot list off is all of the display, the
 aside's part too.  Here, the 400 x 300 and 600 x 448 EPDs have it too.
 Displays that aren't landscape, eg, the 122 x 250 EPD, or are round, or are

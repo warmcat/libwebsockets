@@ -98,17 +98,23 @@ lhp_boot_deinit(lhp_boot_t *b)
  * markup, written as it is
  */
 
-static void
-lhp_boot_aside_html(void *opaque, lws_dlo_ui_html_t *h)
+const char *
+lhp_boot_aside_html(void)
 {
-	lws_html_w_printf(h, "%s", (const char *)product_boot_html);
+	return (const char *)product_boot_html;
+}
+
+static void
+lhp_boot_aside_cb(void *opaque, lws_dlo_ui_html_t *h)
+{
+	lws_html_w_printf(h, "%s", lhp_boot_aside_html());
 }
 
 void
 lhp_boot_aside(lws_dlo_ui_aside_t *a)
 {
 	memset(a, 0, sizeof(*a));
-	a->html = lhp_boot_aside_html;
+	a->html = lhp_boot_aside_cb;
 	a->css = (const char *)product_boot_css;
 	/* all of it fits, whatever the product's is */
 	a->html_max = sizeof(product_boot_html);

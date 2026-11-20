@@ -17,7 +17,8 @@
  * use what is built in, a font and the stage icons, from the dlo filesystem.
  * On a landscape display, the boot list is a column at the left, and the
  * product's own html, eg, a picture of it, is shown right of it, see
- * product.cmake: it all goes when booting is over, as the boot list does.
+ * product.cmake: it all goes when booting is over, as the boot list does.  An
+ * update found while booting is shown in the same column, beside the same.
  * If no wifi credentials are stored, once a scan has found some APs, the
  * settings dialog (see settings-ui.c) lists them instead, for the user to set
  * the passphrase of one.
@@ -973,6 +974,8 @@ update_in_place(void)
 static void
 update_show(void)
 {
+	lhp_update_aside_t ua, *pua = NULL;
+	size_t hl = 2048;
 	char *html;
 	int len;
 
@@ -982,11 +985,30 @@ update_show(void)
 	if (update_pc_shown >= 0 && !update_in_place())
 		goto shown;
 
-	html = malloc(2048);
+	if (ui == UI_BOOT) {
+		lws_dlo_ui_aside_t a;
+
+		/*
+		 * While booting, on a display with room for it, the update is
+		 * where the boot list was, with the product's own beside it
+		 * as it was, so only the column changes
+		 */
+		lhp_boot_aside(&a);
+		memset(&ua, 0, sizeof(ua));
+		ua.col = lws_dlo_ui_aside_width(&lds.ic, a.col_w);
+		ua.html = lhp_boot_aside_html();
+		ua.css = a.css;
+		if (ua.col) {
+			pua = &ua;
+			hl += strlen(ua.html) + strlen(ua.css);
+		}
+	}
+
+	html = malloc(hl);
 	if (!html)
 		return;
 
-	len = lhp_update_html(html, 2048, &lds.ic,
+	len = lhp_update_html(html, hl, &lds.ic,
 #if defined(LWS_WITH_OTA)
 			      lws_ota_variant_name(),
 #else
@@ -994,7 +1016,7 @@ update_show(void)
 #endif
 			      update_pc,
 			      !!lws_display_anim_interval(lds.disp,
-							  UPDATE_SHOW_US));
+							  UPDATE_SHOW_US), pua);
 	if (len < 0) {
 		lwsl_err("%s: update page too big\n", __func__);
 		free(html);
