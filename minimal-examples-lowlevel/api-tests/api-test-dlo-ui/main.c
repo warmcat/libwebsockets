@@ -72,10 +72,12 @@
  *  - on a landscape display, the list page with an aside: the title strip,
  *    its capsule and the list are a column at the left, and the aside, the
  *    caller's html with its css and an image from the dlo filesystem, is drawn
- *    right of it.  Pressing the aside picks nothing, and a drag that began on
- *    it doesn't scroll the list.  lws_dlo_ui_aside_changed() draws all of
- *    the display again, changing the list only the list's band of lines, and
- *    taking the aside away gives the strips the whole display again
+ *    right of it, the column as wide as lws_dlo_ui_aside_width() says, which
+ *    says there's no aside on the other displays.  Pressing the aside picks
+ *    nothing, and a drag that began on it doesn't scroll the list.
+ *    lws_dlo_ui_aside_changed() draws all of the display again, changing the
+ *    list only the list's band of lines, and taking the aside away gives the
+ *    strips the whole display again
  *
  *  - destroying the ui gives back all the heap it took.  The context makes
  *    some things the first time they are used, eg, the vhost the secure
@@ -1786,6 +1788,19 @@ next_step(lws_sorted_usec_list_t *sul)
 
 	case 31:
 		if (!updated("wide", 0, WIDE_H)) {
+			finish(0);
+			return;
+		}
+
+		/*
+		 * The column is as wide as the ui says it is, for a page of
+		 * the caller's in the same place, and it's not on the others
+		 */
+		if (lws_dlo_ui_aside_width(&disp_wide.ic, 0) != WIDE_AX ||
+		    lws_dlo_ui_aside_width(&disp_wide.ic, 200) != 200 ||
+		    lws_dlo_ui_aside_width(&disp_tall.ic, 0) ||
+		    lws_dlo_ui_aside_width(&disp.ic, 0)) {
+			lwsl_err("wide: aside width wrong\n");
 			finish(0);
 			return;
 		}

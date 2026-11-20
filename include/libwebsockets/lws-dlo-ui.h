@@ -517,6 +517,21 @@ LWS_VISIBLE LWS_EXTERN int
 lws_dlo_ui_set_aside(struct lws_dlo_ui *ui, const lws_dlo_ui_aside_t *a);
 
 /**
+ * lws_dlo_ui_aside_width() - how wide the strips' column beside an aside is
+ *
+ * \param ic: the display
+ * \param col_w: as lws_dlo_ui_aside_t .col_w, or 0 for the ui to choose
+ *
+ * Returns how wide the column of the list page's strips is, on the left of
+ * the display, when it has an aside, or 0 if the display can't have one, eg,
+ * it isn't landscape.  So a page of the caller's own shown instead of the list
+ * page, eg, an update's progress, can be laid out in the same column, keeping
+ * the same aside beside it.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dlo_ui_aside_width(const lws_surface_info_t *ic, int col_w);
+
+/**
  * lws_dlo_ui_aside_changed() - what the aside shows changed
  *
  * \param ui: the ui
