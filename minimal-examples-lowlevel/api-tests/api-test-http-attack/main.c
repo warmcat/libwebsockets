@@ -705,6 +705,7 @@ struct h2_attack {
 	 * the connection just ending, with nothing served, is a pass too.
 	 */
 	uint8_t		lossy;
+	const char	*expect;	/* for V_ECHO, if not "/alive" */
 };
 
 /*
@@ -2246,6 +2247,100 @@ b_trailers_lost_entry(struct txb *t)
 	return 3;
 }
 
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+/*
+ * A header lws doesn't know, added to the dynamic table by stream 1, and on
+ * stream 3 sent again as all of the table entry or its name, as an encoder
+ * like nghttp2 does a custom header repeated on the connection.  It must
+ * reach the application each time, as it does when it is sent literally.
+ */
+
+static void
+h2_custom_stream_1(struct txb *t)
+{
+	uint8_t hb[256], *p = hp_request(hb, HP_METHOD_GET, "/alive");
+
+	p = hp_lit_indexing_name(p, "x-echo", "a");
+	h2_preface(t);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 1, hb,
+		 lws_ptr_diff_size_t(p, hb));
+}
+
+static uint32_t
+b_custom_indexed(struct txb *t)
+{
+	uint8_t hb[256], *p;
+
+	h2_custom_stream_1(t);
+	p = hp_request(hb, HP_METHOD_GET, "/alive");
+	p = hp_int(p, 0x80, 7, HP_IDX_DYN_NEWEST);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 3, hb,
+		 lws_ptr_diff_size_t(p, hb));
+
+	return 3;
+}
+
+static uint32_t
+b_custom_indexed_name(struct txb *t)
+{
+	uint8_t hb[256], *p;
+
+	h2_custom_stream_1(t);
+	p = hp_request(hb, HP_METHOD_GET, "/alive");
+	p = hp_lit(p, HP_IDX_DYN_NEWEST, "b", 1);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 3, hb,
+		 lws_ptr_diff_size_t(p, hb));
+
+	return 3;
+}
+
+/* ... and the name with a new value added to the table, sent by stream 5 */
+
+static uint32_t
+b_custom_indexed_name_indexing(struct txb *t)
+{
+	uint8_t hb[256], *p;
+
+	h2_custom_stream_1(t);
+	p = hp_request(hb, HP_METHOD_GET, "/alive");
+	p = hp_lit_indexing(p, HP_IDX_DYN_NEWEST, "c", 1);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 3, hb,
+		 lws_ptr_diff_size_t(p, hb));
+	p = hp_request(hb, HP_METHOD_GET, "/alive");
+	p = hp_int(p, 0x80, 7, HP_IDX_DYN_NEWEST);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 5, hb,
+		 lws_ptr_diff_size_t(p, hb));
+
+	return 5;
+}
+
+/*
+ * Trailers keep nothing, but what they add to the dynamic table is there for
+ * the requests after them: a custom header too
+ */
+
+static uint32_t
+b_custom_from_trailers(struct txb *t)
+{
+	uint8_t hb[256], *p = hp_request(hb, HP_METHOD_POST, "/alive");
+
+	h2_preface(t);
+	h2_frame(t, H2_HEADERS, H2F_END_HEADERS, 1, hb,
+		 lws_ptr_diff_size_t(p, hb));
+	h2_frame(t, H2_DATA, 0, 1, "x", 1);
+	p = hp_lit_indexing_name(hb, "x-echo", "t");
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 1, hb,
+		 lws_ptr_diff_size_t(p, hb));
+
+	p = hp_request(hb, HP_METHOD_GET, "/alive");
+	p = hp_int(p, 0x80, 7, HP_IDX_DYN_NEWEST);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 3, hb,
+		 lws_ptr_diff_size_t(p, hb));
+
+	return 3;
+}
+#endif
+
 /*
  * A dynamic table size update that shrinks the table.  The peer counts at
  * least 32 bytes an entry, lws counts a field it ignores as its name alone,
@@ -2280,69 +2375,79 @@ b_hpack_table_shrink(struct txb *t)
 }
 
 static const struct h2_attack h2_attacks[] = {
-	{ "bad preface", b_bad_preface, V_NO_2XX, 0, 0 },
+	{ "bad preface", b_bad_preface, V_NO_2XX, 0, 0, NULL },
 	{ "CONTINUATION flood", b_continuation_flood, V_GOAWAY,
-	  H2_ERR_ENHANCE_YOUR_CALM, 1 },
+	  H2_ERR_ENHANCE_YOUR_CALM, 1, NULL },
 	{ "CONTINUATION on another stream", b_continuation_other_stream,
-	  V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0 },
-	{ "PING flood", b_ping_flood, V_ALIVE_OR_CALM, 0, 1 },
-	{ "SETTINGS flood", b_settings_flood, V_ALIVE_OR_CALM, 0, 1 },
-	{ "rapid reset", b_rapid_reset, V_ALIVE_OR_CALM, 0, 1 },
+	  V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0, NULL },
+	{ "PING flood", b_ping_flood, V_ALIVE_OR_CALM, 0, 1, NULL },
+	{ "SETTINGS flood", b_settings_flood, V_ALIVE_OR_CALM, 0, 1, NULL },
+	{ "rapid reset", b_rapid_reset, V_ALIVE_OR_CALM, 0, 1, NULL },
 	{ "stream id goes down", b_sid_goes_down, V_GOAWAY,
-	  H2_ERR_PROTOCOL_ERROR, 0 },
-	{ "even stream id", b_even_sid, V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0 },
+	  H2_ERR_PROTOCOL_ERROR, 0, NULL },
+	{ "even stream id", b_even_sid, V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0, NULL },
 	{ "hpack index past both tables", b_hpack_bad_index, V_GOAWAY,
-	  H2_ERR_COMPRESSION_ERROR, 0 },
+	  H2_ERR_COMPRESSION_ERROR, 0, NULL },
 	/*
 	 * RFC 7541 4.2 makes this a decoding error, but lws deliberately
 	 * clamps it to the size it advertised, for interop with browsers
 	 * (see lws_hpack_dynamic_size()): the table stays bounded
 	 */
 	{ "hpack table size over the limit (clamped)", b_hpack_table_size,
-	  V_ECHO, 200, 0 },
+	  V_ECHO, 200, 0, NULL },
 	{ "hpack table shrunk below the entries lws holds",
-	  b_hpack_table_shrink, V_ECHO, 200, 0 },
+	  b_hpack_table_shrink, V_ECHO, 200, 0, NULL },
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	{ "custom field from the dynamic table", b_custom_indexed, V_ECHO,
+	  200, 0, "/alive xe=a" },
+	{ "custom field's name from the dynamic table",
+	  b_custom_indexed_name, V_ECHO, 200, 0, "/alive xe=b" },
+	{ "custom field's name from the dynamic table, value added to it",
+	  b_custom_indexed_name_indexing, V_ECHO, 200, 0, "/alive xe=c" },
+	{ "custom field added to the dynamic table by trailers",
+	  b_custom_from_trailers, V_ECHO, 200, 0, "/alive xe=t" },
+#endif
 	{ "huffman EOS in :path", b_huffman_eos, V_GOAWAY,
-	  H2_ERR_COMPRESSION_ERROR, 0 },
+	  H2_ERR_COMPRESSION_ERROR, 0, NULL },
 	{ "frame over SETTINGS_MAX_FRAME_SIZE", b_oversize_frame, V_GOAWAY,
-	  H2_ERR_FRAME_SIZE_ERROR, 1 },
+	  H2_ERR_FRAME_SIZE_ERROR, 1, NULL },
 	{ "WINDOW_UPDATE past 2^31 - 1", b_window_overflow, V_GOAWAY,
-	  H2_ERR_FLOW_CONTROL_ERROR, 0 },
+	  H2_ERR_FLOW_CONTROL_ERROR, 0, NULL },
 	{ "WINDOW_UPDATE of 0", b_window_zero, V_GOAWAY,
-	  H2_ERR_PROTOCOL_ERROR, 0 },
-	{ "DATA on stream 0", b_data_sid0, V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0 },
+	  H2_ERR_PROTOCOL_ERROR, 0, NULL },
+	{ "DATA on stream 0", b_data_sid0, V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0, NULL },
 	{ "DATA on an idle stream", b_data_idle, V_GOAWAY,
-	  H2_ERR_PROTOCOL_ERROR, 0 },
+	  H2_ERR_PROTOCOL_ERROR, 0, NULL },
 	/* a field named "get " once smuggled an unnormalized request path */
 	{ "\"get \" field smuggling a path", b_get_smuggle, V_GOAWAY,
-	  H2_ERR_PROTOCOL_ERROR, 0 },
+	  H2_ERR_PROTOCOL_ERROR, 0, NULL },
 	{ "\"uri-args\" field adding urlargs", b_uri_args_field, V_ECHO,
-	  200, 0 },
-	{ "\"put\" field smuggling a URI", b_put_field, V_ECHO, 200, 0 },
+	  200, 0, NULL },
+	{ "\"put\" field smuggling a URI", b_put_field, V_ECHO, 200, 0, NULL },
 	{ "bare IPv6 literal :authority, no Host", b_authority_bare_v6,
-	  V_ECHO, 200, 0 },
+	  V_ECHO, 200, 0, NULL },
 	{ "pseudo-header name running on past one lws knows",
-	  b_pseudo_name_runs_on, V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0 },
+	  b_pseudo_name_runs_on, V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0, NULL },
 	{ "uppercase field name", b_uppercase_name, V_GOAWAY,
-	  H2_ERR_PROTOCOL_ERROR, 0 },
-	{ "CR LF in a field value", b_crlf_value, V_NO_2XX, 0, 0 },
-	{ "no :path", b_no_path, V_NO_2XX, 0, 0 },
-	{ "two :path", b_two_paths, V_NO_2XX, 0, 0 },
+	  H2_ERR_PROTOCOL_ERROR, 0, NULL },
+	{ "CR LF in a field value", b_crlf_value, V_NO_2XX, 0, 0, NULL },
+	{ "no :path", b_no_path, V_NO_2XX, 0, 0, NULL },
+	{ "two :path", b_two_paths, V_NO_2XX, 0, 0, NULL },
 	{ "a second :method with a literal name", b_two_methods_literal,
-	  V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0 },
+	  V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0, NULL },
 	{ "a second :authority after an indexed one",
-	  b_two_authorities_indexed, V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0 },
+	  b_two_authorities_indexed, V_GOAWAY, H2_ERR_PROTOCOL_ERROR, 0, NULL },
 	{ "pseudo-header after a regular one", b_pseudo_after_regular,
-	  V_NO_2XX, 0, 0 },
-	{ "connection-specific field", b_connection_header, V_NO_2XX, 0, 0 },
-	{ "transfer-encoding field", b_transfer_encoding, V_NO_2XX, 0, 0 },
-	{ "1500 fields", b_many_fields, V_NO_2XX, 0, 0 },
+	  V_NO_2XX, 0, 0, NULL },
+	{ "connection-specific field", b_connection_header, V_NO_2XX, 0, 0, NULL },
+	{ "transfer-encoding field", b_transfer_encoding, V_NO_2XX, 0, 0, NULL },
+	{ "1500 fields", b_many_fields, V_NO_2XX, 0, 0, NULL },
 	{ "trailers referring to an entry lws could not keep",
-	  b_trailers_lost_entry, V_ECHO, 200, 0 },
+	  b_trailers_lost_entry, V_ECHO, 200, 0, NULL },
 	{ "trailers arriving after the server finished their stream",
-	  b_trailers_after_close, V_ECHO, 200, 0 },
+	  b_trailers_after_close, V_ECHO, 200, 0, NULL },
 	{ "DATA after the body completed", b_data_after_body, V_GOAWAY,
-	  H2_ERR_PROTOCOL_ERROR, 0 },
+	  H2_ERR_PROTOCOL_ERROR, 0, NULL },
 };
 
 /*
@@ -2896,7 +3001,8 @@ case_pick(void)
 			tc.h2a = &h2_attacks[tc.idx];
 			tc.v = tc.h2a->v;
 			tc.status = tc.h2a->status;
-			tc.expect = "/alive";	/* what the cases ask for */
+			/* what the cases ask for */
+			tc.expect = tc.h2a->expect ? tc.h2a->expect : "/alive";
 			tc.lossy = tc.h2a->lossy;
 			tc.check_once = tc.h2a->build == b_data_after_body;
 			srv_completions = 0;

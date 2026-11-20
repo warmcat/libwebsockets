@@ -172,11 +172,22 @@ enum http2_hpack_type {
  * served as if the peer had not sent it, and is answered with 431 too.
  */
 #define LWS_HPACK_LOST_ENTRY 0xfffe
+/*
+ * A dynamic table entry for a header lws has no token for, kept with its name
+ * so a field that refers to it later reaches the application as the custom
+ * header it is, as it would have if the peer had sent it literally
+ */
+#define LWS_HPACK_CUSTOM_ENTRY 0xfffd
 
 
 struct hpack_dt_entry {
-	char *value; /* malloc'd */
+	/*
+	 * malloc'd.  For an LWS_HPACK_CUSTOM_ENTRY, its name_len bytes of name
+	 * come first, then the value_len bytes of its value
+	 */
+	char *value;
 	uint16_t value_len;
+	uint16_t name_len;
 	/*
 	 * virtual, for accounting.  A literal header name can run to the
 	 * whole header block (~1MB with CONTINUATION), so this must hold the
@@ -302,6 +313,8 @@ struct lws_h2_netconn {
 	unsigned int huff:1;
 	unsigned int value:1;
 	unsigned int unknown_header:1;
+	/* the field's name is a custom header's dynamic table entry */
+	unsigned int custom_name:1;
 	unsigned int cont_exp:1;
 	unsigned int cont_exp_headers:1;
 	unsigned int we_told_goaway:1;
