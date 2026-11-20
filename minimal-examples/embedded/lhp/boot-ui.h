@@ -113,4 +113,8 @@ lhp_boot_row(const lhp_boot_t *b, int idx, lws_dlo_ui_row_t *row);
 void
 lhp_boot_aside(lws_dlo_ui_aside_t *a);
 
+/* the product's html beside the boot list, eg, for a page shown instead */
+const char *
+lhp_boot_aside_html(void);
+
 #endif

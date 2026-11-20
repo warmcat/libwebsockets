@@ -15,6 +15,10 @@
  * Everything on it is placed for the display it is shown on, so on a round
  * display it is all inside the circle.
  *
+ * It can be in a column at the left of the display, with the caller's html
+ * right of it, eg, in the same place as the boot list with the same aside
+ * (lws_dlo_ui_set_aside()) beside it, so only the column changes.
+ *
  * The spinner is an animated svg, contrib/assets/update/update-1-spinner.svg:
  * it's drawn as it is at the render state's .anim_t, so each time the page is
  * drawn, it has moved on.  It's left out on a display that can't show
@@ -70,6 +74,17 @@ lhp_update_init(struct lws_context *cx);
 void
 lhp_update_deinit(struct lws_context *cx);
 
+/* the html beside the update, in a column, see lhp_update_html() */
+
+typedef struct lhp_update_aside {
+	int			col;	/* the update is in a column this wide at
+					 * the left, eg, lws_dlo_ui_aside_width() */
+	const char		*html;	/* the caller's markup, right of it,
+					 * in #a */
+	const char		*css;	/* NULL, or its css, which can't
+					 * contain '<' */
+} lhp_update_aside_t;
+
 /*
  * lhp_update_html() - the html of the update page
  *
@@ -79,12 +94,18 @@ lhp_update_deinit(struct lws_context *cx);
  * \param variant: what is being updated, eg, lws_ota_variant_name(), or NULL
  * \param pc: how much of the update has arrived, in percent
  * \param spinner: nonzero to show the spinner, if there's room for it
+ * \param aside: NULL for the update to take the whole display, or the
+ *		 column it's in and the html beside it.  The ids and classes
+ *		 the update uses, #t, #tt, #v, #b, #f, .p, #pd, #pf, #p and #i,
+ *		 mustn't be used in the aside's html
  *
- * Returns the length of the html, or -1 if it didn't fit in buf.
+ * Returns the length of the html, or -1 if it didn't fit in buf, or the
+ * aside's css contains '<'.
  */
 int
 lhp_update_html(char *buf, size_t len, const lws_surface_info_t *ic,
-		const char *variant, int pc, int spinner);
+		const char *variant, int pc, int spinner,
+		const lhp_update_aside_t *aside);
 
 /* the ids to lay the update page out with, for lhp_update_progress() */
 extern const char * const lhp_update_ids[];
