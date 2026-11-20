@@ -91,6 +91,17 @@ static const char fza_secret[] = "lws-fuzz-secret-8d1e5a7c3f\n";
 static uint8_t fza_tx_tail[FZA_SECRET_LEN];
 static size_t fza_tx_tail_len;
 
+/*
+ * For a harness that wants to know what the application was told: each
+ * request as it's dispatched (after its checks), each piece of a request's
+ * body, and each file opened to serve one, by its real path
+ */
+static void (*fza_request_hook)(struct lws *wsi, const char *uri, size_t len);
+static void (*fza_body_hook)(struct lws *wsi, const uint8_t *in, size_t len);
+static void (*fza_open_hook)(const char *real);
+/* ... and a request's body having all been given to the application */
+static void (*fza_body_done_hook)(struct lws *wsi);
+
 /* each input is a new connection, nothing of the last one's is left to act on */
 static void
 fza_session_start(void)
@@ -282,6 +293,9 @@ fza_fops_open(const struct lws_plat_file_ops *fops_own,
 		fza_broken_promise("opened a file outside the mount", filename,
 				   strlen(filename));
 
+	if (fza_open_hook)
+		fza_open_hook(real);
+
 	return fd;
 }
 
@@ -353,6 +367,8 @@ fza_callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_FILTER_HTTP_CONNECTION:
 		/* every request, mounted or not, before it's dispatched */
 		fza_check_request(wsi, uri, len);
+		if (fza_request_hook)
+			fza_request_hook(wsi, uri, len);
 		break;
 
 	case LWS_CALLBACK_HTTP:
@@ -415,6 +431,8 @@ fza_callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_BODY:
 		fza_wsi = wsi;
+		if (fza_body_hook)
+			fza_body_hook(wsi, (const uint8_t *)in, len);
 		if (!pss)
 			break;
 		if (!pss->spa) {
@@ -435,6 +453,8 @@ fza_callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 		fza_wsi = wsi;
+		if (fza_body_done_hook)
+			fza_body_done_hook(wsi);
 		if (pss && pss->spa) {
 			lws_spa_finalize(pss->spa);
 			/* what was decoded is all there, for ASan to see */
@@ -724,6 +744,30 @@ fza_files(void)
 	return 0;
 }
 
+/*
+ * Another vhost serving the application, eg, one taking h2 by prior
+ * knowledge next to one that doesn't.  Its connections are adopted onto it,
+ * and with no listener nothing moves them to another by the name they ask
+ * for.
+ */
+static struct lws_vhost *
+fza_vhost(const char *name, uint64_t vh_options)
+{
+	struct lws_context_creation_info info;
+
+	memset(&info, 0, sizeof(info));
+	info.port = CONTEXT_PORT_NO_LISTEN;
+	info.vhost_name = name;
+	info.protocols = fza_protocols;
+	info.mounts = &fza_mount;
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	info.extensions = fza_extensions;
+#endif
+	info.options = vh_options;
+
+	return lws_create_vhost(fzp_cx, &info);
+}
+
 /* a context with the application, and vhost "fuzz" with options for it */
 static struct lws_vhost *
 fza_init(uint64_t vh_options)
@@ -742,14 +786,7 @@ fza_init(uint64_t vh_options)
 	if (fzp_init(&info))
 		return NULL;
 
-	info.vhost_name = "fuzz";
-	info.protocols = fza_protocols;
-	info.mounts = &fza_mount;
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	info.extensions = fza_extensions;
-#endif
-	info.options = vh_options;
 	fzp_event_hook = fza_event;
 
-	return lws_create_vhost(fzp_cx, &info);
+	return fza_vhost("fuzz", vh_options);
 }

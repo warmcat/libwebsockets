@@ -133,6 +133,8 @@ if (UNIX AND LWS_WITH_NETWORK)
 		lws_add_fuzz_target(srv-h1)
 		if (LWS_WITH_HTTP2)
 			lws_add_fuzz_target(srv-h2)
+			# the same request over h1 and h2 must mean the same
+			lws_add_fuzz_target(srv-xproto)
 		endif()
 	endif()
 

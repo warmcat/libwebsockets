@@ -86,6 +86,14 @@ write('srv-h1',['As h1.dict, then the srv application\'s urls, its mount\'s file
                 'the names of the secrets next to the mount, and ways out of it.'],h1+srv)
 write('srv-h2',['As h2.dict, then the srv application\'s urls, its mount\'s file names,',
                 'the names of the secrets next to the mount, and ways out of it.'],h2+srv)
+# srv-xproto: its input's paths and values are the bytes themselves, but its
+# header names are picked by a byte, so only the paths and values matter
+xp=['gzip','deflate','br','identity','bytes=','bytes=0-',',',';','=',' ','\t','"','W/"','*','chunked','close',
+ 'keep-alive','100-continue','text/plain','application/x-www-form-urlencoded','multipart/form-data; boundary=',
+ '?','&','#','+']
+write('srv-xproto',['The srv application\'s urls, its mount\'s file names, the names of the',
+                    'secrets next to it and ways out of it, then header values that steer',
+                    'the server.'],srv+xp)
 
 # lejp / jose: json syntax, and the jose member names and algorithms
 js=['{','}','[',']',':',',','"','""','{}','[]','true','false','null','-0','0.0','1e308','-1e-308',
