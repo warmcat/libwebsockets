@@ -1781,6 +1781,14 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 			if (c == '\n' && lws_h1_srv_strict(wsi))
 				goto bare_lf;
 			if (c == '\r' || c == '\n') {
+				/*
+				 * ... nor is the OWS after it (RFC 9110 5.5),
+				 * which h2 and h3 can't carry at all
+				 */
+				while (ah->pos > ah->unk_value_pos &&
+				       (ah->data[ah->pos - 1] == ' ' ||
+					ah->data[ah->pos - 1] == '\t'))
+					ah->pos--;
 				lws_ser_wu16be((uint8_t *)&ah->data[ah->unk_pos + 2],
 					       (uint16_t)(ah->pos - ah->unk_value_pos));
 				ah->parser_state = c == '\r' ?
@@ -1959,6 +1967,25 @@ check_eol:
 					if (refusal)
 						goto bad_request_line;
 				}
+
+				/*
+				 * Nor is the OWS after a header's value part of
+				 * it, as h2 and h3, which can't carry it at
+				 * all, would have it.  A repeated header's
+				 * fragment keeps the SP joining it to the one
+				 * before, as with the OWS in front of it.
+				 */
+				if (m == LWS_ARRAY_SIZE(methods) &&
+				    ah->parser_state != WSI_TOKEN_HTTP &&
+				    ah->parser_state != WSI_TOKEN_HTTP1_0)
+					while (ah->frags[ah->nfrag].len >
+					       (ah->frag_index[ah->parser_state] !=
+								ah->nfrag) &&
+					       (ah->data[ah->pos - 1] == ' ' ||
+						ah->data[ah->pos - 1] == '\t')) {
+						ah->pos--;
+						ah->frags[ah->nfrag].len--;
+					}
 
 				if (c == '\x0a') {
 					if (lws_h1_srv_strict(wsi))

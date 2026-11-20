@@ -129,9 +129,12 @@ al_cases(void)
 	    al_case_add("user agent too long", "/", al_str(20, "r"),
 			al_str(AL_LONG * 2, "u")) ||
 	    al_case_add("empty", "/", al_str(0, "r"), al_str(0, "u")) ||
-	    /* a quote, a tab and DEL may be in a header value */
+	    /*
+	     * a quote, a tab and DEL may be in a header value; the tab
+	     * is inside it, since OWS at the end isn't part of a value
+	     */
 	    al_case_add("quotes and controls", "/",
-			al_str(16, "a\"b\tc\x7f"), al_str(16, "x\"y\t\x7fz")) ||
+			al_str(17, "a\"b\tc\x7f"), al_str(17, "x\"y\t\x7fz")) ||
 	    /* a reader honouring escapes must still find the closing quotes */
 	    al_case_add("trailing backslash", "/b\\", al_str(2, "x\\"),
 			al_str(1, "\\")) ||
