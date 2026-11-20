@@ -1,0 +1,5 @@
+.bb { text-align: center; padding-top: 32px }
+img.bl { width: 96px; height: 96px }
+.bc { padding-top: 8px; color: #888 }
+.bm { color: #24476b }
+@media (monochrome: 1) { .bc, .bm { color: #000 } }

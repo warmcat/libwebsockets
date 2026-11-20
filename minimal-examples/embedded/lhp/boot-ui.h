@@ -13,6 +13,11 @@
  * highlighted and kept in the middle of the list: as that moves on, the list
  * scrolls with it.
  *
+ * On a landscape display, the product's own html, eg, a picture of it, is
+ * shown beside the list, as the strip ui's aside: see lhp_boot_aside().  It
+ * and what it shows are made from product/boot.html, boot.css and boot-* by
+ * product.cmake, and the assets are in the dlo filesystem by their names.
+ *
  * Nothing here is platform-specific: the caller tells us which stages were
  * reached and what it knows about them, and we say what each row shows.
  */
@@ -70,13 +75,13 @@ typedef struct lhp_boot {
 
 /*
  * Prepare b, and register the stages' icons in the dlo filesystem, where the
- * rows refer to them
+ * rows refer to them, and the product's assets the aside shows
  */
 int
 lhp_boot_init(struct lws_context *cx, lhp_boot_t *b,
 	      lws_netdev_instance_wifi_t *wnd);
 
-/* the overlay is finished with: unregister its icons */
+/* the overlay is finished with: unregister its icons and assets */
 void
 lhp_boot_deinit(lhp_boot_t *b);
 
@@ -100,5 +105,12 @@ lhp_boot_focus(const lhp_boot_t *b);
  */
 int
 lhp_boot_row(const lhp_boot_t *b, int idx, lws_dlo_ui_row_t *row);
+
+/*
+ * Fill in a with the product's html and css, to give the strip ui showing the
+ * boot list with lws_dlo_ui_set_aside()
+ */
+void
+lhp_boot_aside(lws_dlo_ui_aside_t *a);
 
 #endif

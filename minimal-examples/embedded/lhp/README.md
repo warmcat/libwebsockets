@@ -52,6 +52,20 @@ On the round LCD of `esp32s3-waveshare-240-240-touch`, whose display says
 it's `.round`, everything is kept inside the circle that can be seen; it
 also says it's `.band`, so only the strips that changed are sent to it.
 
+On a landscape display with room for it, eg, the T5's 960 x 540 EPD, the
+boot list doesn't need all of the display: its title and list strips are a
+column at the left, about 200px wide there, and the product's own html is
+shown right of it, as the strip ui's aside (`lws_dlo_ui_set_aside()`).  It's
+made from `boot.html`, `boot.css` and any `boot-*` files it shows, eg,
+`boot-picture.jpg`, in `product/`, see "Product header" below.  The common
+one shows the maker's logo and name and the model's name; the T5 has its own,
+a JPEG picture.  It goes with the boot list when booting is over: on an EPD,
+the white page that cleans the boot list off is all of the display, the
+aside's part too.  Here, the 400 x 300 and 600 x 448 EPDs have it too.
+Displays that aren't landscape, eg, the 122 x 250 EPD, or are round, or are
+too small for both, eg, the 320 x 240 LCDs and the 128 x 64 OLED, show only
+the boot list as before.
+
 Until the network is up, the overlay only uses what is built in: a font,
 and the stage icons, which `boot-icons.cmake` makes into C arrays at build
 time from the svg in `contrib/assets/boot-status`, served from the dlo
@@ -332,11 +346,18 @@ firmware by `product.cmake`, so a product only has to change those:
 |`header.css`|its css, after the settings' own (it can't contain `<`)|
 |`logo.svg`|the maker's logo, served as `product-logo.svg`|
 |`device.svg`|a picture of the device, served as `product-device.svg`|
+|`boot.html`|the html beside the boot list on a landscape display, `@LHP_MODEL@` as for the header|
+|`boot.css`|its css (it can't contain `<`)|
+|`boot-*`|anything `boot.html` shows, eg, `boot-picture.jpg`, in the dlo filesystem by its own name|
 
 The ones here are placeholders.  A board can have its own of any of them in
 `product/` in its own dir, eg, a picture of that board, which is used
-instead of the common one.  The model name is given by the board's
-`main/CMakeLists.txt`, to `lhp_product()`; it's used as html.
+instead of the common one; a board's `boot-*` files are as well as the
+common ones, or instead of one with the same name.  Adding or removing a
+`boot-*` file is noticed the next time the build runs, without reconfiguring
+by hand.  The model name is given by the board's `main/CMakeLists.txt`, to
+`lhp_product()`; it's used as html.  `product.cmake` makes the boot ones into
+`product-boot.h`, beside `product.h`, for `boot-ui.c`.
 
 The images are registered in the dlo filesystem for the display, and given
 to `lws_wifi_provision_create()` in `.files` to be served beside the settings,

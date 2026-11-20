@@ -15,6 +15,9 @@
  * From boot, a strip ui (lws-dlo-ui.h) titled "Boot" lists the boot stages
  * (see boot-ui.c) as they are reached.  Until the network is up it can only
  * use what is built in, a font and the stage icons, from the dlo filesystem.
+ * On a landscape display, the boot list is a column at the left, and the
+ * product's own html, eg, a picture of it, is shown right of it, see
+ * product.cmake: it all goes when booting is over, as the boot list does.
  * If no wifi credentials are stored, once a scan has found some APs, the
  * settings dialog (see settings-ui.c) lists them instead, for the user to set
  * the passphrase of one.
@@ -793,6 +796,18 @@ sui_create(void)
 	if (!sui) {
 		lwsl_err("%s: unable to create ui\n", __func__);
 		return 1;
+	}
+
+	if (ui == UI_BOOT) {
+		lws_dlo_ui_aside_t a;
+
+		/*
+		 * The product's own beside the boot list, if the display is
+		 * landscape: it goes with the boot list
+		 */
+		lhp_boot_aside(&a);
+		if (lws_dlo_ui_set_aside(sui, &a))
+			lwsl_warn("%s: no boot aside\n", __func__);
 	}
 
 	/* the capsule shows the status from the start, and keeps up with it */

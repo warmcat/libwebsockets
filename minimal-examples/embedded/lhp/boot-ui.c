@@ -8,7 +8,7 @@
  *
  * See boot-ui.h.  Everything the overlay refers to is in the dlo filesystem,
  * since it has to be shown before there is any network: so is its text, in
- * whatever face is built in.
+ * whatever face is built in, and what the product shows beside it.
  */
 
 #include "boot-ui.h"
@@ -16,6 +16,16 @@
 #include <string.h>
 
 #include "boot-icons.h"
+
+/* the product's own html beside the boot list, and its assets */
+
+typedef struct {
+	const char		*name;
+	const uint8_t		*data;
+	size_t			len;
+} lhp_product_asset_t;
+
+#include "product-boot.h"
 
 static const struct {
 	const char		*name;
@@ -51,13 +61,24 @@ lhp_boot_init(struct lws_context *cx, lhp_boot_t *b,
 		f.name = icons[n].name;
 		f.data = icons[n].data;
 		f.len = icons[n].len;
-		if (!lws_dlo_file_register(cx, &f)) {
-			lhp_boot_deinit(b);
-			return 1;
-		}
+		if (!lws_dlo_file_register(cx, &f))
+			goto bail;
+	}
+
+	for (n = 0; product_boot_assets[n].name; n++) {
+		f.name = product_boot_assets[n].name;
+		f.data = product_boot_assets[n].data;
+		f.len = product_boot_assets[n].len;
+		if (!lws_dlo_file_register(cx, &f))
+			goto bail;
 	}
 
 	return 0;
+
+bail:
+	lhp_boot_deinit(b);
+
+	return 1;
 }
 
 void
@@ -67,6 +88,31 @@ lhp_boot_deinit(lhp_boot_t *b)
 
 	for (n = 0; n < LWS_ARRAY_SIZE(icons); n++)
 		lws_dlo_file_unregister_by_name(b->cx, icons[n].name);
+	for (n = 0; product_boot_assets[n].name; n++)
+		lws_dlo_file_unregister_by_name(b->cx,
+						product_boot_assets[n].name);
+}
+
+/*
+ * The product's html is the firmware's own, from product/boot.html, so it is
+ * markup, written as it is
+ */
+
+static void
+lhp_boot_aside_html(void *opaque, lws_dlo_ui_html_t *h)
+{
+	lws_html_w_printf(h, "%s", (const char *)product_boot_html);
+}
+
+void
+lhp_boot_aside(lws_dlo_ui_aside_t *a)
+{
+	memset(a, 0, sizeof(*a));
+	a->html = lhp_boot_aside_html;
+	a->css = (const char *)product_boot_css;
+	/* all of it fits, whatever the product's is */
+	a->html_max = sizeof(product_boot_html);
+	/* the column of the strips is the ui's choice */
 }
 
 int
