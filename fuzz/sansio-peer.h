@@ -107,6 +107,12 @@ static lws_usec_t fzp_now = (lws_usec_t)1000 * LWS_US_PER_SEC;
 static void (*fzp_event_hook)(struct fzp_transport *t, int ev);
 
 /*
+ * Given every byte lws gets the transport to take, in order, eg, so the
+ * application can check lws never sends what it mustn't
+ */
+static void (*fzp_tx_hook)(const uint8_t *buf, size_t len);
+
+/*
  * The harness' op 7, given its argument and what's left of the input:
  * returns how much of the input it used
  */
@@ -170,6 +176,8 @@ fzp_write(struct lws *wsi, void *opaque, const uint8_t *buf, size_t len)
 		t->tx_len += k;
 	}
 	t->tx_total += len;
+	if (fzp_tx_hook)
+		fzp_tx_hook(buf, len);
 
 	return (int)len;
 }

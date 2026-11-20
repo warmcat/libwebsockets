@@ -219,6 +219,34 @@ frames reach the established connection: streams and flow control, key
 updates, path validation, h3 requests and qpack, and WebTransport sessions,
 their streams and datagrams, to a protocol that answers on them.
 
+## Checking what lws promises, not just that it survives
+
+ASan and UBSan only see bugs that corrupt memory.  The worst server bugs
+don't: a path that walks out of a file mount, or a header value that brings a
+CR LF into what the application builds, are lws doing the wrong thing
+perfectly safely.  So the server application of the `srv-` targets
+([sansio-srv-app.h](sansio-srv-app.h)) checks what lws tells it and does, and
+aborts with `LWS FUZZ ORACLE: <what>`, which libFuzzer reports like any
+crash, when lws breaks a promise:
+
+ - every request's path, as `LWS_CALLBACK_FILTER_HTTP_CONNECTION` gives it,
+   mounted or not, is decoded and normalised: no control bytes, no empty,
+   `.` or `..` segments, and as long as it says it is; its args have no
+   control bytes either
+ - no header value the application can read, known or custom, has a NUL,
+   CR or LF in it
+ - no file is opened to be served from outside the mount's dir: the
+   application's file ops have the fuzz dir as their path signature, so
+   every open under it goes by them, to be checked with `realpath()`, before
+   the platform's ops open it
+ - two secrets sit next to the mount's dir (`www/`), one in the fuzz dir and
+   one in `www-private/`, whose name a check that forgets the `/` after the
+   dir would take as inside it; everything lws sends is scanned for them
+
+Each of the three traversal checks was confirmed to catch a traversal on its
+own, with the sanitiser's `..` handling and `lws_http_serve()`'s `..` refusal
+both disabled.
+
 ## Survey: what to harness next
 
 The wsi-bound h1, h2/hpack and ws parsers are covered via `peer.h` and,

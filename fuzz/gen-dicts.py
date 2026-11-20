@@ -75,6 +75,18 @@ write('h2',['Input is h2 frames: whole frame headers of each type with the flags
             'that matter, SETTINGS ids, window extremes, and hpack: indexed static',
             'entries, table size updates and the header names as literals.'],h2)
 
+# srv-h1 / srv-h2: as h1 / h2, and the application's urls, the mount's file
+# names, the names of the secrets next to it, and the ways a path can try to
+# walk out of it, for its checks (sansio-srv-app.h) to see
+srv=['/post','/early','/stream','/status','/redir','/files','/files/','/files/sub/','index.html','big.txt',
+ 't.txt.gz','sub','x.txt','secret.txt','www','www-private','/www-private/','..','../','/../','%2e','%2E','%2e%2e',
+ '%2f','%2F','%5c','%5C','\\','%25','%00','//','/.','/.?','/..?','..;','%2e%2e%2f','.%2e','%c0%ae',
+ 'Accept-Encoding: gzip\r\n','Range: bytes=','If-None-Match: ']  # NOSONAR
+write('srv-h1',['As h1.dict, then the srv application\'s urls, its mount\'s file names,',
+                'the names of the secrets next to the mount, and ways out of it.'],h1+srv)
+write('srv-h2',['As h2.dict, then the srv application\'s urls, its mount\'s file names,',
+                'the names of the secrets next to the mount, and ways out of it.'],h2+srv)
+
 # lejp / jose: json syntax, and the jose member names and algorithms
 js=['{','}','[',']',':',',','"','""','{}','[]','true','false','null','-0','0.0','1e308','-1e-308',
  '9223372036854775807','18446744073709551616','"\\u0000"','"\\ud800"','"\\udc00"','"\\\\"','"\\/"','\\u']

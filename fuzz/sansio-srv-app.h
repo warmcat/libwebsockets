@@ -32,9 +32,25 @@
  * own accord to the connection it heard from last: asking to write, stopping
  * and restarting rx, closing it from its next callback, or giving it a
  * timeout.
+ *
+ * The worst server bugs don't crash: a path that walks out of the mount, a
+ * header value that carries a CR LF into what the application builds.  So the
+ * application also checks what lws promises it, and aborts, for libFuzzer to
+ * report, when lws breaks a promise:
+ *
+ *  - every request's path, as the application is told it, is decoded and
+ *    normalised: no control bytes, no empty, "." or ".." segments, and as
+ *    long as it says it is; the args have no control bytes either
+ *
+ *  - no header value, known or custom, has a NUL, CR or LF in it
+ *
+ *  - no file outside the mount's dir is ever opened to be served, and the
+ *    secrets that sit next to it, one in a dir whose name starts with the
+ *    mount dir's, are never sent
  */
 
 #include <fcntl.h>
+#include <limits.h>
 #include <sys/stat.h>
 
 #define FZA_MSG_MAX	4096
@@ -59,8 +75,21 @@ struct fza_pss {
  */
 static struct lws *fza_wsi;
 static int fza_close_next;
-static char fza_dir[64];
+static char fza_root[64];	/* everything we make goes in here */
+static char fza_dir[96];	/* the mount's origin, fza_root/www */
+static char fza_dir_real[PATH_MAX];
 static volatile size_t fza_sink;
+
+/*
+ * What sits next to the mount's dir and must never be served: in fza_root
+ * itself, and in a dir whose name the mount dir's is a prefix of, for a check
+ * that compares paths without the '/' after it
+ */
+static const char fza_secret[] = "lws-fuzz-secret-8d1e5a7c3f\n";
+#define FZA_SECRET_LEN (sizeof(fza_secret) - 1)
+
+static uint8_t fza_tx_tail[FZA_SECRET_LEN];
+static size_t fza_tx_tail_len;
 
 /* each input is a new connection, nothing of the last one's is left to act on */
 static void
@@ -68,7 +97,197 @@ fza_session_start(void)
 {
 	fza_wsi = NULL;
 	fza_close_next = 0;
+	fza_tx_tail_len = 0;
 }
+
+static void
+fza_broken_promise(const char *what, const char *detail, size_t len)
+{
+	fprintf(stderr, "LWS FUZZ ORACLE: %s: '%.*s'\n", what,
+		(int)(len > 256 ? 256 : len), detail);
+	abort();
+}
+
+static int
+fza_is_ctl(uint8_t c)
+{
+	return c < 0x20 || c == 0x7f;
+}
+
+/*
+ * The request's path as the application is told it, from the uri sanitiser
+ * (lws_parse_urldecode()): %xx are decoded, then runs of '/' are one, and "."
+ * and ".." segments are gone, whether they came as such or escaped
+ */
+static void
+fza_check_path(const char *uri, size_t len)
+{
+	size_t n, seg = 0;
+
+	if (strlen(uri) != len)
+		fza_broken_promise("path is not as long as it says", uri, len);
+
+	for (n = 0; n <= len; n++) {
+		if (n < len && fza_is_ctl((uint8_t)uri[n]))
+			fza_broken_promise("control byte in path", uri, len);
+
+		if (n < len && uri[n] != '/')
+			continue;
+
+		/* uri[seg .. n) is a segment */
+		if (n && n == seg && n < len)
+			fza_broken_promise("empty segment in path", uri, len);
+		if ((n - seg == 1 && uri[seg] == '.') ||
+		    (n - seg == 2 && uri[seg] == '.' && uri[seg + 1] == '.'))
+			fza_broken_promise("dot segment in path", uri, len);
+		seg = n + 1;
+	}
+}
+
+static void
+fza_check_value(const char *what, const char *v, size_t len)
+{
+	if (memchr(v, '\0', len) || memchr(v, '\r', len) ||
+	    memchr(v, '\n', len))
+		fza_broken_promise(what, v, len);
+}
+
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+static void
+fza_check_custom(const char *name, int nlen, void *opaque)
+{
+	struct lws *wsi = (struct lws *)opaque;
+	static char v[8192];
+	int n;
+
+	fza_check_value("NUL, CR or LF in custom header name", name,
+			(size_t)nlen);
+
+	n = lws_hdr_custom_copy(wsi, v, (int)sizeof(v), name, nlen);
+	if (n > 0)
+		fza_check_value("NUL, CR or LF in custom header value", v,
+				(size_t)n);
+}
+#endif
+
+/* everything the application is told about the request, as it's dispatched */
+static void
+fza_check_request(struct lws *wsi, const char *uri, size_t len)
+{
+	static char v[8192];
+	int h, n, f;
+
+	if (uri)
+		fza_check_path(uri, len);
+
+	for (f = 0; ; f++) {
+		n = lws_hdr_copy_fragment(wsi, v, (int)sizeof(v),
+					  WSI_TOKEN_HTTP_URI_ARGS, f);
+		if (n < 0)
+			break;
+		for (h = 0; h < n; h++)
+			if (fza_is_ctl((uint8_t)v[h]))
+				fza_broken_promise("control byte in uri arg",
+						   v, (size_t)n);
+	}
+
+	for (h = 0; h < WSI_TOKEN_COUNT; h++) {
+		n = lws_hdr_total_length(wsi, (enum lws_token_indexes)h);
+		if (n <= 0 || n >= (int)sizeof(v))
+			continue;
+		if (lws_hdr_copy(wsi, v, (int)sizeof(v),
+				 (enum lws_token_indexes)h) != n)
+			fza_broken_promise("header copy is not as long as its "
+					   "length", lws_token_to_string(
+					   (enum lws_token_indexes)h) ?
+					   (const char *)lws_token_to_string(
+					   (enum lws_token_indexes)h) : "?", 1);
+		fza_check_value("NUL, CR or LF in header value", v, (size_t)n);
+	}
+
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	lws_hdr_custom_name_foreach(wsi, fza_check_custom, wsi);
+#endif
+}
+
+static int
+fza_has_secret(const uint8_t *p, size_t len)
+{
+	size_t n;
+
+	for (n = 0; n + FZA_SECRET_LEN <= len; n++)
+		if (p[n] == (uint8_t)fza_secret[0] &&
+		    !memcmp(p + n, fza_secret, FZA_SECRET_LEN))
+			return 1;
+
+	return 0;
+}
+
+/*
+ * Everything lws sends goes by here: the secrets must never be in it.  The
+ * last FZA_SECRET_LEN - 1 bytes sent are kept, for a secret split across
+ * writes.
+ */
+static void
+fza_tx_check(const uint8_t *buf, size_t len)
+{
+	uint8_t join[2 * FZA_SECRET_LEN];
+	size_t k = len < FZA_SECRET_LEN - 1 ? len : FZA_SECRET_LEN - 1, keep;
+
+	memcpy(join, fza_tx_tail, fza_tx_tail_len);
+	memcpy(join + fza_tx_tail_len, buf, k);
+	if (fza_has_secret(join, fza_tx_tail_len + k) ||
+	    fza_has_secret(buf, len))
+		fza_broken_promise("a secret outside the mount was sent",
+				   fza_secret, FZA_SECRET_LEN);
+
+	if (len >= FZA_SECRET_LEN - 1) {
+		memcpy(fza_tx_tail, buf + len - (FZA_SECRET_LEN - 1),
+		       FZA_SECRET_LEN - 1);
+		fza_tx_tail_len = FZA_SECRET_LEN - 1;
+		return;
+	}
+
+	keep = FZA_SECRET_LEN - 1 - len;
+	if (keep > fza_tx_tail_len)
+		keep = fza_tx_tail_len;
+	memmove(fza_tx_tail, fza_tx_tail + fza_tx_tail_len - keep, keep);
+	memcpy(fza_tx_tail + keep, buf, len);
+	fza_tx_tail_len = keep + len;
+}
+
+/*
+ * Every file lws opens under fza_root comes here first, by the file ops'
+ * path signature, which is fza_root.  What it opens has to be in the mount's
+ * dir, whatever the path said to get there.  Then it's opened by the
+ * platform's own ops, which the opened file is bound to after.
+ */
+static lws_fop_fd_t
+fza_fops_open(const struct lws_plat_file_ops *fops_own,
+	      const struct lws_plat_file_ops *fops, const char *filename,
+	      const char *vpath, lws_fop_flags_t *flags)
+{
+	char real[PATH_MAX];
+	size_t dl = strlen(fza_dir_real);
+	lws_fop_fd_t fd;
+
+	(void)fops_own;
+
+	fd = fops->LWS_FOP_OPEN(fops, fops, filename, vpath, flags);
+	if (!fd)
+		return NULL;
+
+	if (!realpath(filename, real) || strncmp(real, fza_dir_real, dl) ||
+	    real[dl] != '/')
+		fza_broken_promise("opened a file outside the mount", filename,
+				   strlen(filename));
+
+	return fd;
+}
+
+static struct lws_plat_file_ops fza_fops = {
+	.LWS_FOP_OPEN		= fza_fops_open,
+};
 
 static const char * const fza_params[] = { "a", "b", "file", "text" };
 
@@ -131,6 +350,11 @@ fza_callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	int n;
 
 	switch (reason) {
+	case LWS_CALLBACK_FILTER_HTTP_CONNECTION:
+		/* every request, mounted or not, before it's dispatched */
+		fza_check_request(wsi, uri, len);
+		break;
+
 	case LWS_CALLBACK_HTTP:
 		fza_wsi = wsi;
 		if (!uri || !pss)
@@ -401,14 +625,15 @@ fza_event(struct fzp_transport *t, int ev)
 }
 
 static int
-fza_file(const char *name, const uint8_t *pat, size_t pat_len, size_t len)
+fza_file(const char *dir, const char *name, const uint8_t *pat,
+	 size_t pat_len, size_t len)
 {
-	char path[128];
+	char path[160];
 	uint8_t b[1024];
 	size_t i, k;
 	int fd;
 
-	lws_snprintf(path, sizeof(path), "%s/%s", fza_dir, name);
+	lws_snprintf(path, sizeof(path), "%s/%s", dir, name);
 	fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0600);
 	if (fd < 0)
 		return 1;
@@ -431,24 +656,33 @@ fza_file(const char *name, const uint8_t *pat, size_t pat_len, size_t len)
 static void
 fza_cleanup(void)
 {
-	static const char * const f[] = { "index.html", "big.txt", "t.txt.gz" };
-	char path[128];
+	static const char * const f[] = {
+		"www/index.html", "www/big.txt", "www/t.txt.gz", "www/sub/x.txt",
+		"secret.txt", "www-private/secret.txt"
+	}, * const d[] = { "www/sub", "www", "www-private", "" };
+	char path[160];
 	size_t n;
 
 	for (n = 0; n < LWS_ARRAY_SIZE(f); n++) {
-		lws_snprintf(path, sizeof(path), "%s/%s", fza_dir, f[n]);
+		lws_snprintf(path, sizeof(path), "%s/%s", fza_root, f[n]);
 		unlink(path);
 	}
-	rmdir(fza_dir);
+	for (n = 0; n < LWS_ARRAY_SIZE(d); n++) {
+		lws_snprintf(path, sizeof(path), "%s/%s", fza_root, d[n]);
+		rmdir(path);
+	}
 }
 
 /*
- * The files the mount serves go in a dir of their own, which goes again at
- * exit.  The gzip is "hello\n", for the serving of precompressed files.
+ * The files the mount serves go in a dir of their own, www, next to the
+ * secrets, in a dir that goes again at exit.  The gzip is "hello\n", for the
+ * serving of precompressed files.
  */
 static int
 fza_files(void)
 {
+	char sub[128], priv[128];
+
 	static const uint8_t gz[] = {
 		0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
 		0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0xe7, 0x02, 0x00, 0x20, 0x30,
@@ -456,20 +690,36 @@ fza_files(void)
 	};
 	const char *tmp = getenv("TMPDIR");
 
-	lws_snprintf(fza_dir, sizeof(fza_dir), "%s/lws-fuzz-XXXXXX",
+	lws_snprintf(fza_root, sizeof(fza_root), "%s/lws-fuzz-XXXXXX",
 		     tmp && strlen(tmp) < 40 ? tmp : "/tmp"); /* NOSONAR: mkdtemp */
-	if (!mkdtemp(fza_dir))
+	if (!mkdtemp(fza_root))
 		return 1;
 	atexit(fza_cleanup);
 
-	if (fza_file("index.html", (const uint8_t *)"<html>fuzz</html>\n",
-		     18, 18) ||
-	    fza_file("big.txt", (const uint8_t *)"0123456789abcdef", 16,
-		     200000) ||
-	    fza_file("t.txt.gz", gz, sizeof(gz), sizeof(gz)))
+	lws_snprintf(fza_dir, sizeof(fza_dir), "%s/www", fza_root);
+	lws_snprintf(sub, sizeof(sub), "%s/sub", fza_dir);
+	lws_snprintf(priv, sizeof(priv), "%s/www-private", fza_root);
+	if (mkdir(fza_dir, 0700) || mkdir(sub, 0700) || mkdir(priv, 0700) ||
+	    !realpath(fza_dir, fza_dir_real))
+		return 1;
+
+	if (fza_file(fza_dir, "index.html",
+		     (const uint8_t *)"<html>fuzz</html>\n", 18, 18) ||
+	    fza_file(fza_dir, "big.txt", (const uint8_t *)"0123456789abcdef",
+		     16, 200000) ||
+	    fza_file(fza_dir, "t.txt.gz", gz, sizeof(gz), sizeof(gz)) ||
+	    fza_file(sub, "x.txt", (const uint8_t *)"sub\n", 4, 4) ||
+	    fza_file(fza_root, "secret.txt", (const uint8_t *)fza_secret,
+		     FZA_SECRET_LEN, FZA_SECRET_LEN) ||
+	    fza_file(priv, "secret.txt", (const uint8_t *)fza_secret,
+		     FZA_SECRET_LEN, FZA_SECRET_LEN))
 		return 1;
 
 	fza_mount.origin = fza_dir;
+
+	/* lws opens anything under fza_root through fza_fops first */
+	fza_fops.fi[0].sig = fza_root;
+	fza_fops.fi[0].len = (uint8_t)strlen(fza_root);
 
 	return 0;
 }
@@ -486,6 +736,8 @@ fza_init(uint64_t vh_options)
 	memset(&info, 0, sizeof(info));
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+	info.fops = &fza_fops;
+	fzp_tx_hook = fza_tx_check;
 
 	if (fzp_init(&info))
 		return NULL;
