@@ -491,8 +491,9 @@ lws_hpack_dyn_val_char(struct lws_h2_netconn *h2n, uint8_t c)
 }
 
 static int
-lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
-			 int lws_hdr_index, char *arg, size_t len);
+lws_dynamic_token_insert(struct lws *wsi, int hdr_len, int lws_hdr_index,
+			 const char *name, size_t nlen, const char *arg,
+			 size_t len);
 
 /* a literal name's byte in a block decoded without storing */
 
@@ -509,8 +510,9 @@ lws_hpack_sink_name_char(struct lws_h2_netconn *h2n, uint8_t c)
 
 /*
  * The token of the literal name collected by lws_hpack_sink_name_char(), the
- * one lws_parse() finds for it when the block is stored, or
- * LWS_HPACK_IGNORE_ENTRY for a header lws doesn't know
+ * one lws_parse() finds for it when the block is stored, or for a header lws
+ * doesn't know, LWS_HPACK_CUSTOM_ENTRY when the name is kept for it, else
+ * LWS_HPACK_IGNORE_ENTRY
  */
 
 static int
@@ -519,13 +521,27 @@ lws_hpack_sink_name_tok(struct lws_h2_netconn *h2n)
 	int tok;
 
 	if (h2n->sink_name_lost)
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+		/*
+		 * Too long for sink_name, so no header lws knows... but it
+		 * may be a custom header we can't keep the name of
+		 */
+		return LWS_HPACK_LOST_ENTRY;
+#else
 		return LWS_HPACK_IGNORE_ENTRY;
+#endif
 
 	tok = lws_http_string_to_known_header(h2n->sink_name,
 					      h2n->sink_name_len);
 	if (tok < 0 || tok >= WSI_TOKEN_COUNT ||
-	    !lws_http_token_is_field_name(tok))
+	    !lws_http_token_is_field_name(tok)) {
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+		/* a pseudo-header lws doesn't know is no custom header */
+		if (h2n->sink_name_len && h2n->sink_name[0] != ':')
+			return LWS_HPACK_CUSTOM_ENTRY;
+#endif
 		return LWS_HPACK_IGNORE_ENTRY;
+	}
 
 	return tok;
 }
@@ -550,12 +566,14 @@ lws_hpack_sink_dyn_insert(struct lws *wsi, int tok)
 		return lws_dynamic_token_insert(wsi, (int)h2n->hpack_hdr_len,
 				wsi != nwsi && wsi->h2.hdrs_oversized ?
 					LWS_HPACK_LOST_ENTRY :
-					LWS_HPACK_IGNORE_ENTRY, NULL, 0);
+					LWS_HPACK_IGNORE_ENTRY, NULL, 0,
+				NULL, 0);
 
-	if (h2n->dyn_val_lost)
-		/* too big to be in the peer's table either */
+	if (h2n->dyn_val_lost || tok == LWS_HPACK_LOST_ENTRY ||
+	    (tok == LWS_HPACK_CUSTOM_ENTRY && h2n->sink_name_lost))
+		/* too big to be in the peer's table either, or to keep */
 		return lws_dynamic_token_insert(wsi, (int)h2n->hpack_hdr_len,
-					LWS_HPACK_LOST_ENTRY, NULL, 0);
+					LWS_HPACK_LOST_ENTRY, NULL, 0, NULL, 0);
 
 	for (n = 0; n < h2n->dyn_val_len; n++)
 		if (h2n->dyn_val[n] == '\r' || h2n->dyn_val[n] == '\n' ||
@@ -563,8 +581,11 @@ lws_hpack_sink_dyn_insert(struct lws *wsi, int tok)
 			return lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
 					     "CR/LF/NUL in header value");
 
+	/* a custom header's name is in sink_name, see lws_hpack_sink_name_tok() */
 	return lws_dynamic_token_insert(wsi, (int)h2n->hpack_hdr_len, tok,
-					h2n->dyn_val, h2n->dyn_val_len);
+			tok == LWS_HPACK_CUSTOM_ENTRY ? h2n->sink_name : NULL,
+			tok == LWS_HPACK_CUSTOM_ENTRY ? h2n->sink_name_len : 0,
+			h2n->dyn_val, h2n->dyn_val_len);
 }
 
 
@@ -618,6 +639,21 @@ static void lws_dump_header(struct lws *wsi, int hdr)
  */
 static int
 lws_h2_hdrs_are_trailers(struct lws *wsi);
+
+/*
+ * The ringbuffer slot of the dynamic table entry at hpack index, which the
+ * caller has checked is one of the dynamic entries the table has
+ */
+static int
+lws_hpack_dyn_slot(const struct hpack_dynamic_table *dyn, int index)
+{
+	index -= (int)LWS_ARRAY_SIZE(static_token);
+	index = lws_safe_modulo(dyn->pos - 1 - index, dyn->num_entries);
+	if (index < 0)
+		index += dyn->num_entries;
+
+	return index;
+}
 
 static int
 lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
@@ -676,16 +712,16 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 		return -1;
 	}
 
-	index -= (int)LWS_ARRAY_SIZE(static_token);
-	index = lws_safe_modulo(dyn->pos - 1 - index, dyn->num_entries);
-	if (index < 0)
-		index += dyn->num_entries;
+	index = lws_hpack_dyn_slot(dyn, index);
 
 	lwsl_header("%s: dyn index %d, tok %d\n", __func__, index,
 		    dyn->entries[index].lws_hdr_idx);
 
 	if (arg && len) {
-		*arg = dyn->entries[index].value;
+		/* a custom header's entry has its name in front */
+		*arg = dyn->entries[index].value ?
+			dyn->entries[index].value +
+				dyn->entries[index].name_len : NULL;
 		*len = dyn->entries[index].value_len;
 	}
 
@@ -763,6 +799,7 @@ lws_dynamic_free(struct hpack_dynamic_table *dyn, int idx)
 	lws_free_set_NULL(dyn->entries[idx].value);
 	dyn->entries[idx].value = NULL;
 	dyn->entries[idx].value_len = 0;
+	dyn->entries[idx].name_len = 0;
 	dyn->entries[idx].hdr_len = 0;
 	dyn->entries[idx].lws_hdr_idx = LWS_HPACK_IGNORE_ENTRY;
 	dyn->used_entries--;
@@ -782,11 +819,18 @@ lws_dynamic_free(struct hpack_dynamic_table *dyn, int idx)
  * becomes entry 1 etc.
  */
 
+/*
+ * Add an entry to the dynamic table.  An LWS_HPACK_CUSTOM_ENTRY keeps the
+ * nlen bytes of name too, for a header lws has no token for.  name and arg may
+ * be in an entry this evicts: they are copied before it makes room.
+ */
 static int
-lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
-			 int lws_hdr_index, char *arg, size_t len)
+lws_dynamic_token_insert(struct lws *wsi, int hdr_len, int lws_hdr_index,
+			 const char *name, size_t nlen, const char *arg,
+			 size_t len)
 {
 	struct hpack_dynamic_table *dyn;
+	char *v = NULL;
 	int new_index;
 
 	/* dynamic table only belongs to network wsi */
@@ -809,6 +853,22 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 		 * destroy path only frees values in num_entries slots.
 		 */
 		return 0;
+
+	if (lws_hdr_index != LWS_HPACK_IGNORE_ENTRY &&
+	    lws_hdr_index != LWS_HPACK_LOST_ENTRY) {
+		if (nlen > 0xffff || len > 0xffff)
+			/* hpack_dt_entry name_len / value_len */
+			return 1;
+		v = lws_malloc(nlen + len + 1, "hpack dyn");
+		if (!v)
+			return 1;
+		if (nlen)
+			memcpy(v, name, nlen);
+		if (len)
+			memcpy(v + nlen, arg, len);
+		v[nlen + len] = '\0';
+	} else
+		nlen = 0;
 
 	lws_h2_dynamic_table_dump(wsi);
 
@@ -840,22 +900,11 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 	if (dyn->used_entries < dyn->num_entries)
 		dyn->used_entries++;
 
-	dyn->entries[new_index].value_len = 0;
-
-	if (lws_hdr_index != LWS_HPACK_IGNORE_ENTRY &&
-	    lws_hdr_index != LWS_HPACK_LOST_ENTRY) {
-		if (dyn->entries[new_index].value)
-			lws_free_set_NULL(dyn->entries[new_index].value);
-		dyn->entries[new_index].value =
-				lws_malloc(len + 1, "hpack dyn");
-		if (!dyn->entries[new_index].value)
-			return 1;
-
-		memcpy(dyn->entries[new_index].value, arg, len);
-		dyn->entries[new_index].value[len] = '\0';
-		dyn->entries[new_index].value_len = (uint16_t)len;
-	} else
-		dyn->entries[new_index].value = NULL;
+	if (dyn->entries[new_index].value)
+		lws_free_set_NULL(dyn->entries[new_index].value);
+	dyn->entries[new_index].value = v;
+	dyn->entries[new_index].value_len = v ? (uint16_t)len : 0;
+	dyn->entries[new_index].name_len = (uint16_t)nlen;
 
 	dyn->entries[new_index].lws_hdr_idx = (uint16_t)lws_hdr_index;
 	dyn->entries[new_index].hdr_len = (uint32_t)hdr_len;
@@ -870,10 +919,11 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 		lwsl_info("%s: index %ld: lws_hdr_index 0x%x, hdr len %d, "
 			  "'%s' len %d\n", __func__,
 			  (long)LWS_ARRAY_SIZE(static_token), lws_hdr_index,
-			  hdr_len, dyn->entries[new_index].value ?
+			  hdr_len, v ?
 				lws_http_hdr_log_value(wsi, lv, sizeof(lv),
-					lws_hdr_index, NULL, 0,
-					dyn->entries[new_index].value, len) :
+					lws_hdr_index == LWS_HPACK_CUSTOM_ENTRY ?
+						-1 : lws_hdr_index, v, nlen,
+					v + nlen, len) :
 				"null", (int)len);
 	}
 #endif
@@ -1282,6 +1332,116 @@ lws_h2_hpack_sink_destroy(struct lws *wsi)
 	lws_hpack_dyn_val_release(wsi->h2.h2n);
 }
 
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+/*
+ * The name of the custom header being kept at ah->unk_pos ends at ah->pos: end
+ * it with the ':' the lws_hdr_custom_*() accessors expect, as h1 keeps it,
+ * link it into the ah's list of them, and start its value
+ */
+static void
+lws_hpack_unk_name_done(struct allocated_headers *ah)
+{
+	ah->data[ah->pos++] = ':';
+	lws_ser_wu16be((uint8_t *)&ah->data[ah->unk_pos + UHO_NLEN],
+		       (uint16_t)((ah->pos - ah->unk_pos) - UHO_NAME));
+	if (!ah->unk_ll_head)
+		ah->unk_ll_head = ah->unk_pos;
+	if (ah->unk_ll_tail)
+		lws_ser_wu32be((uint8_t *)&ah->data[ah->unk_ll_tail + UHO_LL],
+			       ah->unk_pos);
+	ah->unk_ll_tail = ah->unk_pos;
+	ah->unk_value_pos = ah->pos;
+}
+
+/*
+ * A field refers to the dynamic table entry of a custom header, for its name
+ * and, if whole, its value too: keep it in the stream's ah as the custom
+ * header it is, as we do one whose name was sent literally.  A field with a
+ * value of its own has it collected after this as for a literal name.
+ *
+ * Nonzero if the connection is failing.
+ */
+static int
+lws_hpack_unk_from_table(struct lws *wsi, struct lws_h2_netconn *h2n, int idx,
+			 int whole)
+{
+	struct hpack_dynamic_table *dyn = &h2n->hpack_dyn_table;
+	struct hpack_dt_entry *e = &dyn->entries[lws_hpack_dyn_slot(dyn, idx)];
+	struct allocated_headers *ah = wsi->stream.ah;
+	size_t need;
+
+	if (!whole) {
+		/* the length the peer accounts the name at, for an insert */
+		h2n->hpack_hdr_len = e->hdr_len;
+		h2n->custom_name = 1;
+		/* ... for which a block we don't store keeps the name here */
+		h2n->sink_name_lost = e->name_len > sizeof(h2n->sink_name);
+		h2n->sink_name_len = 0;
+		if (!h2n->sink_name_lost) {
+			memcpy(h2n->sink_name, e->value, e->name_len);
+			h2n->sink_name_len = (uint8_t)e->name_len;
+		}
+	}
+
+	if (!lws_h2_hpack_sinking(wsi))
+		/* a custom header is no pseudo-header */
+		wsi->seen_nonpseudoheader = 1;
+
+	if (lws_h2_hpack_no_store(wsi) || !wsi->mux_substream || !ah)
+		return 0;
+
+	need = UHO_NAME + e->name_len + 1u + (whole ? e->value_len : 0u);
+	if (ah->pos + need >= wsi->a.context->max_http_header_data)
+		/* the rest of the block is sunk and the request gets a 431 */
+		return lws_h2_hdrs_oversize(wsi);
+
+	ah->unk_pos = ah->pos;
+	memset(&ah->data[ah->pos], 0, UHO_NAME);
+	ah->pos += UHO_NAME;
+	memcpy(&ah->data[ah->pos], e->value, e->name_len);
+	ah->pos += e->name_len;
+	lws_hpack_unk_name_done(ah);
+
+	if (!whole)
+		return 0;
+
+	memcpy(&ah->data[ah->pos], e->value + e->name_len, e->value_len);
+	ah->pos += e->value_len;
+	lws_ser_wu16be((uint8_t *)&ah->data[ah->unk_pos + UHO_VLEN],
+		       e->value_len);
+	ah->unk_pos = 0;
+	ah->unk_value_pos = 0;
+
+	return 0;
+}
+
+/*
+ * A field of a stored block that names a custom header has completed, and is
+ * added to the dynamic table: the entry is made from the name and value kept
+ * in the ah, or if they weren't, an ignored one keeps the table in step
+ */
+static int
+lws_hpack_unk_insert(struct lws *wsi, struct lws_h2_netconn *h2n,
+		     struct allocated_headers *ah)
+{
+	unsigned int nlen;
+
+	if (!wsi->mux_substream || !ah->unk_pos || !ah->unk_value_pos)
+		return lws_dynamic_token_insert(wsi, (int)h2n->hpack_hdr_len,
+						LWS_HPACK_IGNORE_ENTRY,
+						NULL, 0, NULL, 0);
+
+	/* the name as it is kept has the ':' on the end */
+	nlen = lws_ser_ru16be((uint8_t *)&ah->data[ah->unk_pos + UHO_NLEN]);
+
+	return lws_dynamic_token_insert(wsi, (int)h2n->hpack_hdr_len,
+					LWS_HPACK_CUSTOM_ENTRY,
+					&ah->data[ah->unk_pos + UHO_NAME],
+					nlen - 1, &ah->data[ah->unk_value_pos],
+					ah->pos - ah->unk_value_pos);
+}
+#endif
+
 static int
 lws_hpack_handle_pseudo_rules(struct lws *nwsi, struct lws *wsi, int m);
 
@@ -1302,6 +1462,12 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx)
 		lwsl_info("%s: idx %d mapped to tok %d\n", __func__, idx, tok);
 		return 1;
 	}
+
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	if (tok == LWS_HPACK_CUSTOM_ENTRY)
+		return lws_hpack_unk_from_table(wsi,
+				lws_get_network_wsi(wsi)->h2.h2n, idx, 1);
+#endif
 
 #if (_LWS_ENABLED_LOGS & LLL_HEADER)
 	if (arg) {
@@ -1426,6 +1592,12 @@ lws_hpack_handle_pseudo_rules(struct lws *nwsi, struct lws *wsi, int m)
 	if (m == LWS_HPACK_IGNORE_ENTRY || m == -1)
 		return 0;
 
+	if (m == LWS_HPACK_CUSTOM_ENTRY) {
+		/* a custom header is no pseudo-header */
+		wsi->seen_nonpseudoheader = 1;
+		return 0;
+	}
+
 #if defined(LWS_WITH_CLIENT)
 	/* RFC 9113 8.3.2: a response has only :status of the pseudo-headers */
 	if (wsi->client_mux_substream && lws_hpack_tok_is_request_pseudo(m)) {
@@ -1521,6 +1693,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 		h2n->ext_count = 0;
 		h2n->hpack_hdr_len = 0;
 		h2n->unknown_header = 0;
+		h2n->custom_name = 0;
 		ah->parser_state = 255;
 
 		if (c & 0x80) { /* 1....  indexed header field only */
@@ -1803,10 +1976,21 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				   (unsigned int)h2n->hdr_idx, n);
 		}
 
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+		/*
+		 * The name is a custom header's dynamic table entry: the value
+		 * that follows is kept as for a literal name, below
+		 */
+		if (n == LWS_HPACK_CUSTOM_ENTRY &&
+		    lws_hpack_unk_from_table(wsi, h2n, (int)h2n->hdr_idx, 0))
+			return 1;
+#endif
+
 		/* a reference to a lost entry makes us sink the rest */
 		ah = lws_h2_hpack_ah(wsi, h2n);
 
-		if (n == LWS_HPACK_IGNORE_ENTRY || n == -1)
+		if (n == LWS_HPACK_IGNORE_ENTRY || n == -1 ||
+		    n == LWS_HPACK_CUSTOM_ENTRY)
 			h2n->hdr_idx = LWS_HPACK_IGNORE_ENTRY;
 
 		switch (h2n->hpack_type) {
@@ -1822,6 +2006,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 			break;
 		default:
 			if (n != -1 && n != LWS_HPACK_IGNORE_ENTRY &&
+			    n != LWS_HPACK_CUSTOM_ENTRY &&
 			    !lws_h2_hpack_no_store(wsi)) {
 				m = lws_frag_start(wsi, n);
 				if (m == LWS_H2_FRAG_NO_ROOM) {
@@ -2166,21 +2351,9 @@ fin:
 				if (lws_h2_hdrs_oversize(wsi))
 					return 1;
 				ah = h2n->hpack_sink;
-			} else if (h2n->unknown_header) {
-				ah->data[ah->pos++] = ':';
-				lws_ser_wu16be((uint8_t *)&ah->data[ah->unk_pos +
-								    UHO_NLEN],
-					(uint16_t)((ah->pos - ah->unk_pos) -
-						   UHO_NAME));
-				if (!ah->unk_ll_head)
-					ah->unk_ll_head = ah->unk_pos;
-				if (ah->unk_ll_tail)
-					lws_ser_wu32be((uint8_t *)&ah->data[
-						ah->unk_ll_tail + UHO_LL],
-						ah->unk_pos);
-				ah->unk_ll_tail = ah->unk_pos;
-				ah->unk_value_pos = ah->pos;
-			} else
+			} else if (h2n->unknown_header)
+				lws_hpack_unk_name_done(ah);
+			else
 				/* known header: drop capture */
 				ah->unk_pos = 0;
 		}
@@ -2207,6 +2380,16 @@ fin:
 		 */
 		/* NEW indexed hdr with value */
 		case HPKT_INDEXED_HDR_6_VALUE_INCR:
+			if (h2n->custom_name) {
+				/*
+				 * The name is a custom header's entry, and
+				 * hpack_hdr_len its length already, see
+				 * lws_hpack_unk_from_table()
+				 */
+				m = LWS_HPACK_CUSTOM_ENTRY;
+				ah = lws_h2_hpack_ah(wsi, h2n);
+				goto add_it;
+			}
 			/* header length is determined by known index */
 			m = lws_token_from_index(wsi, (int)h2n->hdr_idx, NULL, NULL,
 					&h2n->hpack_hdr_len);
@@ -2240,7 +2423,11 @@ fin:
 						      H2_ERR_PROTOCOL_ERROR,
 						      "Unknown pseudoheader");
 				}
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+				m = LWS_HPACK_CUSTOM_ENTRY;
+#else
 				m = LWS_HPACK_IGNORE_ENTRY;
+#endif
 			}
 add_it:
 			/*
@@ -2250,6 +2437,7 @@ add_it:
 			 */
 			if (!lws_h2_hpack_no_store(wsi) &&
 			    m != LWS_HPACK_IGNORE_ENTRY &&
+			    m != LWS_HPACK_CUSTOM_ENTRY &&
 			    ah->nfrag >= LWS_ARRAY_SIZE(ah->frags)) {
 				if (lws_h2_hdrs_oversize(wsi))
 					return 1;
@@ -2274,6 +2462,17 @@ add_it:
 				break;
 			}
 
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+			if (m == LWS_HPACK_CUSTOM_ENTRY) {
+				if (lws_hpack_unk_insert(wsi, h2n, ah)) {
+					lwsl_notice("%s: tok_insert fail\n",
+						    __func__);
+					return 1;
+				}
+				break;
+			}
+#endif
+
 			if (m == LWS_HPACK_IGNORE_ENTRY) {
 				/*
 				 * There is no lws token for this header, so
@@ -2292,7 +2491,7 @@ add_it:
 						wsi->h2.hdrs_oversized ?
 							LWS_HPACK_LOST_ENTRY :
 							LWS_HPACK_IGNORE_ENTRY,
-						NULL, 0)) {
+						NULL, 0, NULL, 0)) {
 					lwsl_notice("%s: tok_insert fail\n",
 						    __func__);
 					return 1;
@@ -2309,12 +2508,12 @@ add_it:
 						(int)h2n->hpack_hdr_len,
 						h2n->dyn_val_lost ?
 							LWS_HPACK_LOST_ENTRY : m,
-						h2n->dyn_val,
+						NULL, 0, h2n->dyn_val,
 						h2n->dyn_val_lost ? 0 :
 							h2n->dyn_val_len);
 			} else
 				n = lws_dynamic_token_insert(wsi,
-					(int)h2n->hpack_hdr_len, m,
+					(int)h2n->hpack_hdr_len, m, NULL, 0,
 					&ah->data[ah->frags[ah->nfrag].offset],
 					ah->frags[ah->nfrag].len);
 			if (n) {
@@ -2387,7 +2586,7 @@ add_it:
 		 * parser_state is no token index to look one up by
 		 */
 		if (m != -1 && m != LWS_HPACK_IGNORE_ENTRY &&
-		    !lws_h2_hpack_no_store(wsi))
+		    m != LWS_HPACK_CUSTOM_ENTRY && !lws_h2_hpack_no_store(wsi))
 			lws_dump_header(wsi, m);
 
 		if (!lws_h2_hpack_sinking(wsi) &&
