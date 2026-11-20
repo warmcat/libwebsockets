@@ -156,6 +156,14 @@ copying it there as `regress-*`.
    `fuzz-*-smoke` ctests run every seed.
  - Each target added to `run.sh` thins the others' share of a timed
    campaign; weigh that before adding one.
+ - Unminimized corpora silently starve the campaign: each run replays the
+   whole corpus first, and the pool reached 128k inputs for one target
+   with nothing ever found.  `run.sh` now minimizes on growth; check the
+   corpus sizes in the pool before concluding the targets are exhausted.
+ - libFuzzer `-merge=1 -merge_control_file=f` stopped while copying out
+   what it keeps leaves `f` saying it's complete: rerunning prints
+   "MERGE-OUTER: nothing to do", copies nothing and exits 0.  Never take a
+   merge's exit code as meaning its output dir is the corpus to keep.
  - The hl / md harnesses compare a one-shot reference pass with a
    fragmented, sink-deferring stress pass; `LWS_FUZZ_VERBOSE=1` prints the
    first divergence, `LWS_FUZZ_TRACE=1` dumps the stress pass.  Both
