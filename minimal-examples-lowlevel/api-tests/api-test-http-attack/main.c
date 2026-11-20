@@ -607,6 +607,17 @@ static const struct h1_attack h1_attacks[] = {
 	ATK_H1_ECHO("OWS before a repeated header's value", ATK_GET_ALIVE
 		    "User-Agent: a\r\nUser-Agent: \t b\r\n\r\n",
 		    "/alive ua=a, b"),
+	ATK_H1_ECHO("OWS after a header's value", ATK_GET_ALIVE
+		    "User-Agent: a b \t\r\n\r\n", "/alive ua=a b"),
+	ATK_H1_ECHO("OWS after a repeated header's values", ATK_GET_ALIVE
+		    "User-Agent: a\t\r\nUser-Agent: b \r\n\r\n",
+		    "/alive ua=a, b"),
+	ATK_H1_ECHO("a header's value of only OWS", ATK_GET_ALIVE
+		    "User-Agent: \t \r\n\r\n", "/alive"),
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	ATK_H1_ECHO("OWS around an unknown header's value", ATK_GET_ALIVE
+		    "X-Echo: \t a b \t\r\n\r\n", "/alive xe=a b"),
+#endif
 
 	/*
 	 * line ends: CRLF only.  Something in front of us may not take a
@@ -892,7 +903,8 @@ struct pss {
 /*
  * "echo:" + the path, then its urlargs rejoined by ? and &, all as lws
  * gives them to user code.  Then " ua=" and the User-Agent, if there was one,
- * to show a header after something hostile was still seen as that header.
+ * to show a header after something hostile was still seen as that header,
+ * and " xe=" and X-Echo, if there was one, for a header lws doesn't know.
  */
 
 static int
@@ -913,6 +925,11 @@ echo_compose(struct lws *wsi, struct pss *pss)
 			 WSI_TOKEN_HTTP_USER_AGENT) > 0)
 		n += lws_snprintf(pss->body + n, sizeof(pss->body) - (size_t)n,
 				  " ua=%s", arg);
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	if (lws_hdr_custom_copy(wsi, arg, (int)sizeof(arg), "x-echo:", 7) > 0)
+		n += lws_snprintf(pss->body + n, sizeof(pss->body) - (size_t)n,
+				  " xe=%s", arg);
+#endif
 	pss->len = n;
 
 	return 0;
