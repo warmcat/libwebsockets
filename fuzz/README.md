@@ -168,6 +168,7 @@ doesn't fail.
 | `fuzz-adns` | async-dns response parser + dnssec (`lib/system/async-dns/`) | each input is delivered as the response to a real pending query, tid patched in; the only nameserver is a UDP sink the harness binds itself, so nothing leaves the process; first byte selects query type and DNSSEC mode |
 | `fuzz-srv-h1` | an h1 server connection and its application (`lib/sansio/http/`, `lib/roles/http/server/`) | sansIO: the input is a program of what the peer and the network do (see below); the server answers POSTs through `lws_spa`, streams, redirects, serves a file mount with ranges and gzip, and upgrades to ws with pmd |
 | `fuzz-srv-h2` | the same application over h2 (`lib/sansio/h2/`) | sansIO, h2 prior knowledge; the program's own op builds h2 frames with their lengths right ([sansio-h2.h](sansio-h2.h)) |
+| `fuzz-srv-xproto` | whether h1 and h2 mean the same thing by a request (`lib/sansio/http/`, `lib/sansio/h2/`) | the input describes one request, which is sent as h1, as h2, and on one h2 connection twice, adding its fields to the dynamic table and then referring to them there: what the application is told of each, and what it is answered, must agree (see below) |
 | `fuzz-cli-h1` | an h1 client connection reading a malicious server's response | sansIO; the first byte picks GET / HEAD / POST and whether the client pulls the body at once or later |
 | `fuzz-cli-ws` | a ws client: its upgrade response, then server frames | sansIO; the harness answers the client's key with the right accept, so the frames get parsed |
 | `fuzz-cli-h2` | an h2 client connection against a malicious server | sansIO, h2 prior knowledge, the server's SETTINGS sent first, then h2 frames built as for `fuzz-srv-h2` |
@@ -246,6 +247,34 @@ crash, when lws breaks a promise:
 Each of the three traversal checks was confirmed to catch a traversal on its
 own, with the sanitiser's `..` handling and `lws_http_serve()`'s `..` refusal
 both disabled.
+
+### The same request, sent different ways
+
+Those checks need to know what is wrong.  A request smuggled past a check, or
+a header that one protocol keeps and another loses, is only wrong compared
+with what lws makes of the same request otherwise, so `fuzz-srv-xproto`
+makes the comparison.  Its input is not a connection but a request: a method,
+a path, up to six headers, known to lws or not, and a body, and how to send
+each part, in name case, OWS and h1 chunking, and in which hpack
+representation for each field.  It sends it
+
+ - as h1,
+ - as h2, the fields as their bytes said,
+ - and on one h2 connection, once with every field added to the dynamic
+   table, then again with every field referred to there.
+
+For each it records what the application is told (the method, path, args and
+authority, every header lws knows and every custom one, the body), which file
+was opened to serve it, and the status sent back, and aborts with
+`LWS FUZZ ORACLE: the same request meant different things` showing both
+views when two differ.  A request every way refuses is the same request.  And
+when the application isn't given all of a body, because it answered first or
+gave up on what it couldn't decode, how much it was given by then depends on
+how the body was cut up, so only the start of it is compared.
+
+It found, in its first seconds, that h1 kept the OWS after a header's value
+and h2 couldn't, and that a custom header referred to in the dynamic table
+was dropped.  `LWS_FUZZ_VERBOSE=1` shows all four views of an input.
 
 ## Survey: what to harness next
 
