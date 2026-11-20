@@ -48,6 +48,22 @@
 # public.  An idle task's findings are reported that way, but don't make it
 # fail.
 #
+# libFuzzer keeps every input that reached anything new, and with value
+# profiling that's a lot of them, so left alone the corpora only grow, and
+# each target spends more and more of its time replaying its corpus before it
+# fuzzes anything.  So before a target fuzzes, if its corpus has grown to more
+# than twice the size it was last minimized to (or this machine has never
+# minimized it, and it has at least MINIMIZE_MIN_FILES inputs), it's
+# minimized with libFuzzer's -merge=1 first: only the inputs that add coverage
+# are kept.  With a sai pool, the minimized corpus replaces the shared one
+# through the pool (sai's READMEs/README-pool.md), so every builder gets it.
+# FUZZ_MINIMIZE=off stops that, and FUZZ_MINIMIZE=only minimizes the targets'
+# corpora (all of them, however big) without fuzzing, eg, by hand on a builder
+# to bring corpora that have grown too big to minimize in an idle slice back
+# under control:
+#
+#   SAI_POOL_DIR=~/pools/<pool>/corpus FUZZ_MINIMIZE=only fuzz/run.sh
+#
 # Finding artifacts (crash-*, leak-*, timeout-*, oom-*) are written into
 # <build>/fuzz/ along with each target's full output in log-<name>.txt; any
 # findings produced by this run are listed by absolute path at the end and
@@ -105,6 +121,22 @@ IDLE_PER_TARGET_OVERHEAD_SECS=10
 # how long one input may run before libFuzzer calls it a hang (a timeout-*
 # finding); its default of 20 minutes would just use up the slice
 IDLE_UNIT_TIMEOUT_SECS=60
+# a target with less of its share left than this after minimizing its corpus
+# doesn't fuzz this slice, it'd only be replaying its corpus
+IDLE_MIN_FUZZ_SECS=30
+
+MINIMIZE="${FUZZ_MINIMIZE:-auto}"
+case "$MINIMIZE" in
+	auto|only|off) ;;
+	*)
+		echo "FUZZ_MINIMIZE must be auto, only or off" >&2
+		exit 1
+		;;
+esac
+# a corpus smaller than this isn't worth minimizing on a first look
+MINIMIZE_MIN_FILES=1000
+# a lock left by a minimize that was killed is taken as stale after this
+MINIMIZE_STALE_MINS=1440
 
 if [ -z "$CC" ]; then
 	for c in clang clang-19 clang-18 clang-17; do
@@ -265,6 +297,176 @@ replay_known() {
 	done
 }
 
+# the names of the inputs in corpus dir $1, sorted.  Corpus inputs are named
+# by the sha1 of their content, by libFuzzer and by the sai pool, which only
+# syncs names like that; anything else in there is left alone.
+corpus_list() {
+	ls "$1" | grep -E '^[0-9a-f]{40}$' | LC_ALL=C sort
+}
+
+# whether target $1's corpus should be minimized before it fuzzes
+needs_minimize() {
+	case "$MINIMIZE" in
+	only)
+		return 0
+		;;
+	off)
+		return 1
+		;;
+	*)
+		;;
+	esac
+
+	have=$(corpus_list "$CORPUS/corpus-$1" | wc -l)
+	last=0
+	if [ -r "$CORPUS/.minimized-$1" ]; then
+		read -r last < "$CORPUS/.minimized-$1" || last=0
+		case "$last" in
+			''|*[!0-9]*) last=0 ;;
+			*) ;;
+		esac
+	fi
+
+	if [ "$last" -eq 0 ]; then
+		[ "$have" -ge "$MINIMIZE_MIN_FILES" ]
+		return
+	fi
+
+	[ "$have" -gt $(( last * 2 )) ]
+}
+
+# Minimize target $1's corpus: libFuzzer's -merge=1 copies into an empty dir
+# just the inputs that add coverage, with value profiling as when fuzzing, so
+# the progress it counted isn't thrown away.  Then the inputs we listed before
+# the merge that it didn't keep are deleted.  Inputs that arrived during the
+# merge, from a fuzzer sharing the corpus on this machine or a pool sync, are
+# left alone: they weren't judged.  With a pool, the replace marker tells sai
+# to drop the same inputs everywhere: everything it had synced up to the
+# cursor we read before listing, that isn't in the corpus now.
+#
+# If the merge doesn't finish, eg, it's stopped at the end of the target's
+# share of an idle slice, nothing is changed, but its control file is kept
+# with the corpora: it says what coverage each input it got through had, so
+# the next try only has to run the rest.  That only holds for the same
+# binary, so it's thrown away when the binary changes.  (Hidden names in the
+# pool dir aren't synced.)
+minimize() {
+	cdir="$CORPUS/corpus-$1"
+	work="$BUILD/fuzz/minimize-$1"
+	lock="$CORPUS/.minimizing-$1"
+	control="$CORPUS/.minimize-$1.control"
+	mstart=$(date +%s)
+
+	# another task sharing the corpus on this machine may be at it
+	find "$CORPUS" -maxdepth 1 -type d -name ".minimizing-$1" \
+		-mmin +"$MINIMIZE_STALE_MINS" -exec rmdir {} \; 2>/dev/null || true
+	if ! mkdir "$lock" 2>/dev/null; then
+		echo "fuzz-$1: corpus is being minimized by another task"
+		return 0
+	fi
+
+	seq=""
+	if [ -n "$SAI_POOL_DIR" ] && [ "$CORPUS" = "$SAI_POOL_DIR" ]; then
+		if [ -r "$CORPUS/.sai-pool-seq" ]; then
+			read -r seq < "$CORPUS/.sai-pool-seq" || seq=""
+		fi
+		case "$seq" in
+			''|*[!0-9]*)
+				echo "fuzz-$1: no pool cursor, not minimizing"
+				rmdir "$lock"
+				return 0
+				;;
+			*) ;;
+		esac
+	fi
+
+	bsum=$(cksum < "$BUILD/bin/fuzz-$1")
+	osum=""
+	if [ -r "$control.bin" ]; then
+		read -r osum < "$control.bin" || osum=""
+	fi
+	if [ "$bsum" != "$osum" ]; then
+		rm -f "$control"
+		echo "$bsum" > "$control.bin"
+	fi
+
+	rm -rf "$work"
+	mkdir -p "$work/new"
+	corpus_list "$cdir" > "$work/before"
+
+	# A merge stopped after it had run every input, while it was copying
+	# out the ones it keeps, leaves a control file that says it's done:
+	# carrying on from that copies nothing, and says so.  Then it has to
+	# start again from scratch.
+	tries=2
+	while [ "$tries" -gt 0 ]; do
+		tries=$(( tries - 1 ))
+		st=0
+		$CAP "$BUILD/bin/fuzz-$1" -merge=1 -use_value_profile=1 \
+			-timeout="$IDLE_UNIT_TIMEOUT_SECS" \
+			-merge_control_file="$control" \
+			"$work/new" "$cdir" > "$work/log" 2>&1 || st=$?
+		if [ "$st" -ne 0 ] ||
+		   ! grep -aq 'MERGE-OUTER: nothing to do' "$work/log"; then
+			break
+		fi
+		rm -f "$control"
+	done
+
+	# only a merge that says it wrote out the inputs it keeps is believed,
+	# anything else would have us delete the corpus
+	if [ "$st" -eq 0 ] &&
+	   ! grep -aqE 'MERGE-OUTER: [0-9]+ new files with' "$work/log"; then
+		echo "fuzz-$1: minimizing didn't say what it kept, corpus" \
+		     "unchanged"
+		rm -rf "$work" "$control" "$control.bin"
+		rmdir "$lock"
+		return 0
+	fi
+
+	if [ "$st" -ne 0 ]; then
+		echo "fuzz-$1: minimizing stopped after" \
+		     "$(( $(date +%s) - mstart ))s (exit $st), corpus" \
+		     "unchanged, it carries on next time"
+		rm -rf "$work"
+		rmdir "$lock"
+		return 0
+	fi
+	rm -f "$control" "$control.bin"
+
+	corpus_list "$work/new" > "$work/kept"
+
+	# the first input of a corpus always adds coverage, so nothing kept
+	# from something means the merge went wrong
+	if [ -s "$work/before" ] && [ ! -s "$work/kept" ]; then
+		echo "fuzz-$1: minimizing kept nothing, corpus unchanged"
+		rm -rf "$work"
+		rmdir "$lock"
+		return 0
+	fi
+
+	# an input kept under a name it didn't have in the corpus goes in
+	# first, so nothing that adds coverage is ever missing
+	LC_ALL=C comm -13 "$work/before" "$work/kept" |
+		while read -r f; do
+			[ -e "$cdir/$f" ] || cp "$work/new/$f" "$cdir/$f"
+		done
+	LC_ALL=C comm -23 "$work/before" "$work/kept" |
+		(cd "$cdir" && xargs rm -f)
+
+	if [ -n "$seq" ]; then
+		echo "$seq" > "$CORPUS/.tmp-replace-$1"
+		mv "$CORPUS/.tmp-replace-$1" "$CORPUS/.sai-replace-corpus-$1"
+	fi
+
+	kept=$(wc -l < "$work/kept")
+	echo "$kept" > "$CORPUS/.minimized-$1"
+	echo "fuzz-$1: minimized $(wc -l < "$work/before") inputs to $kept" \
+	     "in $(( $(date +%s) - mstart ))s"
+	rm -rf "$work"
+	rmdir "$lock"
+}
+
 # first corpus dir receives new discoveries, the second is read-only seeds.
 # A target with a dictionary of its format's tokens (fuzz-<name>/<name>.dict)
 # gets it, so the mutator can splice in whole header names, keywords and
@@ -342,9 +544,37 @@ for t in $TARGETS; do
 		fi
 	fi
 
+	if [ "$MINIMIZE" = only ]; then
+		echo
+		echo "=== fuzz-$t: minimizing ==="
+		mkdir -p "$CORPUS/corpus-$t"
+		minimize "$t"
+		continue
+	fi
+
+	mkdir -p "$CORPUS/corpus-$t"
+	if needs_minimize "$t"; then
+		echo
+		MSTART=$(date +%s)
+		minimize "$t"
+		if [ -n "$IDLE_SECS" ]; then
+			# it came out of this target's share
+			SECS=$(( SECS - ($(date +%s) - MSTART) ))
+			if [ "$SECS" -lt "$IDLE_MIN_FUZZ_SECS" ]; then
+				echo "fuzz-$t: no time left to fuzz this slice"
+				next=$(( (next + 1) % n ))
+				echo "$next" > "$CORPUS/.idle-next"
+				continue
+			fi
+			if [ -n "$CAP" ]; then
+				CAP="timeout -s INT -k 15 $(( SECS + \
+					IDLE_PER_TARGET_OVERHEAD_SECS ))"
+			fi
+		fi
+	fi
+
 	echo
 	echo "=== fuzz-$t: ${SECS}s ==="
-	mkdir -p "$CORPUS/corpus-$t"
 	log="$BUILD/fuzz/log-$t.txt"
 
 	if [ -n "$SAI_POOL_KNOWN" ] && [ -n "$SAI_POOL_FINDINGS" ] &&

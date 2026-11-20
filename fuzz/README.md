@@ -106,6 +106,32 @@ instead of in `CORPUS`, so every builder fuzzes from, and adds to, the same
 corpora.  The first time, any corpora already in `CORPUS` are copied into
 the pool.
 
+## Keeping the corpora small
+
+libFuzzer keeps every input that reached something new, and with value
+profiling that is a great many of them, so a corpus left alone only grows.
+Each run of a target starts by replaying its whole corpus, so a corpus of
+100k inputs can use up a two minute idle share before any fuzzing happens.
+
+So before a target fuzzes, `run.sh` minimizes its corpus with libFuzzer's
+`-merge=1` if it has more than twice as many inputs as when this machine last
+minimized it (or, the first time, at least 1000): only the inputs that add
+coverage, with value profiling, are kept.  With a pool, the minimized corpus
+replaces the shared one everywhere, through the pool's replace marker (sai's
+`READMEs/README-pool.md`); inputs that arrived while it was being minimized
+are kept.  A merge stopped at the end of the target's share leaves the corpus
+as it was, but its progress is kept and the next try carries on from it, as
+long as the fuzzer binary is the same.
+
+`FUZZ_MINIMIZE=off` stops it.  `FUZZ_MINIMIZE=only` minimizes the named
+targets' corpora (all of them by default), however big, without fuzzing: use
+it by hand on a builder, as the user the builder runs as, to bring corpora that
+have grown too big to minimize in an idle share back under control:
+
+```sh
+SAI_POOL_DIR=~/pools/<pool>/corpus FUZZ_MINIMIZE=only ./fuzz/run.sh
+```
+
 In a CI run under sai (not an idle task), `run.sh` first replays each target's
 known bug reproducers from `SAI_POOL_KNOWN`, which sai-server keeps for every
 bug found so far, and fails if any still crash.  So once something is found,
