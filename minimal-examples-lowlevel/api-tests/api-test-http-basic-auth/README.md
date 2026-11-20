@@ -8,7 +8,10 @@ ends, in one process.
 `./docroot/private`, inside it, behind the login file.  `/who` is a callback
 mount behind the same login file.  `/proxied` is a reverse proxy mount behind
 the same login file, onto a backend vhost serving the ws protocol `ba-ws` with
-no auth of its own.  The server vhosts serve `ba-ws` too, with the same login
+no auth of its own.  `/locked` serves `./docroot/private` behind the same
+login file too, from a mount with no `protocol` of its own, which takes a
+request by its method: `OPTIONS` must meet its gates on h1 as it does on h2 and
+h3, where a request's `:path` is enough, rather than miss it for `/`.  The server vhosts serve `ba-ws` too, with the same login
 file as its `"basic-auth"` pvo.
 
 |request|expected|
@@ -20,6 +23,8 @@ file as its `"basic-auth"` pvo.
 |`/PRIVATE/index.html`, `/Private/index.html`, `/private./index.html`, `/private%20/index.html`, no credentials|anything but the private file|
 |`/who`, no credentials|401, with the challenge|
 |`/who`, credentials the login file lists|200, naming the user from `lws_http_basic_auth_user()`, read after the callback gave the request headers back|
+|`/locked/index.html`, `GET` or `OPTIONS`, no credentials|401, with the challenge|
+|`OPTIONS /locked/index.html`, credentials the login file lists|200, the private file|
 
 The `/PRIVATE/...` row is for filesystems that find a file by more names than
 its own: case folds on windows and macOS, and windows drops the dots and spaces
