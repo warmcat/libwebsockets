@@ -2569,13 +2569,23 @@ poll_again:
 					close(fd_full);
 					if (n) {
 						lwsl_vhost_err(vhd->vhost, "unable to write ACME fullchain cert!");
+						fd_full = -1; /* nothing to link to */
 					}
 				}
 
-				/* Symlink update, keeping the outgoing ones as -previous */
-				acme_link_rotate(cert_latest, cert_ts);
-				acme_link_rotate(full_latest, full_ts);
-				acme_link_rotate(key_latest, key_ts);
+				/*
+				 * Symlink update, keeping the outgoing ones as
+				 * -previous, for the files we wrote ourselves.
+				 * The root daemon links the ones it saves for
+				 * us once it has them: we can't, the dir is
+				 * not ours, and they may not be there yet.
+				 */
+				if (fd_cert >= 0)
+					acme_link_rotate(cert_latest, cert_ts);
+				if (fd_full >= 0)
+					acme_link_rotate(full_latest, full_ts);
+				if (fd_key >= 0)
+					acme_link_rotate(key_latest, key_ts);
 
 				lwsl_vhost_notice(vhd->vhost, "Updated certs written for %s "
 						"to %s and %s",
