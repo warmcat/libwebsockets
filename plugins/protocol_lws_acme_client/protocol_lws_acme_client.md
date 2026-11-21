@@ -60,7 +60,7 @@ The plugin dynamically generates paths for your authentication keys, certificate
 
 `<domain-name>` is the directory the cert's config was found in, so a cert for a name in the zone, eg `dist.example.com`, lives with the zone's other certs as `domains/example.com/certs/production/crt/dist.example.com-latest.crt`.
 
-The plugin creates versioned files with timestamps and maintains a `-latest` symlink pointing to the most recently generated file for easy references by the web server (e.g., `$dns_base_dir/domains/<domain-name>/certs/production/crt/<common-name>-latest.crt`).
+The plugin creates versioned files with timestamps and maintains a `-latest` symlink pointing to the most recently generated file for easy references by the web server.  Next to the leaf `<common-name>-latest.crt` is `<common-name>-latest-fullchain.crt`, the cert with its intermediates, which is what a server should be configured with (eg, `$dns_base_dir/domains/<domain-name>/certs/production/crt/<common-name>-latest-fullchain.crt`, with the key `.../key/<common-name>-latest.key`).  A vhost in the plugin's own process configured that way is handed the renewed pair directly; any other server sees the `-latest` symlinks move.
 
 ### The account key
 
