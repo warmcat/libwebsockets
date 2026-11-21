@@ -198,6 +198,27 @@ main(int argc, const char **argv)
 			!!strstr(www->pvop[LWS_TLS_SET_CERT_PATH],
 			      "/domains/a.com/certs/staging/crt/www.a.com-latest.crt"),
 			"its cert path");
+	{
+		char full[256];
+
+		bad |= t_expect(!acme_cert_fullchain_path(
+				www->pvop[LWS_TLS_SET_CERT_PATH], full,
+				sizeof(full)) &&
+			!!strstr(full, "/domains/a.com/certs/staging/crt/"
+				       "www.a.com-latest-fullchain.crt") &&
+			!strstr(full, "-latest.crt"),
+			"its fullchain path, which vhosts serve");
+		bad |= t_expect(acme_cert_fullchain_path("/x/a-latest.crt.bak",
+							 full, sizeof(full)) &&
+				acme_cert_fullchain_path("/x/a.crt", full,
+							 sizeof(full)) &&
+				acme_cert_fullchain_path("/x/a-latest.crt",
+							 full, 25) &&
+				!acme_cert_fullchain_path("/x/a-latest.crt",
+							  full, 26),
+				"fullchain path refuses what isn't a -latest.crt, "
+				"or doesn't fit");
+	}
 
 	www->fail_count = 3;
 	www->retry_not_before = 1234;

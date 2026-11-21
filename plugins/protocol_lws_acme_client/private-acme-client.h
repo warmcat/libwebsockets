@@ -342,6 +342,14 @@ int
 acme_cert_set_paths(const char *base_dir, struct lws_acme_cert_config *cfg,
 		    const char *env_dir);
 
+/*
+ * The -latest-fullchain.crt next to the leaf -latest.crt cert_path, which is
+ * the one vhosts serve, since it carries the intermediates.  Returns 1 if
+ * cert_path is not a -latest.crt, or the result doesn't fit in len.
+ */
+int
+acme_cert_fullchain_path(const char *cert_path, char *buf, size_t len);
+
 struct acme_sync {
 	lws_dll2_owner_t	*owner;		/* of lws_acme_cert_config */
 	const char		*base_dir;	/* has domains/<zone>/conf.d */

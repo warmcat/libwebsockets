@@ -158,6 +158,23 @@ acme_cert_set_paths(const char *base_dir, struct lws_acme_cert_config *cfg,
 	return 0;
 }
 
+int
+acme_cert_fullchain_path(const char *cert_path, char *buf, size_t len)
+{
+	static const char leaf[] = "-latest.crt", full[] = "-latest-fullchain.crt";
+	size_t n = cert_path ? strlen(cert_path) : 0;
+
+	if (n < sizeof(leaf) - 1 ||
+	    strcmp(cert_path + n - (sizeof(leaf) - 1), leaf) ||
+	    n - (sizeof(leaf) - 1) + sizeof(full) > len)
+		return 1;
+
+	memcpy(buf, cert_path, n - (sizeof(leaf) - 1));
+	memcpy(buf + n - (sizeof(leaf) - 1), full, sizeof(full));
+
+	return 0;
+}
+
 void
 acme_config_free(struct lws_acme_cert_config *cfg)
 {

@@ -1640,6 +1640,7 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 	unsigned char **pp, *pend;
 	const char *content_type;
 	struct lws_jwe jwe;
+	char full_latest[256];
 	struct lws *cwsi;
 	size_t leaf_len;
 	int n, m;
@@ -2462,7 +2463,6 @@ poll_again:
 				char cert_ts[256], key_ts[256], full_ts[256];
 				const char *cert_latest = vhd->active_cert->pvop[LWS_TLS_SET_CERT_PATH];
 				const char *key_latest = vhd->active_cert->pvop[LWS_TLS_SET_KEY_PATH];
-				char full_latest[256];
 				char timebuf[64];
 				time_t t;
 				struct tm *tm;
@@ -2487,10 +2487,12 @@ poll_again:
 				if (p)
 					lws_snprintf(p, sizeof(cert_ts) - (size_t)(p - cert_ts), "-%s.crt", timebuf);
 
-				lws_strncpy(full_latest, cert_latest, sizeof(full_latest));
-				p = (char *)strstr(full_latest, "-latest.crt");
-				if (p)
-					lws_snprintf(p, sizeof(full_latest) - (size_t)(p - full_latest), "-latest-fullchain.crt");
+				if (acme_cert_fullchain_path(cert_latest, full_latest,
+							     sizeof(full_latest))) {
+					lwsl_vhost_err(vhd->vhost, "no fullchain "
+						       "path for %s", cert_latest);
+					goto failed;
+				}
 
 				lws_strncpy(full_ts, full_latest, sizeof(full_ts));
 				p = (char *)strstr(full_ts, "-latest-fullchain.crt");
@@ -2599,11 +2601,12 @@ poll_again:
 			/*
 			 * Notify lws there was a cert update.  The copies we
 			 * hand over are what the vhosts load, so they get the
-			 * chain, not the leaf alone.
+			 * chain, not the leaf alone: the vhosts it is for are
+			 * the ones serving the -latest-fullchain.crt.  One
+			 * serving the leaf -latest.crt sees its file renewed.
 			 */
 
-			if (lws_tls_cert_updated(vhd->context,
-					vhd->active_cert->pvop[LWS_TLS_SET_CERT_PATH],
+			if (lws_tls_cert_updated(vhd->context, full_latest,
 					vhd->active_cert->pvop[LWS_TLS_SET_KEY_PATH],
 						ac->crx.pem, ac->crx.len,
 						ac->alloc_privkey_pem,
