@@ -251,8 +251,25 @@ xp_parse(const uint8_t *data, size_t size)
 }
 
 /*
- * Append to the program (../sansio-peer.h) RX ops sending b, in pieces of
- * chunk bytes, or as few pieces of up to 64KiB as it takes if chunk is 0
+ * Append to the program (../sansio-peer.h) the harness' op 7 announcing
+ * request a.  It returns the new end, or 0 if it doesn't fit: a cut-short
+ * program wouldn't mean the same request, so the input is skipped
+ */
+static size_t
+xp_prog_op(size_t pos, int a)
+{
+	if (pos >= sizeof(prog))
+		return 0;
+
+	prog[pos++] = (uint8_t)((a << 3) | 7);
+
+	return pos;
+}
+
+/*
+ * ... and RX ops sending b, in pieces of chunk bytes, or as few pieces of
+ * up to 64KiB as it takes if chunk is 0.  It returns the new end, or 0 if
+ * it doesn't all fit
  */
 static size_t
 xp_prog_rx(size_t pos, const uint8_t *b, size_t len, uint8_t chunk)
@@ -262,8 +279,9 @@ xp_prog_rx(size_t pos, const uint8_t *b, size_t len, uint8_t chunk)
 	while (len) {
 		k = chunk ? (len < chunk ? len : chunk) :
 			    (len < 65535 + 32 ? len : 65535 + 32);
-		if (pos + 3 + k > sizeof(prog))
-			break;
+		/* the op and its length take up to 3 bytes */
+		if (pos > sizeof(prog) || k + 3 > sizeof(prog) - pos)
+			return 0;
 		if (k < 32) {
 			prog[pos++] = (uint8_t)((k - 1) << 3);
 		} else {
@@ -826,7 +844,10 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	n = xp_h1(b, sizeof(b));
 	if (!n)
 		return 0;
-	xp_session(vh1, NULL, 0, xp_prog_rx(0, b, n, req.chunk));
+	p = xp_prog_rx(0, b, n, req.chunk);
+	if (!p)
+		return 0;
+	xp_session(vh1, NULL, 0, p);
 	views[0].status = xp_status_h1();
 	v_h1 = views[0];
 
@@ -834,8 +855,10 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	n = xp_h2(b, sizeof(b), 1, -1);
 	if (!n)
 		return 0;
-	xp_session(vh2, preface, sizeof(preface) - 1,
-		   xp_prog_rx(0, b, n, req.chunk));
+	p = xp_prog_rx(0, b, n, req.chunk);
+	if (!p)
+		return 0;
+	xp_session(vh2, preface, sizeof(preface) - 1, p);
 	views[0].status = xp_status_h2(1);
 	v_h2 = views[0];
 
@@ -844,13 +867,14 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	 * again as references to those entries, each announced by the
 	 * harness op, so the application's views know which is which
 	 */
-	p = 0;
-	prog[p++] = (uint8_t)((0 << 3) | 7);
+	p = xp_prog_op(0, 0);
 	n = xp_h2(b, sizeof(b), 1, XP_REP_INCR);
-	p = xp_prog_rx(p, b, n, req.chunk);
-	prog[p++] = (uint8_t)((1 << 3) | 7);
+	if (!n || !(p = xp_prog_rx(p, b, n, req.chunk)) ||
+	    !(p = xp_prog_op(p, 1)))
+		return 0;
 	n = xp_h2(b, sizeof(b), 3, XP_REP_INDEXED);
-	p = xp_prog_rx(p, b, n, req.chunk);
+	if (!n || !(p = xp_prog_rx(p, b, n, req.chunk)))
+		return 0;
 	xp_session(vh2, preface, sizeof(preface) - 1, p);
 	views[0].status = xp_status_h2(1);
 	views[1].status = xp_status_h2(3);
