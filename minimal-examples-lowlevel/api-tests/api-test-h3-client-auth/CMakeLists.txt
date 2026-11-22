@@ -10,7 +10,7 @@ set(SRCS main.c)
 
 #
 # An h3 server and the h3 client in the same process: what the client sends
-# for a digest challenge, and from its cookie jar
+# for a digest challenge, from its cookie jar, and for a form body
 #
 set(requirements 1)
 require_lws_config(LWS_ROLE_H3 1 requirements)
@@ -24,7 +24,7 @@ require_lws_config(LWS_WITH_HTTP_DIGEST_AUTH 1 H3CA_DIGEST)
 set(H3CA_COOKIE 1)
 require_lws_config(LWS_WITH_CACHE_NSCOOKIEJAR 1 H3CA_COOKIE)
 
-set(H3CA_CASES)
+set(H3CA_CASES form)
 if (H3CA_DIGEST)
 	list(APPEND H3CA_CASES digest)
 endif()
@@ -32,7 +32,7 @@ if (H3CA_COOKIE)
 	list(APPEND H3CA_CASES cookie)
 endif()
 
-if (requirements AND H3CA_CASES AND NOT WIN32)
+if (requirements AND NOT WIN32)
 	add_executable(${SAMP} ${SRCS})
 
 	set(H3CA_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
