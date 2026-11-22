@@ -23,6 +23,9 @@
  *   /status...	the status page for a status the last char picks
  *   /redir...	a redirect
  *   /files/...	a file mount (index, a big file for ranges, a gzipped one)
+ *   /locked/..., /vlocked/..., /gated/...
+ *		file mounts behind basic auth, or an interceptor that diverts
+ *		what it refuses to /intercept
  *   others	the 404 lws makes for anything not mounted
  *
  * and a ws protocol "echo" that sends back each message once it has had
@@ -47,6 +50,15 @@
  *  - no file outside the mount's dir is ever opened to be served, and the
  *    secrets that sit next to it, one in a dir whose name starts with the
  *    mount dir's, are never sent
+ *
+ *  - the files behind a gate are only opened for a request that came
+ *    through it, and only sent in a session that had one: /locked/ and
+ *    /vlocked/ want basic auth, checked against a file and by the
+ *    application, and /gated/ an interceptor's say-so, from a cookie.
+ *    Their dirs are next to the /files mount's, not in it: only where the
+ *    filesystem folds names does lws refuse to serve one mount's files
+ *    through another whose dir holds them, elsewhere that's how it's set
+ *    up.
  */
 
 #include <fcntl.h>
@@ -88,6 +100,25 @@ static volatile size_t fza_sink;
 static const char fza_secret[] = "lws-fuzz-secret-8d1e5a7c3f\n";
 #define FZA_SECRET_LEN (sizeof(fza_secret) - 1)
 
+/*
+ * What the gated mounts serve, as long as the secret.  The basic auth gates
+ * take FZA_CREDS, the interceptor a cookie "pass" of FZA_PASS.
+ */
+static const char fza_locked[] = "lws-fuzz-locked-4b9e02d7a1\n";
+static const char fza_gated[] = "lws-fuzz-gated--71c3e8a05d\n";
+#define FZA_CREDS	"fuzz:sesame"
+#define FZA_PASS	"letmein"
+
+/*
+ * The request lws gave the application last, before it's dispatched, and
+ * whether it came through each gate.  A file is opened for a request as lws
+ * dispatches it, so it's this one's.
+ */
+static struct lws *fza_req_wsi;
+static uint8_t fza_req_authed, fza_req_gate_ok;
+/* ... and whether any request in the session came through it */
+static uint8_t fza_sess_authed, fza_sess_gate_ok;
+
 static uint8_t fza_tx_tail[FZA_SECRET_LEN];
 static size_t fza_tx_tail_len;
 
@@ -109,6 +140,11 @@ fza_session_start(void)
 	fza_wsi = NULL;
 	fza_close_next = 0;
 	fza_tx_tail_len = 0;
+	fza_req_wsi = NULL;
+	fza_req_authed = 0;
+	fza_req_gate_ok = 0;
+	fza_sess_authed = 0;
+	fza_sess_gate_ok = 0;
 }
 
 static void
@@ -181,6 +217,38 @@ fza_check_custom(const char *name, int nlen, void *opaque)
 }
 #endif
 
+/*
+ * Whether the request has the credentials, read as lws_check_basic_auth()
+ * reads them: "Basic" in any case, one byte, then the base64 of exactly
+ * FZA_CREDS.  It's the one lws accepts, so lws letting in a request that
+ * hasn't got them is the gate failing, not a different reading.
+ */
+static int
+fza_creds_ok(struct lws *wsi)
+{
+	char v[160], plain[128];
+	int n;
+
+	n = lws_hdr_copy(wsi, v, sizeof(v), WSI_TOKEN_HTTP_AUTHORIZATION);
+	if (n < 7 || strncasecmp(v, "Basic", 5))
+		return 0;
+	n = lws_b64_decode_string(v + 6, plain, sizeof(plain) - 1);
+
+	return n == (int)strlen(FZA_CREDS) &&
+	       !memcmp(plain, FZA_CREDS, (size_t)n);
+}
+
+/* whether the request has the cookie the interceptor lets through */
+static int
+fza_cookie_ok(struct lws *wsi)
+{
+	char v[32];
+	size_t l = sizeof(v);
+
+	return !lws_http_cookie_get(wsi, "pass", v, &l) &&
+	       l == strlen(FZA_PASS) && !memcmp(v, FZA_PASS, l);
+}
+
 /* everything the application is told about the request, as it's dispatched */
 static void
 fza_check_request(struct lws *wsi, const char *uri, size_t len)
@@ -222,22 +290,38 @@ fza_check_request(struct lws *wsi, const char *uri, size_t len)
 }
 
 static int
-fza_has_secret(const uint8_t *p, size_t len)
+fza_has(const uint8_t *p, size_t len, const char *mark)
 {
 	size_t n;
 
 	for (n = 0; n + FZA_SECRET_LEN <= len; n++)
-		if (p[n] == (uint8_t)fza_secret[0] &&
-		    !memcmp(p + n, fza_secret, FZA_SECRET_LEN))
+		if (p[n] == (uint8_t)mark[0] &&
+		    !memcmp(p + n, mark, FZA_SECRET_LEN))
 			return 1;
 
 	return 0;
 }
 
+static void
+fza_tx_check_marks(const uint8_t *p, size_t len)
+{
+	if (fza_has(p, len, fza_secret))
+		fza_broken_promise("a secret outside the mount was sent",
+				   fza_secret, FZA_SECRET_LEN);
+	if (!fza_sess_authed && fza_has(p, len, fza_locked))
+		fza_broken_promise("a file behind basic auth was sent in a "
+				   "session with no credentials", fza_locked,
+				   FZA_SECRET_LEN);
+	if (!fza_sess_gate_ok && fza_has(p, len, fza_gated))
+		fza_broken_promise("a file behind an interceptor was sent in a "
+				   "session it let nothing through", fza_gated,
+				   FZA_SECRET_LEN);
+}
+
 /*
- * Everything lws sends goes by here: the secrets must never be in it.  The
- * last FZA_SECRET_LEN - 1 bytes sent are kept, for a secret split across
- * writes.
+ * Everything lws sends goes by here: the secrets must never be in it, nor
+ * what's behind a gate unless something came through it.  The last
+ * FZA_SECRET_LEN - 1 bytes sent are kept, for one split across writes.
  */
 static void
 fza_tx_check(const uint8_t *buf, size_t len)
@@ -247,10 +331,8 @@ fza_tx_check(const uint8_t *buf, size_t len)
 
 	memcpy(join, fza_tx_tail, fza_tx_tail_len);
 	memcpy(join + fza_tx_tail_len, buf, k);
-	if (fza_has_secret(join, fza_tx_tail_len + k) ||
-	    fza_has_secret(buf, len))
-		fza_broken_promise("a secret outside the mount was sent",
-				   fza_secret, FZA_SECRET_LEN);
+	fza_tx_check_marks(join, fza_tx_tail_len + k);
+	fza_tx_check_marks(buf, len);
 
 	if (len >= FZA_SECRET_LEN - 1) {
 		memcpy(fza_tx_tail, buf + len - (FZA_SECRET_LEN - 1),
@@ -267,6 +349,28 @@ fza_tx_check(const uint8_t *buf, size_t len)
 	fza_tx_tail_len = keep + len;
 }
 
+/* the dirs behind a gate, and what says a request came through it */
+static struct {
+	char		real[PATH_MAX];
+	const uint8_t	*ok;
+	const char	*what;
+} fza_gate[] = {
+	{ "", &fza_req_authed, "opened a file behind basic auth for a "
+			       "request without the credentials" },
+	{ "", &fza_req_authed, "opened a file behind the application's basic "
+			       "auth for a request without the credentials" },
+	{ "", &fza_req_gate_ok, "opened a file behind an interceptor for a "
+				"request it didn't let through" },
+};
+
+static int
+fza_is_under(const char *real, const char *dir)
+{
+	size_t l = strlen(dir);
+
+	return !strncmp(real, dir, l) && real[l] == '/';
+}
+
 /*
  * Every file lws opens under fza_root comes here first, by the file ops'
  * path signature, which is fza_root.  What it opens has to be in the mount's
@@ -279,7 +383,7 @@ fza_fops_open(const struct lws_plat_file_ops *fops_own,
 	      const char *vpath, lws_fop_flags_t *flags)
 {
 	char real[PATH_MAX];
-	size_t dl = strlen(fza_dir_real);
+	size_t dl = strlen(fza_dir_real), n;
 	lws_fop_fd_t fd;
 
 	(void)fops_own;
@@ -288,8 +392,20 @@ fza_fops_open(const struct lws_plat_file_ops *fops_own,
 	if (!fd)
 		return NULL;
 
-	if (!realpath(filename, real) || strncmp(real, fza_dir_real, dl) ||
-	    real[dl] != '/')
+	if (!realpath(filename, real))
+		fza_broken_promise("opened a file with no real path", filename,
+				   strlen(filename));
+
+	for (n = 0; n < LWS_ARRAY_SIZE(fza_gate); n++)
+		if (fza_is_under(real, fza_gate[n].real)) {
+			if (!*fza_gate[n].ok)
+				fza_broken_promise(fza_gate[n].what, filename,
+						   strlen(filename));
+			break;
+		}
+
+	if (n == LWS_ARRAY_SIZE(fza_gate) &&
+	    (strncmp(real, fza_dir_real, dl) || real[dl] != '/'))
 		fza_broken_promise("opened a file outside the mount", filename,
 				   strlen(filename));
 
@@ -367,15 +483,40 @@ fza_callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_FILTER_HTTP_CONNECTION:
 		/* every request, mounted or not, before it's dispatched */
 		fza_check_request(wsi, uri, len);
+		fza_req_wsi = wsi;
+		fza_req_authed = (uint8_t)fza_creds_ok(wsi);
+		fza_req_gate_ok = 0;
+		fza_sess_authed |= fza_req_authed;
 		if (fza_request_hook)
 			fza_request_hook(wsi, uri, len);
 		break;
+
+	case LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK:
+		/* nonzero diverts the request to the /intercept mount */
+		if (!fza_cookie_ok(wsi))
+			return 1;
+		if (wsi == fza_req_wsi)
+			fza_req_gate_ok = 1;
+		fza_sess_gate_ok = 1;
+
+		return 0;
+
+	case LWS_CALLBACK_VERIFY_BASIC_AUTHORIZATION:
+		/* /vlocked's check: nonzero if the credentials are good */
+		return len == strlen(FZA_CREDS) && !memcmp(in, FZA_CREDS, len);
 
 	case LWS_CALLBACK_HTTP:
 		fza_wsi = wsi;
 		if (!uri || !pss)
 			break;
 		c = len ? (uint8_t)uri[len - 1] : 0;
+
+		if (!len)
+			/*
+			 * /intercept, which is all a callback mount's own
+			 * requests are, eg, the interceptor's refusals
+			 */
+			return fza_answer_short(wsi, HTTP_STATUS_FORBIDDEN);
 
 		if (!strncmp(uri, "/post", 5))
 			/* it exists: wait for the body */
@@ -602,7 +743,54 @@ static const struct lws_extension fza_extensions[] = {
 };
 #endif
 
+/*
+ * The gates: a refusal from the interceptor is diverted to /intercept,
+ * which answers it itself
+ */
+static char fza_dir_locked[112], fza_dir_vlocked[112], fza_dir_gated[112],
+	    fza_login[96];
+
+static const struct lws_http_mount fza_mount_intercept = {
+	.mountpoint		= "/intercept",
+	.mountpoint_len		= 10,
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.protocol		= "http",
+};
+
+static struct lws_http_mount fza_mount_gated = {
+	.mount_next		= &fza_mount_intercept,
+	.mountpoint		= "/gated",
+	.mountpoint_len		= 6,
+	.origin		= fza_dir_gated,
+	.origin_protocol	= LWSMPRO_FILE,
+	.def			= "index.html",
+	.interceptor_path	= "/intercept",
+};
+
+static struct lws_http_mount fza_mount_vlocked = {
+	.mount_next		= &fza_mount_gated,
+	.mountpoint		= "/vlocked",
+	.mountpoint_len		= 8,
+	.origin		= fza_dir_vlocked,
+	.origin_protocol	= LWSMPRO_FILE,
+	.def			= "index.html",
+	.auth_mask		= LWSAUTHM_BASIC_AUTH_CALLBACK,
+	/* it has to be set for lws to ask, but it isn't read */
+	.basic_auth_login_file	= fza_login,
+};
+
+static struct lws_http_mount fza_mount_locked = {
+	.mount_next		= &fza_mount_vlocked,
+	.mountpoint		= "/locked",
+	.mountpoint_len		= 7,
+	.origin		= fza_dir_locked,
+	.origin_protocol	= LWSMPRO_FILE,
+	.def			= "index.html",
+	.basic_auth_login_file	= fza_login,
+};
+
 static struct lws_http_mount fza_mount = {
+	.mount_next		= &fza_mount_locked,
 	.mountpoint		= "/files",
 	.mountpoint_len		= 6,
 	.origin_protocol	= LWSMPRO_FILE,
@@ -678,8 +866,11 @@ fza_cleanup(void)
 {
 	static const char * const f[] = {
 		"www/index.html", "www/big.txt", "www/t.txt.gz", "www/sub/x.txt",
-		"secret.txt", "www-private/secret.txt"
-	}, * const d[] = { "www/sub", "www", "www-private", "" };
+		"secret.txt", "www-private/secret.txt", "login.txt",
+		"locked/index.html", "locked/l.txt", "vlocked/index.html",
+		"gated/index.html", "gated/g.txt"
+	}, * const d[] = { "www/sub", "locked", "vlocked", "gated", "www",
+			   "www-private", "" };
 	char path[160];
 	size_t n;
 
@@ -719,8 +910,20 @@ fza_files(void)
 	lws_snprintf(fza_dir, sizeof(fza_dir), "%s/www", fza_root);
 	lws_snprintf(sub, sizeof(sub), "%s/sub", fza_dir);
 	lws_snprintf(priv, sizeof(priv), "%s/www-private", fza_root);
+	lws_snprintf(fza_dir_locked, sizeof(fza_dir_locked), "%s/locked",
+		     fza_root);
+	lws_snprintf(fza_dir_vlocked, sizeof(fza_dir_vlocked), "%s/vlocked",
+		     fza_root);
+	lws_snprintf(fza_dir_gated, sizeof(fza_dir_gated), "%s/gated",
+		     fza_root);
+	lws_snprintf(fza_login, sizeof(fza_login), "%s/login.txt", fza_root);
 	if (mkdir(fza_dir, 0700) || mkdir(sub, 0700) || mkdir(priv, 0700) ||
-	    !realpath(fza_dir, fza_dir_real))
+	    mkdir(fza_dir_locked, 0700) || mkdir(fza_dir_vlocked, 0700) ||
+	    mkdir(fza_dir_gated, 0700) ||
+	    !realpath(fza_dir, fza_dir_real) ||
+	    !realpath(fza_dir_locked, fza_gate[0].real) ||
+	    !realpath(fza_dir_vlocked, fza_gate[1].real) ||
+	    !realpath(fza_dir_gated, fza_gate[2].real))
 		return 1;
 
 	if (fza_file(fza_dir, "index.html",
@@ -732,7 +935,19 @@ fza_files(void)
 	    fza_file(fza_root, "secret.txt", (const uint8_t *)fza_secret,
 		     FZA_SECRET_LEN, FZA_SECRET_LEN) ||
 	    fza_file(priv, "secret.txt", (const uint8_t *)fza_secret,
-		     FZA_SECRET_LEN, FZA_SECRET_LEN))
+		     FZA_SECRET_LEN, FZA_SECRET_LEN) ||
+	    fza_file(fza_root, "login.txt", (const uint8_t *)FZA_CREDS "\n",
+		     sizeof(FZA_CREDS), sizeof(FZA_CREDS)) ||
+	    fza_file(fza_dir_locked, "index.html", (const uint8_t *)fza_locked,
+		     FZA_SECRET_LEN, FZA_SECRET_LEN) ||
+	    fza_file(fza_dir_locked, "l.txt", (const uint8_t *)fza_locked,
+		     FZA_SECRET_LEN, 4 * FZA_SECRET_LEN) ||
+	    fza_file(fza_dir_vlocked, "index.html", (const uint8_t *)fza_locked,
+		     FZA_SECRET_LEN, FZA_SECRET_LEN) ||
+	    fza_file(fza_dir_gated, "index.html", (const uint8_t *)fza_gated,
+		     FZA_SECRET_LEN, FZA_SECRET_LEN) ||
+	    fza_file(fza_dir_gated, "g.txt", (const uint8_t *)fza_gated,
+		     FZA_SECRET_LEN, 4 * FZA_SECRET_LEN))
 		return 1;
 
 	fza_mount.origin = fza_dir;

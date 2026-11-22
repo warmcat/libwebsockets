@@ -18,11 +18,27 @@
  *		       harness allows it
  *   config bit 2:      the app leaves a body's pull until an EVENT 2 op
  *   config bit 3 - 5:  how many 64-byte pieces of POST body, 1 .. 8
+ *   config bit 6:      the request has credentials, for digest auth, and
+ *		       for lws to keep from going to another host on a
+ *		       redirect
+ *   config bit 7:      the client keeps cookies, in a jar emptied for each
+ *		       input
  *
  * The harness' EVENT ops 2 .. 5 are the application of its own accord:
  * pulling the body it left, stopping and restarting rx, and closing the
  * connection from its next callback.
+ *
+ * As the server application does (sansio-srv-app.h), this one checks what
+ * lws promises it, and aborts with "LWS FUZZ ORACLE: <what>" for libFuzzer
+ * to report when lws breaks a promise:
+ *
+ *  - lws_client_redirect_info() only says credentials may go where a
+ *    redirect takes the request when, read here without lws' help, its
+ *    Location is https to the host asked for, "fuzz", or a subdomain of it
  */
+
+#include <fcntl.h>
+#include <sys/stat.h>
 
 struct fzc {
 	struct lws	*wsi;		/* while it exists */
@@ -34,6 +50,46 @@ struct fzc {
 };
 
 static struct fzc fzc;
+static char fzc_dir[64], fzc_jar[96];
+
+static void
+fzc_broken_promise(const char *what, const char *detail, size_t len)
+{
+	fprintf(stderr, "LWS FUZZ ORACLE: %s: '%.*s'\n", what,
+		(int)(len > 256 ? 256 : len), detail);
+	abort();
+}
+
+/*
+ * Whether credentials may go where a redirect's Location, as the server sent
+ * it, takes the request: only over https, to the host asked for, "fuzz", or
+ * a subdomain of it.  An address is no host's subdomain, and userinfo is
+ * refused anyway.  The connection here is never tls, so neither is a
+ * Location relative to it.
+ */
+static int
+fzc_creds_may_go(const char *loc)
+{
+	const char *a = loc + 8;
+	size_t al, hl;
+
+	if (strncasecmp(loc, "https://", 8))
+		return 0;
+
+	al = strcspn(a, "/?#");
+	if (memchr(a, '@', al) || *a == '[')
+		return 0;
+
+	hl = strcspn(a, ":/?#");
+	if (hl > al)
+		hl = al;
+	if (hl && a[hl - 1] == '.')
+		/* the same host, fully qualified */
+		hl--;
+
+	return (hl == 4 && !strncasecmp(a, "fuzz", 4)) ||
+	       (hl > 5 && !strncasecmp(a + hl - 5, ".fuzz", 5));
+}
 
 static int
 fzc_pull(struct lws *wsi)
@@ -84,6 +140,19 @@ fzc_callback(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		break;
+
+	case LWS_CALLBACK_CLIENT_HTTP_REDIRECT:
+	{
+		lws_client_redirect_info_t ri;
+
+		/* in is the Location as the server sent it */
+		if (in && !lws_client_redirect_info(wsi, &ri) &&
+		    ri.credentials_ok && !fzc_creds_may_go((const char *)in))
+			fzc_broken_promise("a redirect may take credentials "
+					   "to another host", (const char *)in,
+					   strlen((const char *)in));
+		break;
+	}
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
 		fzc.wsi = wsi;
@@ -197,14 +266,33 @@ fzc_event(struct fzp_transport *t, int ev)
 
 static struct lws_vhost *fzc_vh;
 
+static void
+fzc_cleanup(void)
+{
+	unlink(fzc_jar);
+	rmdir(fzc_dir);
+}
+
 static int
 fzc_init(void)
 {
 	struct lws_context_creation_info info;
+	const char *tmp = getenv("TMPDIR");
+
+	/* the cookie jar's file goes in a dir that goes again at exit */
+	lws_snprintf(fzc_dir, sizeof(fzc_dir), "%s/lws-fuzz-XXXXXX",
+		     tmp && strlen(tmp) < 40 ? tmp : "/tmp"); /* NOSONAR: mkdtemp */
+	if (!mkdtemp(fzc_dir))
+		return 1;
+	lws_snprintf(fzc_jar, sizeof(fzc_jar), "%s/jar", fzc_dir);
+	atexit(fzc_cleanup);
 
 	memset(&info, 0, sizeof(info));
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR)
+	info.http_nsc_filepath = fzc_jar;
+#endif
 
 	if (fzp_init(&info))
 		return 1;
@@ -234,6 +322,11 @@ fzc_connect(uint8_t cfg, int ws_ok, int ssl_flags)
 	if (m == 3 && !ws_ok)
 		m = 0;
 
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR)
+	/* a new connection: nothing an earlier input's server set goes */
+	lws_http_cookie_jar_fuzz_clear(fzp_cx);
+#endif
+
 	memset(&fzc, 0, sizeof(fzc));
 	fzc.defer = !!(cfg & 4);
 	if (m == 2)
@@ -248,6 +341,12 @@ fzc_connect(uint8_t cfg, int ws_ok, int ssl_flags)
 	ci.path			= "/fuzz";
 	ci.local_protocol_name	= "fuzz-client";
 	ci.ssl_connection	= ssl_flags;
+	if (cfg & 0x40) {
+		ci.auth_username	= "fuzz";
+		ci.auth_password	= "sesame";
+	}
+	if (cfg & 0x80)
+		ci.ssl_connection |= LCCSCF_CACHE_COOKIES;
 	if (m == 3)
 		ci.protocol	= "echo";
 	else

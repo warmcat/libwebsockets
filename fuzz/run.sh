@@ -474,6 +474,25 @@ minimize() {
 # profiling makes the operands of comparisons count as coverage, so getting
 # closer to a magic constant or a length check is progress the fuzzer keeps.
 run_target() {
+#
+# A connection target's input is a program of what happens on it
+# (sansio-peer.h), and saying a lot takes room: several requests, a flow
+# control window's worth of frames, a header block in CONTINUATIONs.
+# libFuzzer starts each run with inputs no longer than the corpus' longest,
+# and lets them grow only after a long time finding nothing new, which a
+# slice of a few minutes never gets to: srv-h2's corpus stayed under 600
+# bytes.  So these may use up to FUZZ_SESSION_MAX_LEN at once.
+#
+FUZZ_SESSION_MAX_LEN=16384
+
+len_opts() {
+	case "$1" in
+	h1|h2|ws|ws-pmd|cli-h1|cli-h2|cli-ws|srv-h1|srv-h2|srv-xproto)
+		echo "-max_len=$FUZZ_SESSION_MAX_LEN -len_control=0"
+		;;
+	esac
+}
+
 	dict=""
 	if [ -r "$REPO/fuzz/fuzz-$1/$1.dict" ]; then
 		dict="-dict=$REPO/fuzz/fuzz-$1/$1.dict"
@@ -486,6 +505,7 @@ run_target() {
 		-use_value_profile=1 \
 		$dict \
 		$UNIT_TIMEOUT \
+		$(len_opts "$1") \
 		$FUZZ_OPTS
 }
 

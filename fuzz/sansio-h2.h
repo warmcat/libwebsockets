@@ -20,7 +20,9 @@
  *		       1 END_STREAM, bit 2 an RFC 8441 ws CONNECT for "echo".
  *		       From a server peer, an answer: stream, status byte; bits
  *		       0 - 3 pick a :status, good or not, bit 1 END_STREAM, bit
- *		       5 a content-length of the next byte * 64
+ *		       5 a content-length of the next byte * 64; with bit 6,
+ *		       bits 2 - 4 pick a redirect or a 401 / 407 instead, for
+ *		       the more hpack to give its Location, or its challenge
  *    a & 15 = 11:      DATA of (byte + 1) * 64 bytes on stream, END_STREAM if
  *		       a & 16
  *    a & 15 = 12:      WINDOW_UPDATE on stream of the next 4 bytes
@@ -149,14 +151,19 @@ h2_op(struct fzp_transport *t, int a, const uint8_t *in, size_t len)
 				"200", "204", "206", "304", "400", "404",
 				"500", "100", "101", "199", "999", "20",
 				"2000", "", "+20", "abc",
+			}, * const st_redir_auth[] = {
+				"301", "302", "303", "307", "308", "401",
+				"407", "300",
 			};
+			const char *status;
 
 			sid = rd_sid(&r);
 			m = rd_u8(&r);
 			n = 0;
-			n += hp_lit(pl + n, 8, NULL,
-				    (const uint8_t *)st[m & 15],
-				    strlen(st[m & 15]));
+			status = (m & 0x40) ? st_redir_auth[(m >> 2) & 7] :
+					      st[m & 15];
+			n += hp_lit(pl + n, 8, NULL, (const uint8_t *)status,
+				    strlen(status));
 			if (m & 0x20) {
 				k = (size_t)lws_snprintf((char *)path,
 						sizeof(path), "%u",
@@ -174,10 +181,6 @@ h2_op(struct fzp_transport *t, int a, const uint8_t *in, size_t len)
 					    (const uint8_t *)"CONNECT", 7);
 				n += hp_lit(pl + n, 0, ":protocol",
 					    (const uint8_t *)"websocket", 9);
-				n += hp_lit(pl + n, 0, "sec-websocket-version",
-					    (const uint8_t *)"13", 2);
-				n += hp_lit(pl + n, 0, "sec-websocket-protocol",
-					    (const uint8_t *)"echo", 4);
 			} else
 				/* POST : GET */
 				pl[n++] = (m & 1) ? 0x83 : 0x82;
@@ -186,6 +189,13 @@ h2_op(struct fzp_transport *t, int a, const uint8_t *in, size_t len)
 				    (const uint8_t *)"fuzz", 4);
 			n += hp_lit(pl + n, 4, NULL,
 				    k ? path : (const uint8_t *)"/", k ? k : 1);
+			/* after all the pseudoheaders, or it's refused */
+			if (m & 4) {
+				n += hp_lit(pl + n, 0, "sec-websocket-version",
+					    (const uint8_t *)"13", 2);
+				n += hp_lit(pl + n, 0, "sec-websocket-protocol",
+					    (const uint8_t *)"echo", 4);
+			}
 		}
 		n += rd_bytes(&r, pl + n, rd_u8(&r));
 		frame_send(t, 1, (uint8_t)(4 | ((m & 2) ? 1 : 0)), sid, n);

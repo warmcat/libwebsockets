@@ -47,6 +47,12 @@ turns on value profiling (`-use_value_profile=1`), so getting closer to the
 operand of a comparison, a magic constant or a length check, counts as
 progress the fuzzer keeps.
 
+The connection targets (h1, h2, ws, ws-pmd, cli-*, srv-*) take a program of
+what happens on a connection, and saying much takes room.  libFuzzer starts
+each run with inputs no longer than the corpus' longest and only slowly lets
+them grow, which a slice of a few minutes never gets far with, so `run.sh`
+lets these targets use up to 16KiB at once (`-max_len`, `-len_control=0`).
+
 ## Reading the output
 
 - `Done N runs in Ts` for a target means its time slice completed with no
@@ -169,9 +175,9 @@ doesn't fail.
 | `fuzz-srv-h1` | an h1 server connection and its application (`lib/sansio/http/`, `lib/roles/http/server/`) | sansIO: the input is a program of what the peer and the network do (see below); the server answers POSTs through `lws_spa`, streams, redirects, serves a file mount with ranges and gzip, and upgrades to ws with pmd |
 | `fuzz-srv-h2` | the same application over h2 (`lib/sansio/h2/`) | sansIO, h2 prior knowledge; the program's own op builds h2 frames with their lengths right ([sansio-h2.h](sansio-h2.h)) |
 | `fuzz-srv-xproto` | whether h1 and h2 mean the same thing by a request (`lib/sansio/http/`, `lib/sansio/h2/`) | the input describes one request, which is sent as h1, as h2, and on one h2 connection twice, adding its fields to the dynamic table and then referring to them there: what the application is told of each, and what it is answered, must agree (see below) |
-| `fuzz-cli-h1` | an h1 client connection reading a malicious server's response | sansIO; the first byte picks GET / HEAD / POST and whether the client pulls the body at once or later |
+| `fuzz-cli-h1` | an h1 client connection reading a malicious server's response | sansIO; the first byte picks GET / HEAD / POST, whether the client pulls the body at once or later, whether the request has credentials (digest auth), and whether the client keeps cookies, in a jar emptied for each input |
 | `fuzz-cli-ws` | a ws client: its upgrade response, then server frames | sansIO; the harness answers the client's key with the right accept, so the frames get parsed |
-| `fuzz-cli-h2` | an h2 client connection against a malicious server | sansIO, h2 prior knowledge, the server's SETTINGS sent first, then h2 frames built as for `fuzz-srv-h2` |
+| `fuzz-cli-h2` | an h2 client connection against a malicious server | sansIO, h2 prior knowledge, the server's SETTINGS sent first, then h2 frames built as for `fuzz-srv-h2`, whose answers can be redirects and 401 / 407 challenges; the first byte as for `fuzz-cli-h1` |
 | `fuzz-quic` | a QUIC server's connections, from datagrams to h3 and WebTransport (`lib/sansio/quic/`, `h3/`, `wt/`) | the fuzzer is four clients, the network and the clock on the udp listener's datagram transport: raw datagrams, packets protected as a client's are at Initial, Handshake and 1-RTT, key updates, CRYPTO ops carrying a ClientHello in pieces and the client's Finished, STREAM ops with the offsets right, path changes, a network that takes nothing, and time; seeds from `fuzz-quic/gen-seeds.py`; needs h3 (`LWS_WITH_HTTP3` + gnutls) |
 
 The `fuzz-h1`, `fuzz-h2` and `fuzz-ws` targets use the shared evil-peer
@@ -243,10 +249,21 @@ crash, when lws breaks a promise:
  - two secrets sit next to the mount's dir (`www/`), one in the fuzz dir and
    one in `www-private/`, whose name a check that forgets the `/` after the
    dir would take as inside it; everything lws sends is scanned for them
+ - three mounts are behind a gate: `/locked/` wants basic auth checked
+   against a login file, `/vlocked/` basic auth the application checks
+   (`LWSAUTHM_BASIC_AUTH_CALLBACK`), and `/gated/` an interceptor's say-so,
+   from a cookie `pass=letmein`.  The application reads the credentials and
+   the cookie itself as each request is dispatched, and a file behind a gate
+   opened for a request that didn't come through it is a broken promise;
+   what they serve is also scanned for in everything sent, in a session
+   where no request came through.  Their dirs are next to `www/`, not in
+   it: only where the filesystem folds names does lws refuse to serve one
+   mount's files through another whose dir holds them
 
 Each of the three traversal checks was confirmed to catch a traversal on its
 own, with the sanitiser's `..` handling and `lws_http_serve()`'s `..` refusal
-both disabled.
+both disabled, and each gate check to catch a request let through it, with
+the application's own reading of its credentials or cookie disabled.
 
 ### The same request, sent different ways
 
@@ -272,9 +289,25 @@ when the application isn't given all of a body, because it answered first or
 gave up on what it couldn't decode, how much it was given by then depends on
 how the body was cut up, so only the start of it is compared.
 
+A request refused as too big (413, 414 or 431) is not compared: h2's
+pseudo-headers take room in the ah that h1's request line doesn't, so a
+request at the edge fits one and not the other.
+
 It found, in its first seconds, that h1 kept the OWS after a header's value
 and h2 couldn't, and that a custom header referred to in the dynamic table
-was dropped.  `LWS_FUZZ_VERBOSE=1` shows all four views of an input.
+was dropped; then that a request with more urlargs than the ah could hold
+failed the whole h2 connection, where h1 answers it 414.
+`LWS_FUZZ_VERBOSE=1` shows all four views of an input.
+
+### The client's credentials
+
+The `cli-` targets' application ([sansio-cli-app.h](sansio-cli-app.h)) checks
+the same way that when `lws_client_redirect_info()` tells it the request's
+credentials may go where a redirect takes it, the Location, read without
+lws' help, is https to the host asked for or a subdomain of it.  It was
+confirmed to catch lws allowing it, with the application's own reading of
+the Location made to refuse everything.  The redirected request's own
+connection isn't made, so what lws itself sends there isn't seen.
 
 ## Survey: what to harness next
 
