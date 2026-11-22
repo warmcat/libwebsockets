@@ -1488,7 +1488,11 @@ str_val:
 		 */
 		wsi->keepalive_rejected = 1;
 
-		if (!lws_client_reset(&wsi, ssl, a, wsi->c_port, p, h, NULL,
+		/*
+		 * The port is the connection's: an h2 or h3 stream has none of
+		 * its own, and port 0 would retry on 443 with tls
+		 */
+		if (!lws_client_reset(&wsi, ssl, a, nwsi->c_port, p, h, NULL,
 				      1)) {
 			lwsl_wsi_err(wsi, "Failed to reset WSI for Digest auth");
 
