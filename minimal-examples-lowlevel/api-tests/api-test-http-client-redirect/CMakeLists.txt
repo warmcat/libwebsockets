@@ -25,9 +25,11 @@ if (requirements)
 	endif()
 
 	lws_get_free_port(PORT_HCR)
+	lws_get_free_port(PORT_HCR_TLS)
 
 	add_test(NAME api-test-http-client-redirect
-		 COMMAND lws-api-test-http-client-redirect -p ${PORT_HCR})
+		 COMMAND lws-api-test-http-client-redirect -p ${PORT_HCR}
+			 -t ${PORT_HCR_TLS} --certs ${CMAKE_CURRENT_SOURCE_DIR})
 	set_tests_properties(api-test-http-client-redirect
 			     PROPERTIES
 			     WORKING_DIRECTORY .

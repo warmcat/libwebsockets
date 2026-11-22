@@ -3327,6 +3327,19 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	if (method)
 		cisin[CIS_METHOD] = method;
 
+	/*
+	 * The request's digest auth credentials go with it, or a challenge
+	 * where it goes now (after a redirect, or when the retry after the
+	 * first challenge is challenged again) can't be answered.  Every
+	 * reset goes back to the same host, except a redirect, which isn't
+	 * followed if the request has credentials that may not go where it
+	 * leads (lws_client_redirect_creds_ok()).
+	 */
+	if (wsi->stash) {
+		cisin[CIS_USERNAME]	= wsi->stash->cis[CIS_USERNAME];
+		cisin[CIS_PASSWORD]	= wsi->stash->cis[CIS_PASSWORD];
+	}
+
 #if defined(LWS_WITH_TLS)
 	cisin[CIS_ALPN]		= wsi->alpn;
 #endif
