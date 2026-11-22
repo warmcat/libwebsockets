@@ -76,16 +76,37 @@ write('h2',['Input is h2 frames: whole frame headers of each type with the flags
             'entries, table size updates and the header names as literals.'],h2)
 
 # srv-h1 / srv-h2: as h1 / h2, and the application's urls, the mount's file
-# names, the names of the secrets next to it, and the ways a path can try to
-# walk out of it, for its checks (sansio-srv-app.h) to see
+# names, the names of the secrets next to it, the ways a path can try to walk
+# out of it, and the gated mounts with what gets through each gate, for its
+# checks (sansio-srv-app.h) to see both sides of them
 srv=['/post','/early','/stream','/status','/redir','/files','/files/','/files/sub/','index.html','big.txt',
  't.txt.gz','sub','x.txt','secret.txt','www','www-private','/www-private/','..','../','/../','%2e','%2E','%2e%2e',
  '%2f','%2F','%5c','%5C','\\','%25','%00','//','/.','/.?','/..?','..;','%2e%2e%2f','.%2e','%c0%ae',
- 'Accept-Encoding: gzip\r\n','Range: bytes=','If-None-Match: ']  # NOSONAR
+ 'Accept-Encoding: gzip\r\n','Range: bytes=','If-None-Match: ',
+ '/locked','/locked/','/vlocked','/vlocked/','/gated','/gated/','/intercept','l.txt','g.txt',
+ 'Authorization: Basic ZnV6ejpzZXNhbWU=\r\n','Basic ZnV6ejpzZXNhbWU=','ZnV6ejpzZXNhbWU=','fuzz:sesame',
+ 'Cookie: pass=letmein\r\n','pass=letmein','pass=']  # NOSONAR
 write('srv-h1',['As h1.dict, then the srv application\'s urls, its mount\'s file names,',
                 'the names of the secrets next to the mount, and ways out of it.'],h1+srv)
 write('srv-h2',['As h2.dict, then the srv application\'s urls, its mount\'s file names,',
                 'the names of the secrets next to the mount, and ways out of it.'],h2+srv)
+# cli-h1 / cli-h2: as h1 / h2, and what the server may answer with that the
+# client acts on: redirects, digest challenges and cookies, with the hosts on
+# both sides of what a redirect may take the request's credentials to
+cli=['HTTP/1.1 301 ','HTTP/1.1 302 ','HTTP/1.1 303 ','HTTP/1.1 307 ','HTTP/1.1 308 ','HTTP/1.1 401 ',
+ 'HTTP/1.1 407 ','location','www-authenticate','set-cookie','Location: ','WWW-Authenticate: ','Set-Cookie: ',
+ 'https://fuzz/','https://a.fuzz/','https://fuzz./','https://fuzz:443/','https://fuzz.evil/','https://evilfuzz/',
+ 'https://fuzz@evil/','https://[::1]/','http://fuzz/','//fuzz/','//other/','/x','x','?a=1','#f',
+ 'Digest realm="fuzz", ','qop="auth"','qop="auth-int"','nonce="','opaque="','algorithm=MD5','algorithm=SHA-256',
+ 'algorithm=SHA-512-256','stale=true','Basic realm="fuzz"',
+ 'a=b','; Path=/','; Domain=fuzz','; Domain=.fuzz','; Domain=evil','; Max-Age=60','; Max-Age=0',
+ '; Expires=Thu, 01 Jan 2099 00:00:00 GMT','; Secure','; HttpOnly','; SameSite=Lax','__Host-','__Secure-']  # NOSONAR
+write('cli-h1',['As h1.dict, then the redirects, digest challenges and cookies a',
+                'server can answer with, and hosts a redirect may or may not take',
+                'credentials to.'],h1+cli)
+write('cli-h2',['As h2.dict, then the redirects, digest challenges and cookies a',
+                'server can answer with, and hosts a redirect may or may not take',
+                'credentials to.'],h2+cli)
 # srv-xproto: its input's paths and values are the bytes themselves, but its
 # header names are picked by a byte, so only the paths and values matter
 xp=['gzip','deflate','br','identity','bytes=','bytes=0-',',',';','=',' ','\t','"','W/"','*','chunked','close',
@@ -107,6 +128,25 @@ jose=js+['"alg"','"enc"','"kty"','"crv"','"kid"','"use"','"key_ops"','"x"','"y"'
  '"PS256"','"RSA1_5"','"RSA-OAEP"','"RSA-OAEP-256"','"A128KW"','"A256KW"','"dir"','"ECDH-ES"','"ECDH-ES+A128KW"',
  '"A128GCM"','"A256GCM"','"A128CBC-HS256"','"A256CBC-HS512"','"DEF"','.','..','eyJ','AAAA']
 write('jose',['json syntax, and the JOSE / JWK member names and algorithm names.'],jose)
+
+# struct: json syntax, and fuzz-struct's two schemas and their member names
+struct=js+['"schema"','"fz"','"fz-other"','"name"','"desc"','"big"','"small"','"on"','"child"','"tag"','"s"',
+ '"items"','"u"','"flag"','"leaves"','"v"','"n"','"word"','"k"','4294967295','4294967296','255','256',
+ '-9223372036854775808','9223372036854775808']
+write('struct',['json syntax, then the member and schema names of fuzz-struct\'s',
+                'structs, and numbers at the edges of their members.'],struct)
+
+# ss-policy: json syntax, and the member names the policy parser knows (the
+# last part of each of its lejp paths), with values that steer it
+pol=[]
+for x in re.findall(r'^\s*"([^"]+)",', open(R+'/lib/secure-streams/policy-json.c').read(), re.M):
+    x=x.split('.')[-1].replace('[]','').replace('*','')
+    # not the file's other strings, eg, its log formats
+    if re.fullmatch(r'[a-z0-9_-]+', x): pol.append('"'+x+'"')
+pol=js+pol+['"h1"','"h2"','"h3"','"ws"','"mqtt"','"raw"','"GET"','"POST"','"sigv4"','"jwt"','"${','}"',
+ '[1000,2000,3000]','"PEM"','"-----BEGIN CERTIFICATE-----"','#']
+write('ss-policy',['json syntax, the member names the Secure Streams policy parser',
+                   'knows (lib/secure-streams/policy-json.c), and values that steer it.'],pol)
 
 # lhp and lhp-layout: tag and property names lhp knows, and html / css
 # syntax
