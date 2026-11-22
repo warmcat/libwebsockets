@@ -43,6 +43,7 @@ On every transport:
 |a directory named like the default document (`./docroot/loop/index.html/`), so no regular file is ever found|403 (404 on windows, which can't open a directory as a file)|
 |DOS device names (`con`, `nul`, `com1.html`, `lpt1.txt`, ...), which windows opens as the device in any directory|not served|
 |bad %-encoding, and CR, LF, NUL and DEL smuggled in by %-encoding in the path or args|refused|
+|120 urlargs, more than the ah has header fragments for|414 or 431, the stream's: no connection is failed over it|
 
 Refused means a 403 on h1, a GOAWAY PROTOCOL_ERROR on h2 and the connection
 closed on h3.
@@ -93,6 +94,7 @@ h2, raw frames:
 |WINDOW_UPDATE past 2^31 - 1|GOAWAY FLOW_CONTROL_ERROR|
 |a `get ` field smuggling a path, an uppercase field name, a pseudo-header name running on past one lws knows (`:methodx`)|GOAWAY PROTOCOL_ERROR|
 |a `uri-args` field adding urlargs, a `put` field giving an unaliased `:method` a URI|served, from `:path` alone|
+|120 urlargs on stream 1, then a GET on stream 3|431, then the GET served|
 |an unbracketed IPv6 literal `:authority` (`::1`, as older lws clients send) and no `Host`|served|
 |a pseudo-header repeated with a literal name, or after one added to the dynamic table|GOAWAY PROTOCOL_ERROR|
 |CR LF in a value, no or two `:path`, pseudo-header after a regular one, `connection`, `transfer-encoding`, 1500 fields|nothing served|

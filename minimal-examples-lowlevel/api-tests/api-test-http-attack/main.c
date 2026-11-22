@@ -142,6 +142,8 @@ enum verdict {
 	V_THEN_ECHO,	  /* h1: .status, then 200 with the echo of expect,
 			   * and nothing else */
 	V_DROPPED,	  /* h1: closed without a response, in time */
+	V_TOO_BIG,	  /* answered 414 or 431: too big, not hostile, so
+			   * no connection is failed over it */
 };
 
 /*
@@ -159,6 +161,7 @@ struct path_case {
 #define ATK_REFUSED(p)	{ p, V_REFUSED, 0, NULL }
 #define ATK_FILE_OK(p)	{ p, V_STATUS, 200, ATK_DOCROOT_MARK }
 #define ATK_NOT_SERVED(p)	{ p, V_NO_2XX, 0, NULL }
+#define ATK_ARGS10	"a=1&a=1&a=1&a=1&a=1&a=1&a=1&a=1&a=1&a=1&"
 
 static const struct path_case path_cases[] = {
 
@@ -184,6 +187,13 @@ static const struct path_case path_cases[] = {
 	ATK_ECHO("%2f%2e%2e%2f%2e./xxtest.html?arg=1", "/xxtest.html?arg=1"),
 	ATK_ECHO("%2f%2e%2e%2f%2e./xxtest.html?arg=/../.",
 	     "/xxtest.html?arg=/../."),
+	/*
+	 * more urlargs than the ah has fragments for: on h2 and h3 the
+	 * stream's 431, where it was the whole connection failed
+	 */
+	{ "/alive?" ATK_ARGS10 ATK_ARGS10 ATK_ARGS10 ATK_ARGS10 ATK_ARGS10
+	  ATK_ARGS10 ATK_ARGS10 ATK_ARGS10 ATK_ARGS10 ATK_ARGS10 ATK_ARGS10
+	  ATK_ARGS10, V_TOO_BIG, 0, NULL },
 
 	/* directory traversal on the file mount, from attack.sh */
 
@@ -1224,6 +1234,16 @@ evaluate(void)
 		}
 		break;
 
+	case V_TOO_BIG:
+		if (status != HTTP_STATUS_REQ_URI_TOO_LONG &&
+		    status != HTTP_STATUS_REQ_HEADER_FIELDS_TOO_LARGE) {
+			lws_snprintf(why, sizeof(why), "wanted 414 or 431, "
+				     "got %d, goaway %d", status, cn.goaway);
+			case_done(why);
+			return;
+		}
+		break;
+
 	case V_NO_2XX:
 		for (n = 0; n < nr; n++)
 			if (r[n].status >= 200 && r[n].status < 300)
@@ -1969,6 +1989,34 @@ b_uri_args_field(struct txb *t)
 	return 1;
 }
 
+/*
+ * More urlargs than the ah has fragments for: as on h1, the request is too
+ * big, not hostile.  Its stream is answered 431, and the connection goes on
+ * to serve the next one.  It used to be a GOAWAY, taking every other stream
+ * on the connection with it.
+ */
+
+static uint32_t
+b_many_urlargs(struct txb *t)
+{
+	uint8_t hb[768], *p;
+	char path[600];
+	size_t n;
+	int i;
+
+	n = (size_t)lws_snprintf(path, sizeof(path), "/alive?");
+	for (i = 0; i < 120; i++)
+		n += (size_t)lws_snprintf(path + n, sizeof(path) - n, "a=1&");
+
+	h2_preface(t);
+	p = hp_request(hb, HP_METHOD_GET, path);
+	h2_frame(t, H2_HEADERS, H2F_END_STREAM | H2F_END_HEADERS, 1, hb,
+		 lws_ptr_diff_size_t(p, hb));
+	h2_get(t, 3, "/alive");
+
+	return 3;
+}
+
 static uint32_t
 b_put_field(struct txb *t)
 {
@@ -2424,6 +2472,8 @@ static const struct h2_attack h2_attacks[] = {
 	{ "\"uri-args\" field adding urlargs", b_uri_args_field, V_ECHO,
 	  200, 0, NULL },
 	{ "\"put\" field smuggling a URI", b_put_field, V_ECHO, 200, 0, NULL },
+	{ "120 urlargs, then a request on the same connection",
+	  b_many_urlargs, V_ECHO, 200, 0, NULL },
 	{ "bare IPv6 literal :authority, no Host", b_authority_bare_v6,
 	  V_ECHO, 200, 0, NULL },
 	{ "pseudo-header name running on past one lws knows",

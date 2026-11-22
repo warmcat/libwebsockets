@@ -370,6 +370,12 @@ lws_hpack_path_char(struct lws *wsi, uint8_t c)
 	case LPUR_SWALLOW:
 		return 0;
 	case LPUR_EXCESSIVE:
+		/*
+		 * Out of fragments, or of room, for the next urlarg: the
+		 * request is too big, as h1 has it, and the stream gets a 431.
+		 * Nothing is wrong with the connection, or its other streams.
+		 */
+		return LWS_H2_FRAG_NO_ROOM;
 	case LPUR_FORBID:
 		if (lws_h2_goaway(lws_get_network_wsi(wsi),
 				  H2_ERR_PROTOCOL_ERROR, "Evil URI"))
