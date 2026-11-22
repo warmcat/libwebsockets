@@ -141,6 +141,31 @@ def h3_get(path=b'/'):
           AUTHORITY)			# :authority, literal
     return h3_frame(1, fl)
 
+# qpack's encoder stream (RFC 9204 4.3), on the client's uni stream 6: its
+# type, then a dynamic table of 4096, what we told the server's decoder it
+# may have, and two inserts, :authority "fuzz" by static name reference 0,
+# and x-fz "abc" with a literal name.  Both builds' decoders allow 4096 or
+# more, and so 128 or more entries, so a Required Insert Count of up to 128
+# goes on the wire as itself + 1.
+QPACK_ENC = b'\x02'
+QPACK_CAP = b'\x3f\xe1\x1f'			# Set Dynamic Table Capacity 4096
+QPACK_INSERTS = (b'\xc0\x04fuzz' +		# Insert, static name ref 0
+                 b'\x44x-fz\x03abc')		# Insert, literal name
+
+def h3_get_dyn(path=b'/', post_base=False):
+    """HEADERS of a GET whose :authority and x-fz come from the two inserts:
+    Required Insert Count 2, and Base 2 with them before it, or Base 0 with
+    them after it"""
+    if post_base:
+        # Base 0: sign 1, Delta Base RIC - Base - 1 = 1; post-base 0 and 1
+        pre, refs = b'\x03\x81', b'\x10\x11'
+    else:
+        # Base 2: Delta Base 0; relative 1 is the first insert, 0 the second
+        pre, refs = b'\x03\x00', b'\x81\x80'
+    fl = (pre + b'\xd1' + b'\xd7' + b'\x51' + bytes([len(path)]) + path +
+          refs)
+    return h3_frame(1, fl)
+
 def dgram(data):
     if len(data) <= 31:
         return op(OP_DGRAM, len(data) - 1) + data
@@ -237,6 +262,27 @@ seeds.update({
                                  stream(0, SID_0, h3_frame(1, b'\x02\x00\x80')) +
                                  packet(0, APP, b'\x0d\x00' + varint(5)) +
                                  time(12),
+    # the dynamic table: inserts, then a request referring to them, before
+    # and after its Base, so the server's decoder acknowledges the section
+    'h3-qpack-dyn': handshake(1) + stream(1, SID_CONTROL, h3_control) +
+                    stream(1, SID_QPACK_ENC, QPACK_ENC + QPACK_CAP +
+                           QPACK_INSERTS) +
+                    stream(1, SID_0, h3_get_dyn(), True) + time(12) +
+                    stream(1, SID_4, h3_get_dyn(b'/p', True), True) +
+                    time(12),
+    # ... the request first, blocked until the inserts come, then replayed
+    'h3-qpack-blocked': handshake(2) + stream(2, SID_CONTROL, h3_control) +
+                        stream(2, SID_0, h3_get_dyn(), True) + time(10) +
+                        stream(2, SID_QPACK_ENC, QPACK_ENC + QPACK_CAP) +
+                        time(10) +
+                        stream(2, SID_QPACK_ENC, QPACK_INSERTS) + time(12),
+    # ... inserts that duplicate one, then shrink the table to evict them,
+    # then a request referring to one of the evicted: a connection error
+    'h3-qpack-evict': handshake(3) + stream(3, SID_CONTROL, h3_control) +
+                      stream(3, SID_QPACK_ENC, QPACK_ENC + QPACK_CAP +
+                             QPACK_INSERTS + b'\x00' +	# Duplicate rel 0
+                             b'\x20') +		# capacity 0
+                      stream(3, SID_0, h3_get_dyn(), True) + time(12),
     # it moves once established: path validation
     'migrate-1rtt': handshake(0) + op(OP_PEER, 6) + packet(0, APP, ping) +
                     time(12),
