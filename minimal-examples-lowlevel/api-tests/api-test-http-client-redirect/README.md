@@ -27,7 +27,8 @@ that decide what it sends where afterwards.
    one, to the same authority, so the request's `Host:` is kept (when lws has
    digest auth and a tls library, whose hashes it uses).  The challenge's
    `opaque` is given back, and parameters lws doesn't know (`charset`,
-   `userhash`) are ignored rather than failing the challenge.
+   `userhash`) are ignored rather than failing the challenge.  A retry that
+   is challenged again, as for a stale nonce, is answered again.
  - `lws_client_redirect_info()` tells the redirect callback where a redirect
    goes, and whether credentials set for the request may go there: only over
    https, to the request's host or a subdomain of it (another port is the
@@ -35,18 +36,24 @@ that decide what it sends where afterwards.
    tells the handshake header callback of a request a redirect made where it
    is going, and nothing for one that was not redirected.
  - lws itself refuses a redirect that would take the digest auth credentials
-   it holds for the request elsewhere.
+   it holds for the request elsewhere.  One that may take them, over https to
+   the same host, does: a challenge where it leads is answered with them.
 
 The server is a raw socket in the same process speaking http by hand, so it
 can send exactly these redirects, and see exactly the request line, `Host:`
 and body the client sent, and on which of the case's connections.  Each case
-checks the last request the server saw, and how many it saw.
+checks the last request the server saw, and how many it saw.  It listens over
+tls on a second port too, with `localhost-100y.cert`, which the client vhost
+for that case trusts and nothing else: credentials only follow a redirect over
+tls that was strictly verified.
 
 ```
-$ ./lws-api-test-http-client-redirect -p 7730
+$ ./lws-api-test-http-client-redirect -p 7730 -t 7731 --certs .
 ```
 
 Option|Meaning
 ---|---
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
 -p <port>|The server's port (default 7730)
+-t <port>|The server's tls port (default 7731)
+--certs <dir>|Where `localhost-100y.cert` and `.key` are (default .)

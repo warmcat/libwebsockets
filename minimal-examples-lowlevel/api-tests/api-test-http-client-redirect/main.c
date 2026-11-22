@@ -37,7 +37,9 @@
  *  - a digest auth challenge that closes its connection is answered on a
  *    new one, to the same authority, so the request's Host: is kept.  The
  *    challenge's opaque is given back, and parameters lws doesn't know
- *    (charset, userhash) are ignored, not taken as a broken challenge
+ *    (charset, userhash) are ignored, not taken as a broken challenge; and
+ *    when the retry is challenged again, as for a stale nonce, the
+ *    credentials are still there to answer it with
  *
  *  - lws_client_redirect_info() tells the redirect callback where the
  *    redirect goes, and whether credentials set for the request may go
@@ -46,11 +48,16 @@
  *    where it is going, and nothing for one that was not redirected
  *
  *  - lws itself refuses a redirect that would take the digest auth
- *    credentials it holds for the request anywhere else
+ *    credentials it holds for the request anywhere else.  One that may take
+ *    them, over https to the same host, does: a challenge where it leads is
+ *    answered with them
  *
  * The server is a raw socket in the same process speaking http by hand, so
  * it can send exactly the redirects above, and see exactly the request line,
  * Host: and body the client sent, and on which of the case's connections.
+ * It also listens over tls on a second port, with a cert for localhost that
+ * the "cli-tls" vhost trusts and nothing else, since credentials only follow
+ * a redirect over tls that was strictly verified.
  * Each case checks the last request the server saw, and how many it saw.
  *
  * The test fails if any case does not end as expected inside the watchdog
@@ -85,6 +92,7 @@ enum {
 	HCK_INFO,	/* the redirect callback judges where it goes */
 	HCK_CREDS,	/* a GET with credentials, redirected */
 	HCK_WS,		/* a ws upgrade, maybe redirected */
+	HCK_TLS_DIGEST,	/* HCK_DIGEST over tls, to localhost, redirected */
 };
 
 static const struct hcr_case {
@@ -258,6 +266,14 @@ static const struct hcr_case {
 	  "cli", "GET", "/auth", NULL,
 	  "GET /auth host=" HCR_VHOST " len=0 conn=2 auth=digest opaque",
 	  NULL, 2, HCK_DIGEST, NULL, 0, 0 },
+	{ "a redirect over https to the same host keeps the credentials",
+	  "cli-tls", "GET", "/start?redir=auth", NULL,
+	  "GET /auth host=localhost len=0 conn=3 auth=digest opaque",
+	  NULL, 3, HCK_TLS_DIGEST, NULL, 0, 0 },
+	{ "a digest retry challenged again is answered again",
+	  "cli", "GET", "/auth?stale", NULL,
+	  "GET /auth?stale host=" HCR_VHOST " len=0 conn=3 auth=digest opaque",
+	  NULL, 3, HCK_DIGEST, NULL, 0, 0 },
 #endif
 };
 
@@ -295,11 +311,14 @@ static const struct hcr_redir {
 	{ "http-sub",	302, "http://sub." HCR_VHOST "/x",	NULL },
 	{ "netpath-sub", 302, "//sub." HCR_VHOST "/x",		NULL },
 	{ "ip",		302, "https://127.0.0.1/x",		NULL },
+	{ "auth",	302, "/auth",				NULL },
 };
 
 static struct lws_context *context;
 static lws_sorted_usec_list_t sul_next, sul_watchdog, sul_second, sul_piece;
 static struct lws *cwsi;
+static const char *certs = ".";
+static int port_tls = 7731;
 static int cur = -1, failures, port = 7730, status, done, phase, conns,
 	   conn_base, nseen, pieces_sent, piece_due, nappend;
 static const char *ri_bad;
@@ -465,18 +484,24 @@ hcr_answer(struct pss_srv *pss, const char *head, size_t hlen, size_t body)
 				  "Upgrade: websocket\r\nConnection: Upgrade\r\n"
 				  "Sec-WebSocket-Accept: %s\r\n\r\n", accept);
 #endif
-	} else if (!strcmp(target, "/auth") && !auth[0])
+	} else if ((!strcmp(target, "/auth") && !auth[0]) ||
+		   (!strcmp(target, "/auth?stale") && pss->conn < 3))
 		/*
 		 * Closing after the challenge, the retry can't go on this
-		 * connection: the client must make another
+		 * connection: the client must make another.  "?stale" has
+		 * its first retry challenged again, as a server that thinks
+		 * the nonce it answered with is stale does
 		 */
 		o += lws_snprintf(o, lws_ptr_diff_size_t(oe, o),
 			"HTTP/1.1 401 Unauthorized\r\n"
 			"WWW-Authenticate: Digest realm=\"hcr\", "
-			"nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c093\", "
-			"qop=\"auth\", opaque=\"" HCR_OPAQUE "\", "
-			"charset=UTF-8, userhash=false\r\n"
-			"Content-Length: 0\r\nConnection: close\r\n\r\n");
+			"nonce=\"%s\", qop=\"auth\", "
+			"opaque=\"" HCR_OPAQUE "\", charset=UTF-8, "
+			"userhash=false%s\r\n"
+			"Content-Length: 0\r\nConnection: close\r\n\r\n",
+			pss->conn == 2 ? "0a4f113b7f4ad4cca64d24e3f0e02aa5" :
+					 "dcd98b7102dd2f0e8b11d0f600bfb0c093",
+			pss->conn == 2 ? ", stale=true" : "");
 	else
 		/*
 		 * Saying "Connection: close", the connection is still left
@@ -631,9 +656,17 @@ client_connect(const char *target)
 	i.opaque_user_data = (void *)(intptr_t)(cur + 1);
 	if (c->kind == HCK_TWO)
 		i.ssl_connection = LCCSCF_PIPELINE;
-	if (c->kind == HCK_DIGEST || c->kind == HCK_CREDS) {
+	if (c->kind == HCK_DIGEST || c->kind == HCK_CREDS ||
+	    c->kind == HCK_TLS_DIGEST) {
 		i.auth_username	= "user";
 		i.auth_password	= "pass"; /* NOSONAR: test fixture */
+	}
+	if (c->kind == HCK_TLS_DIGEST) {
+		/* the name the server's cert is for, strictly checked */
+		i.host		= i.address;
+		i.origin	= i.host;
+		i.port		= port_tls;
+		i.ssl_connection = LCCSCF_USE_SSL;
 	}
 
 	if (!i.vhost || !lws_client_connect_via_info(&i))
@@ -658,16 +691,23 @@ static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
-	const struct hcr_case *c = &cases[cur];
+	const struct hcr_case *c;
 	char buf[LWS_PRE + 1024], *px = &buf[LWS_PRE];
 	int lenx = sizeof(buf) - LWS_PRE, n;
 	lws_client_redirect_info_t ri;
 	uint8_t **pp, *end;
 	size_t body;
 
-	/* a connection from an earlier case going away is not this case's */
-	if (lws_get_opaque_user_data(wsi) != (void *)(intptr_t)(cur + 1))
+	/*
+	 * A connection from an earlier case going away is not this case's,
+	 * and nor is a vhost's own callback (eg, its tls being set up) from
+	 * before the first case
+	 */
+	if (cur < 0 ||
+	    lws_get_opaque_user_data(wsi) != (void *)(intptr_t)(cur + 1))
 		return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+	c = &cases[cur];
 
 	switch (reason) {
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
@@ -881,6 +921,9 @@ int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH) && defined(LWS_WITH_TLS)
+	char cert[256], key[256];
+#endif
 	const char *p;
 	int n = 0;
 
@@ -894,10 +937,17 @@ main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "-t")))
+		port_tls = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--certs")))
+		certs = p;
 
 	lwsl_user("LWS API selftest: http client redirects\n");
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+#if defined(LWS_WITH_TLS)
+	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+#endif
 
 	context = lws_create_context(&info);
 	if (!context) {
@@ -915,6 +965,21 @@ main(int argc, const char **argv)
 	info.vhost_name = "srv";
 	if (!lws_create_vhost(context, &info))
 		goto bail;
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH) && defined(LWS_WITH_TLS)
+	/* ... and the same over tls, for the case that needs it */
+	lws_snprintf(cert, sizeof(cert), "%s/localhost-100y.cert", certs);
+	lws_snprintf(key, sizeof(key), "%s/localhost-100y.key", certs);
+	info.port = port_tls;
+	info.vhost_name = "srv-tls";
+	info.ssl_cert_filepath = cert;
+	info.ssl_private_key_filepath = key;
+	info.alpn = "http/1.1";
+	if (!lws_create_vhost(context, &info))
+		goto bail;
+	info.ssl_cert_filepath = NULL;
+	info.ssl_private_key_filepath = NULL;
+	info.alpn = NULL;
+#endif
 	info.options &= ~(uint64_t)LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG;
 	info.listen_accept_role = NULL;
 	info.listen_accept_protocol = NULL;
@@ -935,6 +1000,13 @@ main(int argc, const char **argv)
 	info.vhost_name = "cli-close";
 	if (!lws_create_vhost(context, &info))
 		goto bail;
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH) && defined(LWS_WITH_TLS)
+	/* trusting the server's cert, and no other */
+	info.vhost_name = "cli-tls";
+	info.client_ssl_ca_filepath = cert;
+	if (!lws_create_vhost(context, &info))
+		goto bail;
+#endif
 
 	lws_sul_schedule(context, 0, &sul_next, next_case, 1);
 
