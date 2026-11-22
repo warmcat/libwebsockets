@@ -979,6 +979,29 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 	return 0;
 }
 
+/*
+ * The request's header block does not fit: keep none of it, and once the
+ * block is done, answer 431 rather than act on part of it.  qpack keeps its
+ * own dynamic table, so there is nothing else to keep in step.  There is no
+ * one to answer for trailers, whose request is already under way: those
+ * still fail it.
+ */
+static int
+lws_h3_hdrs_oversize(struct lws *wsi)
+{
+	/* a client has nobody to answer, it fails the response */
+	if (!lwsi_role_server(wsi) || !lwsi_hdrs_pending(wsi))
+		return -1;
+
+	if (!wsi->h3.hdrs_oversized) {
+		lwsl_wsi_info(wsi, "header block oversized, will answer 431");
+		_lws_header_table_reset(wsi->stream.ah);
+		wsi->h3.hdrs_oversized = 1;
+	}
+
+	return 0;
+}
+
 static int
 lws_h3_parse_path(struct lws *wsi, const char *value, size_t value_len)
 {
@@ -1017,8 +1040,15 @@ lws_h3_parse_path(struct lws *wsi, const char *value, size_t value_len)
 		case LPUR_SWALLOW:
 			continue;
 		case LPUR_EXCESSIVE:
+			/*
+			 * Out of fragments, or of room, for the next urlarg:
+			 * the request is too big, as h1 has it, and the
+			 * stream gets a 431.  Nothing is wrong with the
+			 * connection, or its other streams.
+			 */
+			return lws_h3_hdrs_oversize(wsi);
 		case LPUR_FORBID:
-			lwsl_wsi_notice(wsi, "Evil or excessive URI in H3 path");
+			lwsl_wsi_notice(wsi, "Evil URI in H3 path");
 			lws_quic_enter_closing_state(nwsi, LWS_H3_MESSAGE_ERROR, 0, 1);
 			return -1;
 		default:
@@ -1103,29 +1133,6 @@ lws_h3_hdr_room(struct lws *wsi, size_t need)
 	return ah->nfrag + 1 < (int)LWS_ARRAY_SIZE(ah->frags) &&
 	       (size_t)ah->pos + need + 2 <
 			(size_t)wsi->a.context->max_http_header_data;
-}
-
-/*
- * The request's header block does not fit: keep none of it, and once the
- * block is done, answer 431 rather than act on part of it.  qpack keeps its
- * own dynamic table, so there is nothing else to keep in step.  There is no
- * one to answer for trailers, whose request is already under way: those
- * still fail it.
- */
-static int
-lws_h3_hdrs_oversize(struct lws *wsi)
-{
-	/* a client has nobody to answer, it fails the response */
-	if (!lwsi_role_server(wsi) || !lwsi_hdrs_pending(wsi))
-		return -1;
-
-	if (!wsi->h3.hdrs_oversized) {
-		lwsl_wsi_info(wsi, "header block oversized, will answer 431");
-		_lws_header_table_reset(wsi->stream.ah);
-		wsi->h3.hdrs_oversized = 1;
-	}
-
-	return 0;
 }
 
 static int
