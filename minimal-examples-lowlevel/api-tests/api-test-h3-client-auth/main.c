@@ -7,10 +7,11 @@
  * Universal Public Domain Dedication.
  *
  * What the h3 client sends for the request besides what the caller asked
- * for: the answer to a digest challenge, and the cookies from its jar.  The
- * h1 and h2 clients always sent both, but the h3 client's request composer
- * sent neither, so a digest challenge over h3 was answered without its
- * Authorization, and a site's cookies never went back to it over h3.
+ * for: the answer to a digest challenge, the cookies from its jar, and the
+ * Content-Type of a form body.  The h1 and h2 clients always sent them, but
+ * the h3 client's request composer sent none, so a digest challenge over h3
+ * was answered without its Authorization, a site's cookies never went back
+ * to it over h3, and a form POSTed over h3 arrived without its type.
  *
  * Both ends are in this process, on h3 only (no fallback to tcp).
  *
@@ -21,6 +22,10 @@
  *  --case cookie: the client keeps cookies.  It GETs /set, answered with a
  *    Secure cookie, then makes a new connection to GET /check, which
  *    answers with the Cookie header it came with.  It must be the cookie.
+ *
+ *  --case form: the client POSTs a form body to /form, with
+ *    LCCSCF_HTTP_X_WWW_FORM_URLENCODED, and the server answers with the
+ *    Content-Type and body it got.  They must be the form's.
  */
 
 #include <libwebsockets.h>
@@ -31,30 +36,64 @@
 #define H3CA_TIMEOUT_S		10
 #define H3CA_USER		"h3user"
 #define H3CA_COOKIE		"h3c=yum"
+#define H3CA_FORM		"a=1&b=two"
+#define H3CA_FORM_CT		"application/x-www-form-urlencoded"
 #define H3CA_CHALLENGE		"Digest realm=\"h3ca\", qop=\"auth\", " \
 				"nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c0\""
 
+enum {
+	H3CA_DIGEST,
+	H3CA_COOKIE_JAR,
+	H3CA_FORM_POST,
+};
+
 struct pss_srv {
 	char		resp[LWS_PRE + 128];
+	char		ct[48];		/* a form's Content-Type */
+	char		form[32];	/* ... and its body */
 	size_t		resp_len;
+	size_t		form_len;
 };
 
 static struct lws_context *context;
 static struct lws_vhost *vh_cli;
 static lws_sorted_usec_list_t sul_watchdog;
-static int port = 7790, timed_out, status, cookie_case, step;
+static int port = 7790, timed_out, status, mode, step, form_sent;
 static char body[128];
 static size_t body_len;
 
 /* the server */
 
 static int
+srv_respond(struct lws *wsi, struct pss_srv *pss, int code, const char *set)
+{
+	uint8_t hdr[LWS_PRE + 512], *start = &hdr[LWS_PRE], *p = start,
+		*end = &hdr[sizeof(hdr) - 1];
+
+	if (lws_add_http_common_headers(wsi, (unsigned int)code, "text/plain",
+					(lws_filepos_t)pss->resp_len, &p, end))
+		return -1;
+	if (code == HTTP_STATUS_UNAUTHORIZED &&
+	    lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_WWW_AUTHENTICATE,
+				(unsigned char *)H3CA_CHALLENGE,
+				(int)strlen(H3CA_CHALLENGE), &p, end))
+		return -1;
+	if (set && lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SET_COOKIE,
+				(unsigned char *)set, (int)strlen(set), &p, end))
+		return -1;
+	if (lws_finalize_write_http_header(wsi, start, &p, end))
+		return -1;
+
+	lws_callback_on_writable(wsi);
+
+	return 0;
+}
+
+static int
 callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
 	struct pss_srv *pss = (struct pss_srv *)user;
-	uint8_t hdr[LWS_PRE + 512], *start = &hdr[LWS_PRE], *p = start,
-		*end = &hdr[sizeof(hdr) - 1];
 	const char *path = (const char *)in, *set = NULL;
 	char auth[512], cookie[64];
 	int code = HTTP_STATUS_OK;
@@ -75,6 +114,14 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 			  cookie[0] ? "a" : "no");
 
 		pss->resp_len = 0;
+		if (!strcmp(path, "/form")) {
+			/* it answers when it has the body */
+			if (lws_hdr_copy(wsi, pss->ct, sizeof(pss->ct),
+					 WSI_TOKEN_HTTP_CONTENT_TYPE) < 0)
+				pss->ct[0] = '\0';
+			pss->form_len = 0;
+			return 0;
+		}
 		if (!strcmp(path, "/digest")) {
 			if (strncmp(auth, "Digest ", 7) ||
 			    !strstr(auth, "username=\"" H3CA_USER "\""))
@@ -92,26 +139,24 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 					sizeof(pss->resp) - LWS_PRE,
 					"cookie=%s", cookie);
 
-		if (lws_add_http_common_headers(wsi, (unsigned int)code,
-						"text/plain",
-						(lws_filepos_t)pss->resp_len,
-						&p, end))
-			return -1;
-		if (code == HTTP_STATUS_UNAUTHORIZED &&
-		    lws_add_http_header_by_token(wsi,
-				WSI_TOKEN_HTTP_WWW_AUTHENTICATE,
-				(unsigned char *)H3CA_CHALLENGE,
-				(int)strlen(H3CA_CHALLENGE), &p, end))
-			return -1;
-		if (set && lws_add_http_header_by_token(wsi,
-				WSI_TOKEN_HTTP_SET_COOKIE, (unsigned char *)set,
-				(int)strlen(set), &p, end))
-			return -1;
-		if (lws_finalize_write_http_header(wsi, start, &p, end))
-			return -1;
+		return srv_respond(wsi, pss, code, set);
 
-		lws_callback_on_writable(wsi);
+	case LWS_CALLBACK_HTTP_BODY:
+		if (len > sizeof(pss->form) - 1 - pss->form_len)
+			len = sizeof(pss->form) - 1 - pss->form_len;
+		memcpy(pss->form + pss->form_len, in, len);
+		pss->form_len += len;
+		pss->form[pss->form_len] = '\0';
 		return 0;
+
+	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+		lwsl_user("%s: form body of %d, Content-Type '%s'\n", __func__,
+			  (int)pss->form_len, pss->ct);
+		pss->resp_len = (size_t)lws_snprintf(&pss->resp[LWS_PRE],
+				sizeof(pss->resp) - LWS_PRE, "ct=%s body=%s",
+				pss->ct, pss->form);
+
+		return srv_respond(wsi, pss, HTTP_STATUS_OK, NULL);
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 		if (!pss || !pss->resp_len)
@@ -156,11 +201,19 @@ client_connect(const char *path)
 	/* it must be decided on h3, not by a fallback to tcp */
 	i.disable_h3_fallback	= 1;
 
-	if (cookie_case)
-		i.ssl_connection |= LCCSCF_CACHE_COOKIES;
-	else {
+	switch (mode) {
+	case H3CA_DIGEST:
 		i.auth_username	= H3CA_USER;
 		i.auth_password	= "sesame"; /* NOSONAR: test fixture */
+		break;
+	case H3CA_COOKIE_JAR:
+		i.ssl_connection |= LCCSCF_CACHE_COOKIES;
+		break;
+	default:
+		/* lws says what the body is, and that it is coming */
+		i.method	= "POST";
+		i.ssl_connection |= LCCSCF_HTTP_X_WWW_FORM_URLENCODED;
+		break;
 	}
 
 	body_len = 0;
@@ -183,6 +236,18 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("%s: status %d\n", __func__, status);
 		break;
 
+	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+		/* the form body, all in one go */
+		if (mode != H3CA_FORM_POST || form_sent)
+			break;
+		memcpy(buf + LWS_PRE, H3CA_FORM, strlen(H3CA_FORM));
+		if (lws_write(wsi, (uint8_t *)buf + LWS_PRE, strlen(H3CA_FORM),
+			      LWS_WRITE_HTTP_FINAL) != (int)strlen(H3CA_FORM))
+			return -1;
+		form_sent = 1;
+		lws_client_http_body_pending(wsi, 0);
+		return 0;
+
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
 		if (lws_http_client_read(wsi, &px, &lenx) < 0)
 			return -1;
@@ -198,7 +263,8 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_user("%s: completed %d '%s'\n", __func__, status, body);
-		if (cookie_case && !step++ && status == HTTP_STATUS_OK) {
+		if (mode == H3CA_COOKIE_JAR && !step++ &&
+		    status == HTTP_STATUS_OK) {
 			/* the jar has the cookie: a new connection gets it */
 			if (client_connect("/check"))
 				lws_default_loop_exit(context);
@@ -246,7 +312,11 @@ sigint_handler(int sig)
 
 int main(int argc, const char **argv)
 {
-	const char *p, *cert, *key, *mode, *jar = "./h3-client-auth-jar.txt";
+	static const char * const names[] = { "digest", "cookie", "form" },
+			  * const paths[] = { "/digest", "/set", "/form" },
+			  * const wants[] = { "digest", "cookie=" H3CA_COOKIE,
+					     "ct=" H3CA_FORM_CT " body=" H3CA_FORM };
+	const char *p, *cert, *key, *cs, *jar = "./h3-client-auth-jar.txt";
 	struct lws_context_creation_info info;
 	int result = 1;
 
@@ -261,24 +331,26 @@ int main(int argc, const char **argv)
 		jar = p;
 	cert = lws_cmdline_option(argc, argv, "--cert");
 	key = lws_cmdline_option(argc, argv, "--key");
-	mode = lws_cmdline_option(argc, argv, "--case");
+	cs = lws_cmdline_option(argc, argv, "--case");
 
-	if (!cert || !key || !mode ||
-	    (strcmp(mode, "digest") && strcmp(mode, "cookie"))) {
-		lwsl_err("--cert, --key and --case digest|cookie are "
+	for (mode = 0; cs && mode < (int)LWS_ARRAY_SIZE(names); mode++)
+		if (!strcmp(cs, names[mode]))
+			break;
+
+	if (!cert || !key || !cs || mode == (int)LWS_ARRAY_SIZE(names)) {
+		lwsl_err("--cert, --key and --case digest|cookie|form are "
 			 "required\n");
 		return 1;
 	}
-	cookie_case = !strcmp(mode, "cookie");
 #if !defined(LWS_WITH_CACHE_NSCOOKIEJAR)
-	if (cookie_case) {
+	if (mode == H3CA_COOKIE_JAR) {
 		lwsl_err("--case cookie needs LWS_WITH_CACHE_NSCOOKIEJAR\n");
 		return 1;
 	}
 #endif
 
 	signal(SIGINT, sigint_handler);
-	lwsl_user("LWS API selftest: h3 client %s\n", mode);
+	lwsl_user("LWS API selftest: h3 client %s\n", cs);
 
 	/* start from an empty jar */
 	remove(jar);
@@ -323,7 +395,7 @@ int main(int argc, const char **argv)
 	lws_sul_schedule(context, 0, &sul_watchdog, watchdog_cb,
 			 H3CA_TIMEOUT_S * LWS_US_PER_SEC);
 
-	if (client_connect(cookie_case ? "/set" : "/digest")) {
+	if (client_connect(paths[mode])) {
 		lwsl_err("The connection could not be started\n");
 		goto bail;
 	}
@@ -333,11 +405,11 @@ int main(int argc, const char **argv)
 
 	if (timed_out)
 		lwsl_err("FAIL: timed out\n");
-	else if (step != 2 && cookie_case)
+	else if (step != 2 && mode == H3CA_COOKIE_JAR)
 		lwsl_err("FAIL: the cookie wasn't set\n");
 	else if (status != HTTP_STATUS_OK)
 		lwsl_err("FAIL: ended %d, want 200\n", status);
-	else if (strcmp(body, cookie_case ? "cookie=" H3CA_COOKIE : "digest"))
+	else if (strcmp(body, wants[mode]))
 		lwsl_err("FAIL: body '%s'\n", body);
 	else
 		result = 0;

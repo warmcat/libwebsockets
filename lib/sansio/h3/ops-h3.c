@@ -280,6 +280,18 @@ lws_h3_client_handshake_composed(struct lws *wsi)
 		p = p1;
 	}
 
+	/*
+	 * A form body follows, as the h1 and h2 composers say.  Like h2, it
+	 * needs no content-length: the stream's FIN ends the body
+	 */
+	if (wsi->flags & LCCSCF_HTTP_X_WWW_FORM_URLENCODED) {
+		if (lws_add_http3_header_by_token(wsi,
+				WSI_TOKEN_HTTP_CONTENT_TYPE, (unsigned char *)
+				"application/x-www-form-urlencoded", 33, &p, end))
+			return -1;
+		lws_client_http_body_pending(wsi, 1);
+	}
+
 #if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
 	/* the cookies from the jar, as the h1 and h2 composers send them */
 	if ((wsi->flags & LCCSCF_CACHE_COOKIES) &&
