@@ -490,6 +490,7 @@ len_opts() {
 	h1|h2|ws|ws-pmd|cli-h1|cli-h2|cli-ws|srv-h1|srv-h2|srv-xproto)
 		echo "-max_len=$FUZZ_SESSION_MAX_LEN -len_control=0"
 		;;
+	*) ;;
 	esac
 }
 
