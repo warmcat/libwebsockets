@@ -795,20 +795,18 @@ static int protected_idx[] = {
 int
 lws_jwe_render_flattened(struct lws_jwe *jwe, char *out, size_t out_len)
 {
-	char buf[3072], *p1, *end1, protected[128];
-	int m, n, jlen, plen;
+	char *p1, *end1;
+	int m, n;
 
-	jlen = lws_jose_render(&jwe->jose, jwe->jws.jwk, buf, sizeof(buf));
-	if (jlen < 0) {
-		lwsl_err("%s: lws_jose_render failed\n", __func__);
+	if (!jwe->jose.alg || !jwe->jose.alg->alg || !jwe->jose.enc_alg) {
+		lwsl_err("%s: no jose.alg or jose.enc_alg\n", __func__);
 
 		return -1;
 	}
 
-	/* lws_jose_render only checked jose.alg: JWEs also need an enc */
-
-	if (!jwe->jose.enc_alg) {
-		lwsl_err("%s: no jose.enc_alg\n", __func__);
+	if (!jwe->jws.map.buf[LJWS_JOSE] || !jwe->jws.map.len[LJWS_JOSE] ||
+	    !out_len) {
+		lwsl_err("%s: no JOSE header\n", __func__);
 
 		return -1;
 	}
@@ -821,42 +819,23 @@ lws_jwe_render_flattened(struct lws_jwe *jwe, char *out, size_t out_len)
 	end1 = out + out_len - 1;
 
 	/*
-	 * The protected header is b64url encoding of the JOSE header part
+	 * The protected header is the b64url of the JOSE header the encryption
+	 * was made under, as for the compact serialization: it is the AAD the
+	 * tag authenticates, and it carries everything else the recipient
+	 * needs, eg, ECDH-ES' epk.  There is no unprotected header: a member
+	 * may not be in both (RFC 7516 7.2.1), and there's nothing left for it.
 	 */
 
-	plen = lws_snprintf(protected, sizeof(protected),
-			    "{\"alg\":\"%s\",\"enc\":\"%s\"}",
-			    jwe->jose.alg->alg, jwe->jose.enc_alg->alg);
-
 	p1 += lws_snprintf(p1, lws_ptr_diff_size_t(end1, p1), "{\"protected\":\"");
-	jwe->jws.map_b64.buf[LJWS_JOSE] = p1;
-	n = lws_jws_base64_enc(protected, (size_t)plen, p1, lws_ptr_diff_size_t(end1, p1));
+	n = lws_jws_base64_enc(jwe->jws.map.buf[LJWS_JOSE],
+			       jwe->jws.map.len[LJWS_JOSE], p1,
+			       lws_ptr_diff_size_t(end1, p1));
 	if (n < 0) {
 		lwsl_notice("%s: failed to encode protected\n", __func__);
 		goto bail;
 	}
-	jwe->jws.map_b64.len[LJWS_JOSE] = (unsigned int)n;
 	p1 += n;
-
-	/* unprotected not supported atm */
-
-	p1 += lws_snprintf(p1, lws_ptr_diff_size_t(end1, p1), "\",\n\"header\":");
-
-	/*
-	 * lws_snprintf() returns the size it was given when it truncated, so
-	 * p1 can be sitting exactly on end1 here.  lws_strnncpy() with a zero
-	 * destination size now copies nothing (and cannot terminate), so a
-	 * silently empty header is the failure mode... bail on truncation
-	 * instead, which is what the caller needs to know anyway
-	 */
-
-	if (p1 >= end1) {
-		lwsl_notice("%s: out buffer too small\n", __func__);
-		goto bail;
-	}
-
-	lws_strnncpy(p1, buf, jlen, lws_ptr_diff_size_t(end1, p1));
-	p1 += strlen(p1);
+	p1 += lws_snprintf(p1, lws_ptr_diff_size_t(end1, p1), "\"");
 
 	for (m = 0; m < (int)LWS_ARRAY_SIZE(protected_en); m++)
 		if (jwe->jws.map.buf[protected_idx[m]]) {

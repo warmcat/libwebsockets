@@ -1878,7 +1878,7 @@ static int
 test_ecdhes_t1(struct lws_context *context, const char *jose_hdr,
 	       const char *peer_pubkey, const char *peer_privkey)
 {
-	char temp[3072], compact[2048];
+	char temp[3072], compact[2048], flat[2048];
 	int n, ret = -1, temp_len = sizeof(temp);
 	struct lws_jwe jwe;
 
@@ -1956,14 +1956,14 @@ test_ecdhes_t1(struct lws_context *context, const char *jose_hdr,
 	 * format for output
 	 */
 
-	n = lws_jwe_render_flattened(&jwe, compact, sizeof(compact));
+	n = lws_jwe_render_flattened(&jwe, flat, sizeof(flat));
 		if (n == -2) {
 		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
 		ret = 0;
 		goto bail;
 	}
 	if (n < 0) {
-		lwsl_err("%s: lws_jwe_render_compact failed: %d\n",
+		lwsl_err("%s: lws_jwe_render_flattened failed: %d\n",
 			 __func__, n);
 		goto bail;
 	}
@@ -2013,6 +2013,36 @@ test_ecdhes_t1(struct lws_context *context, const char *jose_hdr,
 	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt failed\n",
+			 __func__);
+		goto bail;
+	}
+
+	/*
+	 * ... and as the recipient getting the flattened JSON.  Its protected
+	 * header is what the encryption authenticated, epk and all: one made
+	 * up again from alg and enc alone, with the epk outside it, can't be
+	 * decrypted, by lws or anyone else.
+	 */
+
+	lws_jwe_destroy(&jwe);
+	temp_len = sizeof(temp);
+	lws_jwe_init(&jwe, context);
+
+	if (lws_jwk_import(&jwe.jwk, NULL, NULL, (char *)peer_privkey,
+			   strlen((char *)peer_privkey)) < 0) {
+		lwsl_notice("%s: Failed to decode JWK test key\n", __func__);
+		goto bail;
+	}
+
+	if (lws_jwe_json_parse(&jwe, (const uint8_t *)flat, (int)strlen(flat),
+			       temp, &temp_len)) {
+		lwsl_err("%s: lws_jwe_json_parse failed\n", __func__);
+		goto bail;
+	}
+
+	if (lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len),
+				     &temp_len) < 0) {
+		lwsl_err("%s: flattened lws_jwe_auth_and_decrypt failed\n",
 			 __func__);
 		goto bail;
 	}

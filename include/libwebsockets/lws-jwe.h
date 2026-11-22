@@ -79,6 +79,18 @@ lws_jwe_be64(uint64_t c, uint8_t *p8);
 LWS_VISIBLE LWS_EXTERN int
 lws_jwe_render_compact(struct lws_jwe *jwe, char *out, size_t out_len);
 
+/**
+ * lws_jwe_render_flattened() - render a JWE in the flattened JSON serialization
+ *
+ * \param jwe: the JWE, after lws_jwe_encrypt()
+ * \param out: where to render it
+ * \param out_len: the room at out
+ *
+ * As for lws_jwe_render_compact(), the protected header is the JOSE header in
+ * jwe->jws.map[LJWS_JOSE] that the encryption was made under, ECDH-ES' epk
+ * and all, and there is no unprotected header.  Returns the length rendered,
+ * or -1.
+ */
 LWS_VISIBLE LWS_EXTERN int
 lws_jwe_render_flattened(struct lws_jwe *jwe, char *out, size_t out_len);
 
