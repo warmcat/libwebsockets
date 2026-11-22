@@ -795,11 +795,26 @@ xp_differ(const struct xp_view *a, const struct xp_view *b)
 	return a->blen != b->blen || memcmp(a->body, b->body, a->blen);
 }
 
+/*
+ * Refused as too big.  Where each way of sending it runs out of room isn't
+ * the same place: h2's pseudo-headers take header fragments h1's request
+ * line doesn't, so a request at the edge is too big for one and not the
+ * other, and that says nothing about what it means.
+ */
+static int
+xp_too_big(const struct xp_view *v)
+{
+	return v->status == HTTP_STATUS_REQ_ENTITY_TOO_LARGE ||
+	       v->status == HTTP_STATUS_REQ_URI_TOO_LONG ||
+	       v->status == HTTP_STATUS_REQ_HEADER_FIELDS_TOO_LARGE;
+}
+
 static void
 xp_compare(const char *an, const struct xp_view *a, const char *bn,
 	   const struct xp_view *b)
 {
-	if (a->overflow || b->overflow || !xp_differ(a, b))
+	if (a->overflow || b->overflow || xp_too_big(a) || xp_too_big(b) ||
+	    !xp_differ(a, b))
 		return;
 
 	xp_show(an, a);
