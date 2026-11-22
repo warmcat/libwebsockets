@@ -1372,6 +1372,21 @@ LWS_VISIBLE LWS_EXTERN int
 lws_http_cookie_get_nth(struct lws *wsi, const char *name, int n,
 			char *buf, size_t *max);
 
+#if defined(LWS_WITH_FUZZERS) && defined(LWS_WITH_CACHE_NSCOOKIEJAR) && \
+    defined(LWS_WITH_CLIENT)
+/**
+ * lws_http_cookie_jar_fuzz_clear() - forget every cookie the client jar has
+ *
+ * \param cx: the context whose jar (lws_context_creation_info
+ *	      .http_nsc_filepath) is emptied, its file included
+ *
+ * Only for libFuzzer builds (LWS_WITH_FUZZERS): each input is a new
+ * connection, so what an earlier one's server set mustn't go with it.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_http_cookie_jar_fuzz_clear(struct lws_context *cx);
+#endif
+
 /**
  * lws_http_cookie_compose() - compose a complete set-cookie: header value
  *

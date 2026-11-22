@@ -1378,3 +1378,12 @@ bail:
 
 	return -1;
 }
+
+#if defined(LWS_WITH_FUZZERS)
+void
+lws_http_cookie_jar_fuzz_clear(struct lws_context *cx)
+{
+	if (cx->l1)
+		lws_cache_expunge(cx->l1);
+}
+#endif
