@@ -351,6 +351,123 @@ test_sibling_lists(void)
 }
 
 /*
+ * A number in the JSON must fit the member it lands in: the edges of each
+ * width parse, one past them is refused, as is a negative value for an
+ * unsigned member.  They used to wrap silently, eg, 300 became 44 in a
+ * uint8_t.
+ */
+
+typedef struct {
+	int64_t			s64;
+	uint64_t		u64;
+	int32_t			s32;
+	uint32_t		u32;
+	int16_t			s16;
+	uint16_t		u16;
+	int8_t			s8;
+	uint8_t			u8;
+} rng_t;
+
+static const lws_struct_map_t lsm_rng[] = {
+	LSM_SIGNED	(rng_t, s64,				"s64"),
+	LSM_UNSIGNED	(rng_t, u64,				"u64"),
+	LSM_SIGNED	(rng_t, s32,				"s32"),
+	LSM_UNSIGNED	(rng_t, u32,				"u32"),
+	LSM_SIGNED	(rng_t, s16,				"s16"),
+	LSM_UNSIGNED	(rng_t, u16,				"u16"),
+	LSM_SIGNED	(rng_t, s8,				"s8"),
+	LSM_UNSIGNED	(rng_t, u8,				"u8"),
+};
+
+static const lws_struct_map_t lsm_rng_schema[] = {
+	LSM_SCHEMA	(rng_t, NULL, lsm_rng,			"rng"),
+};
+
+static const struct {
+	const char		*json;
+	char			ok;
+} rng_tests[] = {
+	{ "{\"schema\":\"rng\",\"u8\":255}",			1 },
+	{ "{\"schema\":\"rng\",\"u8\":256}",			0 },
+	{ "{\"schema\":\"rng\",\"u8\":300}",			0 },
+	{ "{\"schema\":\"rng\",\"u8\":-1}",			0 },
+	{ "{\"schema\":\"rng\",\"s8\":-128}",			1 },
+	{ "{\"schema\":\"rng\",\"s8\":127}",			1 },
+	{ "{\"schema\":\"rng\",\"s8\":128}",			0 },
+	{ "{\"schema\":\"rng\",\"s8\":-129}",			0 },
+	{ "{\"schema\":\"rng\",\"u16\":65535}",			1 },
+	{ "{\"schema\":\"rng\",\"u16\":65536}",			0 },
+	{ "{\"schema\":\"rng\",\"s16\":-32768}",		1 },
+	{ "{\"schema\":\"rng\",\"s16\":32768}",			0 },
+	{ "{\"schema\":\"rng\",\"u32\":4294967295}",		1 },
+	{ "{\"schema\":\"rng\",\"u32\":4294967296}",		0 },
+	{ "{\"schema\":\"rng\",\"s32\":-2147483648}",		1 },
+	{ "{\"schema\":\"rng\",\"s32\":2147483648}",		0 },
+	{ "{\"schema\":\"rng\",\"u64\":18446744073709551615}",	1 },
+	{ "{\"schema\":\"rng\",\"u64\":18446744073709551616}",	0 },
+	{ "{\"schema\":\"rng\",\"u64\":-1}",			0 },
+	{ "{\"schema\":\"rng\",\"s64\":-9223372036854775808}",	1 },
+	{ "{\"schema\":\"rng\",\"s64\":9223372036854775807}",	1 },
+	{ "{\"schema\":\"rng\",\"s64\":9223372036854775808}",	0 },
+	{ "{\"schema\":\"rng\",\"s64\":-9223372036854775809}",	0 },
+};
+
+/* the rng_t a parse of json made, or NULL if it refused it */
+static const rng_t *
+rng_parse(lws_struct_args_t *a, const char *json)
+{
+	struct lejp_ctx ctx;
+	int m;
+
+	memset(a, 0, sizeof(*a));
+	a->map_st[0]		= lsm_rng_schema;
+	a->map_entries_st[0]	= LWS_ARRAY_SIZE(lsm_rng_schema);
+	a->ac_block_size	= 128;
+
+	lws_struct_json_init_parse(&ctx, NULL, a);
+	m = lejp_parse(&ctx, (const uint8_t *)json, (int)strlen(json));
+	lejp_destruct(&ctx);
+
+	return m >= 0 ? (const rng_t *)a->dest : NULL;
+}
+
+static int
+test_ranges(void)
+{
+	lws_struct_args_t a;
+	const rng_t *r;
+	size_t n;
+	int e = 0;
+
+	lwsl_user("%s\n", __func__);
+
+	for (n = 0; n < LWS_ARRAY_SIZE(rng_tests); n++) {
+		if (!!rng_parse(&a, rng_tests[n].json) != rng_tests[n].ok) {
+			lwsl_err("%s: %s was %s\n", __func__,
+				 rng_tests[n].json, rng_tests[n].ok ?
+					"refused" : "accepted");
+			e++;
+		}
+		lwsac_free(&a.ac);
+	}
+
+	/* and the values at the edges come through as themselves */
+
+	r = rng_parse(&a, "{\"schema\":\"rng\",\"u8\":255,\"s8\":-128,"
+			  "\"s64\":-9223372036854775808,"
+			  "\"u64\":18446744073709551615}");
+	if (!r || r->u8 != 255 || r->s8 != -128 || r->s64 != INT64_MIN ||
+	    r->u64 != UINT64_MAX) {
+		lwsl_err("%s: the edges didn't come back as themselves\n",
+			 __func__);
+		e++;
+	}
+	lwsac_free(&a.ac);
+
+	return e;
+}
+
+/*
  * in this example, the JSON is for one "builder" object, which may specify
  * a child list "targets" of zero or more "target" objects.
  */
@@ -1037,6 +1154,9 @@ done:
 	}
 
 	if (test_sibling_lists())
+		goto bail;
+
+	if (test_ranges())
 		goto bail;
 
 	{
