@@ -1022,6 +1022,8 @@ static const char *digest_toks[] = {
 
 #define PEND_NAME_EQ -1
 #define PEND_DELIM -2
+/* the value of a parameter we don't know, which RFC 7235 2.1 says to ignore */
+#define PEND_IGNORE -3
 
 /*
  * Is the server's challenge one we can answer with digest auth?  Only if it
@@ -1042,6 +1044,7 @@ enum lws_check_basic_auth_results
 lws_http_digest_auth(struct lws* wsi)
 {
 	uint8_t nonce[256], response[LWS_GENHASH_LARGEST * 2 + 1], qop[32];
+	char opaque[128];
 	int seen = 0, have = 0, n, pend = -1;
 	char *tmp_digest = NULL;
 	size_t l = 0;
@@ -1055,6 +1058,7 @@ lws_http_digest_auth(struct lws* wsi)
 	enum lws_genhash_types hash_type = LWS_GENHASH_TYPE_MD5;
 
 	qop[0] = '\0';
+	opaque[0] = '\0';
 	lws_strncpy(algo, "MD5", sizeof(algo));
 
 	/* Did he send auth? */
@@ -1097,7 +1101,7 @@ lws_http_digest_auth(struct lws* wsi)
 		e = lws_tokenize(&ts);
 		switch (e) {
 		case LWS_TOKZE_TOKEN:
-			if (pend >= 0)
+			if (pend >= 0 || pend == PEND_IGNORE)
 				goto str_val;
 
 			if (ts.token_len == 6 &&
@@ -1124,11 +1128,15 @@ lws_http_digest_auth(struct lws* wsi)
 					break;
 
 			if (n == LWS_ARRAY_SIZE(digest_toks)) {
-				lwsl_wsi_notice(wsi, "c: '%.*s'\n",
-						(int)ts.token_len,
-						ts.token);
-
-				return LCBA_END_TRANSACTION;
+				/*
+				 * eg, RFC 7616's stale, charset or userhash,
+				 * or one from later: what we need is still
+				 * what we know
+				 */
+				lwsl_wsi_info(wsi, "ignoring '%.*s'",
+					      (int)ts.token_len, ts.token);
+				pend = PEND_IGNORE;
+				break;
 			}
 
 			if (seen & (1 << n) || (seen & (1 << 15)) == (1 << 15))
@@ -1141,6 +1149,10 @@ lws_http_digest_auth(struct lws* wsi)
 
 		case LWS_TOKZE_QUOTED_STRING:
 str_val:
+			if (pend == PEND_IGNORE) {
+				pend = PEND_DELIM;
+				break;
+			}
 			if (pend < 0)
 				return LCBA_END_TRANSACTION;
 
@@ -1178,6 +1190,21 @@ str_val:
 					return LCBA_END_TRANSACTION;
 				break;
 			case 6: /* opaque */
+				/*
+				 * RFC 7616 3.3: we must give it back unchanged,
+				 * in a quoted-string of our own: only what
+				 * needs no escaping there
+				 */
+				if (ts.token_len >= (int)sizeof(opaque))
+					return LCBA_END_TRANSACTION;
+				for (n = 0; n < (int)ts.token_len; n++)
+					if ((uint8_t)ts.token[n] < 0x20 ||
+					    ts.token[n] == '"' ||
+					    ts.token[n] == '\\' ||
+					    ts.token[n] == 0x7f)
+						return LCBA_END_TRANSACTION;
+				memcpy(opaque, ts.token, ts.token_len);
+				opaque[ts.token_len] = '\0';
 				break;
 			case 7: /* qop */
 				if (ts.token_len >= (int)sizeof(qop))
@@ -1257,7 +1284,8 @@ str_val:
 	 * the realm / nonce buffers were never written
 	 */
 
-	if (!(seen & 1) || pend >= 0 || (have & 0xc) != 0xc) {
+	if (!(seen & 1) || pend >= 0 || pend == PEND_IGNORE ||
+	    (have & 0xc) != 0xc) {
 		lwsl_wsi_err(wsi,
 				"%s: Not all digest auth tokens found! "
 				"m: 0x%x\nServer sent: %s",
@@ -1284,7 +1312,8 @@ str_val:
 		char cnonce[256];
 		l = sizeof(a1) + sizeof(a2) + sizeof(nonce) +
 			(sizeof(ncount) *2) + sizeof(response) +
-			sizeof(cnonce) + sizeof(qop) + strlen(uri) +
+			sizeof(cnonce) + sizeof(qop) + sizeof(opaque) +
+			strlen(uri) +
 			strlen(username) + strlen(password) +
 			strlen(realm) + 111;
 
@@ -1384,6 +1413,10 @@ str_val:
 					 username, realm, nonce, uri,
 					 response, algo);
 		}
+		/* the challenge's opaque, given back as it came (RFC 7616 3.4) */
+		if (n >= 0 && have & (1 << 6))
+			n += lws_snprintf(tmp_digest + n, l - (size_t)n,
+					  ", opaque=\"%s\"", opaque);
 		/*
 		 * The buffer outlives us as the header to send; nothing of
 		 * username:realm:password or HA1 from before may linger past

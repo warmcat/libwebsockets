@@ -25,7 +25,9 @@ that decide what it sends where afterwards.
    however much longer than the context's timeout (2s here) it takes.
  - A digest auth challenge that closes its connection is answered on a new
    one, to the same authority, so the request's `Host:` is kept (when lws has
-   digest auth and a tls library, whose hashes it uses).
+   digest auth and a tls library, whose hashes it uses).  The challenge's
+   `opaque` is given back, and parameters lws doesn't know (`charset`,
+   `userhash`) are ignored rather than failing the challenge.
  - `lws_client_redirect_info()` tells the redirect callback where a redirect
    goes, and whether credentials set for the request may go there: only over
    https, to the request's host or a subdomain of it (another port is the
