@@ -35,7 +35,9 @@
  *    completes, however much longer than the context's timeout it takes
  *
  *  - a digest auth challenge that closes its connection is answered on a
- *    new one, to the same authority, so the request's Host: is kept
+ *    new one, to the same authority, so the request's Host: is kept.  The
+ *    challenge's opaque is given back, and parameters lws doesn't know
+ *    (charset, userhash) are ignored, not taken as a broken challenge
  *
  *  - lws_client_redirect_info() tells the redirect callback where the
  *    redirect goes, and whether credentials set for the request may go
@@ -68,6 +70,9 @@
 #define HCR_SLOW_PIECES		5
 #define HCR_SLOW_PIECE		200
 #define HCR_SLOW_GAP_MS		800
+
+/* what the digest challenges give the client to give back */
+#define HCR_OPAQUE		"5ccc069c403ebaf9f0171e9517f40e41"
 
 /* the Host: the redirect cases ask for, which is not the address dialled */
 #define HCR_VHOST		"vhost.example"
@@ -251,8 +256,8 @@ static const struct hcr_case {
 
 	{ "a digest retry on a new connection keeps the Host:",
 	  "cli", "GET", "/auth", NULL,
-	  "GET /auth host=" HCR_VHOST " len=0 conn=2 auth=digest", NULL, 2,
-	  HCK_DIGEST, NULL, 0, 0 },
+	  "GET /auth host=" HCR_VHOST " len=0 conn=2 auth=digest opaque",
+	  NULL, 2, HCK_DIGEST, NULL, 0, 0 },
 #endif
 };
 
@@ -392,7 +397,7 @@ static void
 hcr_answer(struct pss_srv *pss, const char *head, size_t hlen, size_t body)
 {
 	const char *sp1, *sp2, *end = head + hlen, *r;
-	char method[16], target[256], host[64], loc[128], auth[16],
+	char method[16], target[256], host[64], loc[128], auth[512],
 	     upgrade[32], key[64];
 	size_t n;
 	int ws;
@@ -424,7 +429,9 @@ hcr_answer(struct pss_srv *pss, const char *head, size_t hlen, size_t body)
 				 host, (unsigned int)body, pss->conn);
 	if (!strncmp(auth, "Digest ", 7))
 		n += (size_t)lws_snprintf(seen + n, sizeof(seen) - n,
-					  " auth=digest");
+					  " auth=digest%s", strstr(auth,
+					  "opaque=\"" HCR_OPAQUE "\"") ?
+						" opaque" : "");
 	if (ws)
 		lws_snprintf(seen + n, sizeof(seen) - n, " ws");
 	nseen++;
@@ -467,7 +474,8 @@ hcr_answer(struct pss_srv *pss, const char *head, size_t hlen, size_t body)
 			"HTTP/1.1 401 Unauthorized\r\n"
 			"WWW-Authenticate: Digest realm=\"hcr\", "
 			"nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c093\", "
-			"qop=\"auth\"\r\n"
+			"qop=\"auth\", opaque=\"" HCR_OPAQUE "\", "
+			"charset=UTF-8, userhash=false\r\n"
 			"Content-Length: 0\r\nConnection: close\r\n\r\n");
 	else
 		/*
