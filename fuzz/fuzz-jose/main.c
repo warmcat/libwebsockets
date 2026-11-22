@@ -199,7 +199,7 @@ fzj_make_seed(const char *dir, const struct fzj_seed *sd)
 		goto bail;
 
 	lws_snprintf(path, sizeof(path), "%s/%s", dir, sd->name);
-	fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+	fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0600);
 	if (fd < 0)
 		goto bail;
 	hdr[0] = sd->op;
