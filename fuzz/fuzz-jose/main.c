@@ -30,13 +30,26 @@
  * Input layout:
  *
  *   [0]     selects the operation (mod 8)
- *   [1]     selects the fixed verification key (mod 3): oct / RSA / EC
+ *   [1]     selects the fixed key (mod 4): oct / RSA / EC / a 128-bit oct
+ *	     for AES key wrap
  *   [2..]   the JSON or compact-serialization payload
+ *
+ * A JWE that doesn't decrypt with the key stops at its key unwrap, and the
+ * fuzzer can't make one that does.  So with LWS_FUZZ_JOSE_SEEDS=<dir> in the
+ * environment, the target instead writes seeds to dir that lws encrypted to
+ * the fixed keys with AES key wrap and ECDH-ES, and exits:
+ *
+ *   LWS_FUZZ_JOSE_SEEDS=fuzz/fuzz-jose/seeds ./bin/fuzz-jose
+ *
+ * Their CEKs, and ECDH-ES' ephemeral keys, are random, so each run makes
+ * different ones.
  */
 
 #include <libwebsockets.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static struct lws_context *cx;
 
@@ -90,11 +103,123 @@ static const char key_ec[] =
 	"\"use\":\"enc\","
 	"\"kid\":\"1\"}";
 
-static const char * const keys[] = { key_oct, key_rsa, key_ec };
+/* RFC7516 A.3 A128KW key */
+static const char key_oct128[] =
+	"{\"kty\":\"oct\",\"k\":\"GawgguFyGrWKav7AX4VKUg\"}";
+
+static const char * const keys[] = { key_oct, key_rsa, key_ec, key_oct128 };
+
+enum {
+	FZJ_KEY_OCT,
+	FZJ_KEY_RSA,
+	FZJ_KEY_EC,
+	FZJ_KEY_OCT128,
+};
+
+#define FZJ_OP_JWE_COMPACT	5
+#define FZJ_OP_JWE_FLATTENED	6
+
+static int
+fixed_key(struct lws_jwk *jwk, unsigned int which);
+
+/*
+ * The JWE seeds: AES key wrap and ECDH-ES, to one fixed key each.  Not
+ * RSA-OAEP: the fuzzing build has GnuTLS, for QUIC, and lws has no OAEP
+ * with it to make or decrypt one.
+ */
+static const struct fzj_seed {
+	const char	*name;
+	const char	*alg;
+	const char	*enc;
+	uint8_t		key;
+	uint8_t		op;
+} fzj_seeds[] = {
+	{ "jwe-compact-a128kw-a128cbc", "A128KW", "A128CBC-HS256",
+	  FZJ_KEY_OCT128, FZJ_OP_JWE_COMPACT },
+	{ "jwe-flattened-a128kw-a128cbc", "A128KW", "A128CBC-HS256",
+	  FZJ_KEY_OCT128, FZJ_OP_JWE_FLATTENED },
+	{ "jwe-compact-ecdh-es-a128cbc", "ECDH-ES", "A128CBC-HS256",
+	  FZJ_KEY_EC, FZJ_OP_JWE_COMPACT },
+	{ "jwe-compact-ecdh-es-a128kw", "ECDH-ES+A128KW", "A128CBC-HS256",
+	  FZJ_KEY_EC, FZJ_OP_JWE_COMPACT },
+	{ "jwe-flattened-ecdh-es-a128kw", "ECDH-ES+A128KW", "A128CBC-HS256",
+	  FZJ_KEY_EC, FZJ_OP_JWE_FLATTENED },
+};
+
+static const char fzj_ptext[] = "Live long and prosper.";
+
+static int
+fzj_make_seed(const char *dir, const struct fzj_seed *sd)
+{
+	char temp[4096], out[4096], path[256];
+	int temp_len = sizeof(temp), n, fd, ret = 1;
+	struct lws_jwe jwe;
+	uint8_t hdr[2];
+
+	lws_jwe_init(&jwe, cx);
+
+	if (fixed_key(&jwe.jwk, sd->key) < 0 ||
+	    lws_gencrypto_jwe_alg_to_definition(sd->alg, &jwe.jose.alg) ||
+	    lws_gencrypto_jwe_enc_to_definition(sd->enc, &jwe.jose.enc_alg))
+		goto bail;
+
+	/* the JOSE header the encryption is made under */
+	jwe.jws.map.buf[LJWS_JOSE] = temp;
+	jwe.jws.map.len[LJWS_JOSE] = (uint32_t)lws_snprintf(temp,
+			(size_t)temp_len, "{\"alg\":\"%s\",\"enc\":\"%s\"}",
+			sd->alg, sd->enc);
+	temp_len -= (int)jwe.jws.map.len[LJWS_JOSE];
+
+	/* the plaintext, to be encrypted in place, with room for padding */
+	if (lws_jws_dup_element(&jwe.jws.map, LJWE_CTXT,
+				lws_concat_temp(temp, temp_len), &temp_len,
+				fzj_ptext, sizeof(fzj_ptext) - 1,
+				lws_gencrypto_padded_length(
+					LWS_AES_CBC_BLOCKLEN,
+					sizeof(fzj_ptext) - 1)))
+		goto bail;
+
+	/* a random CEK, but for ECDH-ES, which agrees on one */
+	if (jwe.jose.alg->algtype_signing != LWS_JOSE_ENCTYPE_ECDHES &&
+	    lws_jws_randomize_element(cx, &jwe.jws.map, LJWE_EKEY,
+			lws_concat_temp(temp, temp_len), &temp_len,
+			(unsigned int)lws_gencrypto_bits_to_bytes(
+					jwe.jose.enc_alg->keybits_fixed),
+			LWS_JWE_LIMIT_KEY_ELEMENT_BYTES))
+		goto bail;
+
+	if (lws_jwe_encrypt(&jwe, lws_concat_temp(temp, temp_len),
+			    &temp_len) < 0)
+		goto bail;
+
+	n = sd->op == FZJ_OP_JWE_FLATTENED ?
+		lws_jwe_render_flattened(&jwe, out, sizeof(out)) :
+		lws_jwe_render_compact(&jwe, out, sizeof(out));
+	if (n < 0)
+		goto bail;
+
+	lws_snprintf(path, sizeof(path), "%s/%s", dir, sd->name);
+	fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+	if (fd < 0)
+		goto bail;
+	hdr[0] = sd->op;
+	hdr[1] = sd->key;
+	if (write(fd, hdr, sizeof(hdr)) == (ssize_t)sizeof(hdr) &&
+	    write(fd, out, (size_t)n) == (ssize_t)n)
+		ret = 0;
+	close(fd);
+
+bail:
+	lws_jwe_destroy(&jwe);
+	fprintf(stderr, "%s: %s\n", sd->name, ret ? "FAILED" : "written");
+
+	return ret;
+}
 
 int
 LLVMFuzzerInitialize(int *argc, char ***argv)
 {
+	const char *seeds_dir = getenv("LWS_FUZZ_JOSE_SEEDS");
 	struct lws_context_creation_info info;
 
 	(void)argc;
@@ -108,8 +233,21 @@ LLVMFuzzerInitialize(int *argc, char ***argv)
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 
 	cx = lws_create_context(&info);
+	if (!cx)
+		return 1;
 
-	return cx ? 0 : 1;
+	if (seeds_dir) {
+		size_t n;
+		int fails = 0;
+
+		for (n = 0; n < LWS_ARRAY_SIZE(fzj_seeds); n++)
+			fails += fzj_make_seed(seeds_dir, &fzj_seeds[n]);
+
+		lws_context_destroy(cx);
+		exit(!!fails);
+	}
+
+	return 0;
 }
 
 static int
@@ -209,7 +347,7 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 		lws_jose_destroy(&jose);
 		break;
 
-	case 5: /* JWE compact serialization: decode + auth + decrypt */
+	case FZJ_OP_JWE_COMPACT: /* JWE compact serialization: decode + auth + decrypt */
 		lws_jwe_init(&jwe, cx);
 		if (fixed_key(&jwe.jwk, key) < 0) {
 			lws_jwe_destroy(&jwe);
@@ -224,7 +362,7 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 		lws_jwe_destroy(&jwe);
 		break;
 
-	case 6: /* JWE flattened JSON serialization: parse + auth + decrypt */
+	case FZJ_OP_JWE_FLATTENED: /* JWE flattened JSON serialization: parse + auth + decrypt */
 		lws_jwe_init(&jwe, cx);
 		if (fixed_key(&jwe.jwk, key) < 0) {
 			lws_jwe_destroy(&jwe);
