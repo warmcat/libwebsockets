@@ -174,6 +174,59 @@ lws_struct_lejp_push(struct lejp_ctx *ctx, lws_struct_args_t *args,
 	return 0;
 }
 
+/*
+ * The decimal integer at s, as atoi() takes it (leading blanks, a sign, then
+ * digits up to the first that isn't one), for a member sizeof() w wide,
+ * signed or not.  The signed value comes back in *li, the unsigned one in
+ * *lu.  Returns 0 if it fits the member, 1 if it doesn't (and a negative
+ * value never fits an unsigned member), or -1 for a width there's no
+ * integer type for.  atoi() and friends wrapped, or had undefined behaviour,
+ * on a value too big for them, then the store into the member wrapped it
+ * again.
+ */
+
+static int
+lws_struct_lejp_int(const char *s, int is_signed, size_t w, long long *li,
+		    unsigned long long *lu)
+{
+	unsigned long long acc = 0, lim;
+	unsigned int d;
+	int neg = 0;
+
+	if (w != 1 && w != 2 && w != 4 && w != 8)
+		return -1;
+
+	while (*s == ' ' || *s == '\t')
+		s++;
+	if (*s == '-' || *s == '+')
+		neg = *s++ == '-';
+
+	if (is_signed)
+		/* eg, for 1 byte, 127, or 128 for -128 */
+		lim = (1ull << ((w * 8) - 1)) - (neg ? 0 : 1);
+	else
+		lim = w == 8 ? ~0ull : (1ull << (w * 8)) - 1;
+
+	for (; *s >= '0' && *s <= '9'; s++) {
+		d = (unsigned int)(*s - '0');
+		if (acc > (lim - d) / 10)
+			return 1;
+		acc = (acc * 10) + d;
+	}
+
+	if (!is_signed) {
+		*lu = acc;
+
+		/* -0 is fine, any other negative isn't */
+		return neg && acc;
+	}
+
+	/* acc may be 2^63, which is only representable once it's negative */
+	*li = neg && acc ? -(long long)(acc - 1) - 1 : (long long)acc;
+
+	return 0;
+}
+
 signed char
 lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 {
@@ -396,8 +449,10 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 
 	{
 		char **pp, *s;
+		unsigned long long lu;
 		size_t lim, b;
 		long long li;
+		int ir;
 
 		switch (map->type) {
 		case LSMT_SIGNED:
@@ -407,69 +462,82 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 			 * arm and the final else was unguarded, so a 16-bit
 			 * member was written with an 8-byte store, 6 bytes past
 			 * its end.  An unrecognized width is now a hard fail.
+			 *
+			 * The value is range-checked for the width first, so
+			 * the stores below can't wrap it.
 			 */
+			ir = lws_struct_lejp_int(ctx->buf, 1, map->aux, &li, &lu);
+			if (ir < 0)
+				goto bad_width;
+			if (ir)
+				goto out_of_range;
 			if (map->aux == sizeof(signed char)) {
 				signed char *pc;
 				pc = (signed char *)(u + map->ofs);
-				*pc = (signed char)atoi(ctx->buf);
+				*pc = (signed char)li;
 				break;
 			}
 			if (map->aux == sizeof(short)) {
 				short *ps;
 				ps = (short *)(u + map->ofs);
-				*ps = (short)atoi(ctx->buf);
+				*ps = (short)li;
 				break;
 			}
 			if (map->aux == sizeof(int)) {
 				int *pi;
 				pi = (int *)(u + map->ofs);
-				*pi = atoi(ctx->buf);
+				*pi = (int)li;
 				break;
 			}
 			if (map->aux == sizeof(long)) {
 				long *pl;
 				pl = (long *)(u + map->ofs);
-				*pl = atol(ctx->buf);
+				*pl = (long)li;
 				break;
 			}
 			if (map->aux == sizeof(long long)) {
 				long long *pll;
 				pll = (long long *)(u + map->ofs);
-				*pll = atoll(ctx->buf);
+				*pll = li;
 				break;
 			}
 			goto bad_width;
 
 		case LSMT_UNSIGNED:
 			/* see the note on member widths above */
+			ir = lws_struct_lejp_int(ctx->buf, 0, map->aux, &li, &lu);
+			if (ir < 0)
+				goto bad_width;
+			if (ir)
+				goto out_of_range;
 			if (map->aux == sizeof(unsigned char)) {
 				unsigned char *pc;
 				pc = (unsigned char *)(u + map->ofs);
-				*pc = (unsigned char)(unsigned int)atoi(ctx->buf);
+				*pc = (unsigned char)lu;
 				break;
 			}
 			if (map->aux == sizeof(unsigned short)) {
 				unsigned short *ps;
 				ps = (unsigned short *)(u + map->ofs);
-				*ps = (unsigned short)(unsigned long)atol(ctx->buf);
+				*ps = (unsigned short)lu;
 				break;
 			}
 			if (map->aux == sizeof(unsigned int)) {
 				unsigned int *pi;
 				pi = (unsigned int *)(u + map->ofs);
-				*pi = (unsigned int)atoi(ctx->buf);
+				*pi = (unsigned int)lu;
 				break;
 			}
 			if (map->aux == sizeof(unsigned long)) {
 				unsigned long *pl;
 				pl = (unsigned long *)(u + map->ofs);
-				*pl = (unsigned long)atol(ctx->buf);
+				*pl = (unsigned long)lu;
 				break;
 			}
 			if (map->aux == sizeof(unsigned long long)) {
 				unsigned long long *pll;
 				pll = (unsigned long long *)(u + map->ofs);
-				*pll = (unsigned long long)atoll(ctx->buf);
+				*pll = lu;
 				break;
 			}
 			goto bad_width;
@@ -560,6 +628,12 @@ chunk_copy_l:
 		args->cb(args->dest, args->cb_arg);
 
 	return 0;
+
+out_of_range:
+	/* the JSON's number doesn't fit the member: refuse it, not wrap it */
+	lwsl_warn("%s: '%s': value out of range for its member\n", __func__,
+		  map->colname);
+	goto cleanup;
 
 bad_width:
 	lwsl_err("%s: '%s': bad member width %d\n", __func__, map->colname,

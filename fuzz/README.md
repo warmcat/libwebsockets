@@ -272,9 +272,9 @@ the application's own reading of its credentials or cookie disabled.
 `fuzz-struct` checks that JSON lws_struct took into structs serializes, that
 the serialization parses back as the same schema, and that serializing that
 gives the same JSON again, aborting with `LWS FUZZ ORACLE: <what>` if not.
-What the structs can't hold (a string longer than its char array, a number
-past its member's range) is lost the first time, so only the round trip from
-lws' own JSON is compared.
+A string longer than its char array is cut short the first time, so only
+the round trip from lws' own JSON is compared; a number its member can't
+hold is refused.
 
 ### The same request, sent different ways
 
