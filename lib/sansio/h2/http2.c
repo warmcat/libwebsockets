@@ -2447,6 +2447,29 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			 */
 			h2n->swsi->cli_redir_origin = wsi->cli_redir_origin;
 			wsi->cli_redir_origin = NULL;
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+			/* ... and the answer to a digest challenge, if any */
+			h2n->swsi->http.digest_auth_hdr =
+						wsi->http.digest_auth_hdr;
+			wsi->http.digest_auth_hdr = NULL;
+#endif
+			/*
+			 * ... and the request's stash, that a digest auth
+			 * retry takes its credentials from, and a redirect
+			 * judges where they may go by.  A copy: alt-svc still
+			 * reads the connection's address and host from its own
+			 */
+			if (wsi->stash) {
+				const char *cisin[CIS_COUNT];
+				int m;
+
+				for (m = 0; m < CIS_COUNT; m++)
+					cisin[m] = wsi->stash->cis[m];
+				if (lws_client_stash_create(h2n->swsi, cisin))
+					return 1;
+				h2n->swsi->stash->opaque_user_data =
+						wsi->stash->opaque_user_data;
+			}
 #if defined(LWS_WITH_CONMON)
 			/* sid1 needs to represent the connection experience
 			 * ... we take over responsibility for the DNS list
@@ -4396,6 +4419,19 @@ lws_h2_client_handshake_composed(struct lws *wsi)
 	    lws_cookie_send_cookies(wsi, (char **)&p, (char *)end)) {
 		lwsl_wsi_err(wsi, "cookie jar attach failed");
 		goto fail_length;
+	}
+#endif
+
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+	/* the answer to a digest challenge, as the h1 composer sends it */
+	if (wsi->http.digest_auth_hdr) {
+		n = lws_add_http_header_by_token(wsi,
+				WSI_TOKEN_HTTP_AUTHORIZATION,
+				(unsigned char *)wsi->http.digest_auth_hdr,
+				(int)strlen(wsi->http.digest_auth_hdr), &p, end);
+		lws_free_set_NULL(wsi->http.digest_auth_hdr);
+		if (n)
+			goto fail_length;
 	}
 #endif
 

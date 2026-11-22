@@ -54,6 +54,11 @@
  *    as frame headers, losing sync on the connection, and with it every
  *    other stream it carried
  *
+ *  - a GET with credentials, answered 401 with a digest challenge: it must
+ *    be asked again with a digest Authorization.  The first request on an
+ *    h2 connection is moved onto its stream 1, which once left the
+ *    credentials behind on the connection, so the challenge failed it
+ *
  * A case that does not reach its expected end inside CASE_WATCHDOG_S fails.
  */
 
@@ -92,6 +97,10 @@
 #define HP_STATUS		8
 #define HP_CONTENT_LENGTH	28
 #define HP_LOCATION		46
+#define HP_WWW_AUTHENTICATE	61
+
+#define HCP_USER		"user"
+#define HCP_PASS		"password"
 
 enum {
 	HCP_REDIR_307,		/* 307 to /two, then 200 */
@@ -100,6 +109,7 @@ enum {
 	HCP_IDLE_PING,		/* 200, then a PING after IDLE_MS */
 	HCP_HDRS_STALL,		/* HEADERS, the CONTINUATION after STALL_MS */
 	HCP_DATA_SPLIT,		/* 200, half a DATA, its rest after SPLIT_MS */
+	HCP_DIGEST,		/* 401 digest challenge, then 200 if answered */
 };
 
 static const struct hcp_case {
@@ -128,6 +138,11 @@ static const struct hcp_case {
 	  "GET", HCP_HDRS_STALL, 1, "GET", "/one", 0, -1 },
 	{ "a stream closed inside a DATA frame keeps the connection in step",
 	  "GET", HCP_DATA_SPLIT, 1, "GET", "/one", 0, -1 },
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH) && defined(LWS_WITH_TLS)
+	/* digest auth, whose hashes come from the tls library */
+	{ "a digest challenge to the first request is answered", "GET",
+	  HCP_DIGEST, 2, "GET", "/one", 200, 0 },
+#endif
 };
 
 /* a request the fixture saw */
@@ -135,6 +150,7 @@ struct seen {
 	char		method[16];
 	char		path[64];
 	char		scheme[8];
+	char		auth[8];	/* the Authorization scheme, if any */
 	int		conn;
 };
 
@@ -271,7 +287,7 @@ fx_hp_field_short(uint8_t *b, size_t room, unsigned int name_idx,
 
 static void
 fx_respond(struct fx_pss *p, uint32_t sid, const char *status,
-	   const char *location, const char *method)
+	   const char *location, const char *method, const char *challenge)
 {
 	uint8_t b[256];
 	size_t n = 0, m;
@@ -279,6 +295,16 @@ fx_respond(struct fx_pss *p, uint32_t sid, const char *status,
 	n += fx_hp_field_short(b + n, sizeof(b) - n, HP_STATUS, status);
 	if (method)
 		n += fx_hp_field_short(b + n, sizeof(b) - n, HP_METHOD, method);
+
+	if (challenge) {
+		m = fx_hp_field(b + n, sizeof(b) - n, HP_WWW_AUTHENTICATE,
+				challenge);
+		if (!m) {
+			lwsl_err("%s: fixture: challenge too big\n", __func__);
+			return;
+		}
+		n += m;
+	}
 
 	if (location) {
 		m = fx_hp_field(b + n, sizeof(b) - n, HP_LOCATION, location);
@@ -369,12 +395,40 @@ fx_split_rest_cb(lws_sorted_usec_list_t *sul)
 }
 
 /*
- * The request's :method, :scheme and :path, from a block of literal fields with
- * literal names and no huffman, which is how lws sends them
+ * A string's length, as a 7-bit prefixed hpack integer with no huffman flag,
+ * at *i in a block of len.  Nonzero if it's not one, or what it says runs
+ * past the block.
+ */
+static int
+fx_hp_strlen(const uint8_t *pl, size_t len, size_t *i, size_t *sl)
+{
+	unsigned int sh = 0;
+
+	if (*i >= len || (pl[*i] & 0x80))
+		return 1;
+
+	*sl = pl[(*i)++] & 0x7f;
+	if (*sl == 0x7f)
+		do {
+			/* no length in a block we can hold needs more */
+			if (*i >= len || sh > 14)
+				return 1;
+			*sl += (size_t)(pl[*i] & 0x7f) << sh;
+			sh += 7;
+		} while (pl[(*i)++] & 0x80);
+
+	return *sl > len - *i;
+}
+
+/*
+ * The request's :method, :scheme, :path and Authorization scheme, from a
+ * block of literal fields with literal names and no huffman, which is how
+ * lws sends them
  */
 static int
 fx_read_request(const uint8_t *pl, size_t len, struct seen *s)
 {
+	const uint8_t *n, *v, *sp;
 	size_t i = 0, nl, vl;
 
 	/* the block came in one frame, so it can't be bigger than our rx */
@@ -382,27 +436,33 @@ fx_read_request(const uint8_t *pl, size_t len, struct seen *s)
 		return 1;
 
 	while (i < len) {
-		if (pl[i] != 0x00 || i + 2 > len)
+		if (pl[i++] != 0x00)
 			return 1;
-		/* a 7-bit length prefix of 0x7f or more needs continuation */
-		nl = pl[i + 1];
-		if (nl >= 0x7f || i + 2 + nl + 1 > len)
+		if (fx_hp_strlen(pl, len, &i, &nl))
 			return 1;
-		vl = pl[i + 2 + nl];
-		if (vl >= 0x7f || i + 3 + nl + vl > len)
+		n = pl + i;
+		i += nl;
+		if (fx_hp_strlen(pl, len, &i, &vl))
 			return 1;
+		v = pl + i;
+		i += vl;
 
-		if (nl == 7 && !memcmp(pl + i + 2, ":method", 7))
-			lws_strnncpy(s->method, (const char *)pl + i + 3 + nl,
-				     vl, sizeof(s->method));
-		if (nl == 5 && !memcmp(pl + i + 2, ":path", 5))
-			lws_strnncpy(s->path, (const char *)pl + i + 3 + nl,
-				     vl, sizeof(s->path));
-		if (nl == 7 && !memcmp(pl + i + 2, ":scheme", 7))
-			lws_strnncpy(s->scheme, (const char *)pl + i + 3 + nl,
-				     vl, sizeof(s->scheme));
-
-		i += 3 + nl + vl;
+		if (nl == 7 && !memcmp(n, ":method", 7))
+			lws_strnncpy(s->method, (const char *)v, vl,
+				     sizeof(s->method));
+		if (nl == 5 && !memcmp(n, ":path", 5))
+			lws_strnncpy(s->path, (const char *)v, vl,
+				     sizeof(s->path));
+		if (nl == 7 && !memcmp(n, ":scheme", 7))
+			lws_strnncpy(s->scheme, (const char *)v, vl,
+				     sizeof(s->scheme));
+		if (nl == 13 && !memcmp(n, "authorization", 13)) {
+			/* its scheme, up to the first space */
+			sp = memchr(v, ' ', vl);
+			lws_strnncpy(s->auth, (const char *)v,
+				     sp ? lws_ptr_diff_size_t(sp, v) : vl,
+				     sizeof(s->auth));
+		}
 	}
 
 	return !s->method[0] || !s->path[0] || !s->scheme[0];
@@ -473,19 +533,19 @@ fx_request(struct fx_pss *p, uint8_t flags, uint32_t sid, const uint8_t *pl,
 				     server_addr, port);
 			fx_respond(p, sid, "307", loc,
 				   c->action == HCP_REDIR_307_METHOD ?
-							"PUT" : NULL);
+							"PUT" : NULL, NULL);
 			break;
 		}
-		fx_respond(p, sid, "200", NULL, NULL);
+		fx_respond(p, sid, "200", NULL, NULL, NULL);
 		break;
 
 	case HCP_DATA_FIRST:
 		fx_tx_frame(p, H2_DATA, 0, sid, "hello", 5);
-		fx_respond(p, sid, "200", NULL, NULL);
+		fx_respond(p, sid, "200", NULL, NULL, NULL);
 		break;
 
 	case HCP_IDLE_PING:
-		fx_respond(p, sid, "200", NULL, NULL);
+		fx_respond(p, sid, "200", NULL, NULL, NULL);
 		lws_sul_schedule(context, 0, &p->sul_later, fx_idle_ping_cb,
 				 IDLE_MS * LWS_US_PER_MS);
 		break;
@@ -526,6 +586,17 @@ fx_request(struct fx_pss *p, uint8_t flags, uint32_t sid, const uint8_t *pl,
 				 SPLIT_MS * LWS_US_PER_MS);
 		break;
 	}
+
+	case HCP_DIGEST:
+		/* the fixture checks only that it was answered as digest */
+		if (strcmp(s->auth, "Digest")) {
+			fx_respond(p, sid, "401", NULL, NULL,
+				   "Digest realm=\"hcp\", qop=\"auth\", "
+				   "nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c0\"");
+			break;
+		}
+		fx_respond(p, sid, "200", NULL, NULL, NULL);
+		break;
 	}
 }
 
@@ -727,6 +798,13 @@ case_evaluate(void)
 		fail = 1;
 	}
 
+	if (c->action == HCP_DIGEST && srv.requests &&
+	    strcmp(srv.seen[srv.requests - 1].auth, "Digest")) {
+		lwsl_err("%s: the challenge was never answered as digest\n",
+			 __func__);
+		fail = 1;
+	}
+
 	if (srv.requests) {
 		s = &srv.seen[srv.requests - 1];
 		if (strcmp(s->method, c->want_method) ||
@@ -898,6 +976,10 @@ next_case(lws_sorted_usec_list_t *sul)
 	    cases[cur].action == HCP_DATA_SPLIT)
 		i.keep_warm_secs = 5;
 	i.ssl_connection = LCCSCF_H2_PRIOR_KNOWLEDGE;
+	if (cases[cur].action == HCP_DIGEST) {
+		i.auth_username = HCP_USER;
+		i.auth_password = HCP_PASS;
+	}
 
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("%s: connect failed\n", __func__);
