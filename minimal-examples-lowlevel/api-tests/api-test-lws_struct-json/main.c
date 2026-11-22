@@ -351,6 +351,134 @@ test_sibling_lists(void)
 }
 
 /*
+ * An object lws_struct has no use for, under a member it doesn't know, or one
+ * that wants a value, is ignored, and the struct being filled must carry on
+ * being filled.  It used to be dropped, so the next value landed in the
+ * struct of the level below, at an offset in this one's, past the end of the
+ * one it landed in; and an ignored object inside a child ended the child.
+ */
+
+typedef struct {
+	const char		*tag;
+	int			s;
+} ign_kid_t;
+
+typedef struct {
+	lws_dll2_t		list;
+	const char		*name;
+	int			n;
+} ign_item_t;
+
+typedef struct {
+	lws_dll2_owner_t	items;	/* ign_item_t */
+	ign_kid_t		*kid;
+	int			end;
+} ign_top_t;
+
+static const lws_struct_map_t lsm_ign_kid[] = {
+	LSM_STRING_PTR	(ign_kid_t, tag,			"tag"),
+	LSM_SIGNED	(ign_kid_t, s,				"s"),
+};
+
+static const lws_struct_map_t lsm_ign_item[] = {
+	LSM_STRING_PTR	(ign_item_t, name,			"name"),
+	LSM_SIGNED	(ign_item_t, n,				"n"),
+};
+
+static const lws_struct_map_t lsm_ign_top[] = {
+	LSM_CHILD_PTR	(ign_top_t, kid, ign_kid_t, NULL, lsm_ign_kid,	"kid"),
+	LSM_LIST	(ign_top_t, items, ign_item_t, list, NULL, lsm_ign_item,
+								"items"),
+	LSM_SIGNED	(ign_top_t, end,			"end"),
+};
+
+static const lws_struct_map_t lsm_ign_schema[] = {
+	LSM_SCHEMA	(ign_top_t, NULL, lsm_ign_top,		"ign"),
+};
+
+static const char * const ign_json =
+	"{\"schema\":\"ign\","
+	 "\"kid\":{\"tag\":{\"x\":1},\"s\":5},"
+	 "\"items\":["
+	  "{\"name\":\"one\",\"zz\":{\"q\":{\"r\":1}},\"n\":1},"
+	  "{\"name\":{\"w\":2},\"n\":2},"
+	  "{\"zz\":[{\"q\":1}],\"name\":\"three\",\"n\":3}"
+	 "],"
+	 "\"end\":7}";
+
+static int
+ign_item_check(struct lws_dll2 *d, void *user)
+{
+	static const char * const names[] = { "one", NULL, "three" };
+	const ign_item_t *it = lws_container_of(d, ign_item_t, list);
+	int *idx = (int *)user;
+
+	if (*idx >= (int)LWS_ARRAY_SIZE(names) || it->n != *idx + 1 ||
+	    (!names[*idx] != !it->name) ||
+	    (it->name && strcmp(it->name, names[*idx])))
+		return 1;
+
+	(*idx)++;
+
+	return 0;
+}
+
+static int
+test_ignored_objects(void)
+{
+	lws_struct_args_t a;
+	struct lejp_ctx ctx;
+	const ign_top_t *t;
+	int m, idx = 0;
+
+	lwsl_user("%s\n", __func__);
+
+	memset(&a, 0, sizeof(a));
+	a.map_st[0]		= lsm_ign_schema;
+	a.map_entries_st[0]	= LWS_ARRAY_SIZE(lsm_ign_schema);
+	a.ac_block_size		= 512;
+
+	lws_struct_json_init_parse(&ctx, NULL, &a);
+	m = lejp_parse(&ctx, (uint8_t *)ign_json, (int)strlen(ign_json));
+	lejp_destruct(&ctx);
+	t = (const ign_top_t *)a.dest;
+
+	if (m < 0 || !t) {
+		lwsl_err("%s: JSON decode failed '%s'\n", __func__,
+			 lejp_error_to_string(m));
+		goto bail;
+	}
+
+	if (!t->kid || t->kid->tag || t->kid->s != 5) {
+		lwsl_err("%s: the child wasn't filled to its end\n", __func__);
+		goto bail;
+	}
+
+	if (t->items.count != 3 ||
+	    lws_dll2_foreach_safe((lws_dll2_owner_t *)&t->items, &idx,
+				  ign_item_check)) {
+		lwsl_err("%s: the list came back as %d items, wrong at %d\n",
+			 __func__, (int)t->items.count, idx);
+		goto bail;
+	}
+
+	if (t->end != 7) {
+		lwsl_err("%s: the member after them came back %d\n", __func__,
+			 t->end);
+		goto bail;
+	}
+
+	lwsac_free(&a.ac);
+
+	return 0;
+
+bail:
+	lwsac_free(&a.ac);
+
+	return 1;
+}
+
+/*
  * A number in the JSON must fit the member it lands in: the edges of each
  * width parse, one past them is refused, as is a negative value for an
  * unsigned member.  They used to wrap silently, eg, 300 became 44 in a
@@ -1154,6 +1282,9 @@ done:
 	}
 
 	if (test_sibling_lists())
+		goto bail;
+
+	if (test_ignored_objects())
 		goto bail;
 
 	if (test_ranges())

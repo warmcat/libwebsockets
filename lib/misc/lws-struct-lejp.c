@@ -266,8 +266,20 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 
 	if (reason == LEJPCB_OBJECT_START) {
 
+		/*
+		 * An object with no path of its own at this level is the next
+		 * element of the list this level parses: its struct is made at
+		 * its first member, so forget the last element's.
+		 *
+		 * Any other object we have no member for, or whose member
+		 * isn't a child or a list, is ignored, and must leave alone
+		 * the struct this level is filling: clearing it had the next
+		 * value land in the struct of the level below, at an offset in
+		 * this level's struct, past the end of the one it landed in.
+		 */
 		if (!ctx->path_match) {
-			ctx->pst[ctx->pst_sp].user = NULL;
+			if (!ctx->pst[ctx->pst_sp].ppos)
+				ctx->pst[ctx->pst_sp].user = NULL;
 
 			return 0;
 		}
@@ -275,11 +287,8 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 		map = &args->map_st[ctx->pst_sp][ctx->path_match - 1];
 		n = args->map_entries_st[ctx->pst_sp];
 
-		if (map->type != LSMT_CHILD_PTR && map->type != LSMT_LIST) {
-			ctx->pst[ctx->pst_sp].user = NULL;
-
+		if (map->type != LSMT_CHILD_PTR && map->type != LSMT_LIST)
 			return 0;
-		}
 		pmap = map;
 
 		if (lws_struct_lejp_push(ctx, args, map, NULL))
@@ -287,7 +296,11 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 	if (reason == LEJPCB_OBJECT_END && pmap) {
-		if (pmap->type == LSMT_CHILD_PTR)
+		/*
+		 * Only the end of the child's own object ends its parser, not
+		 * the end of an object inside it that was ignored
+		 */
+		if (pmap->type == LSMT_CHILD_PTR && !ctx->pst[ctx->pst_sp].ppos)
 			lejp_parser_pop(ctx);
 
 		if (ctx->pst_sp)
