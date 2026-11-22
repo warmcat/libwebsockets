@@ -280,6 +280,29 @@ lws_h3_client_handshake_composed(struct lws *wsi)
 		p = p1;
 	}
 
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
+	/* the cookies from the jar, as the h1 and h2 composers send them */
+	if ((wsi->flags & LCCSCF_CACHE_COOKIES) &&
+	    lws_cookie_send_cookies(wsi, (char **)&p, (char *)end)) {
+		lwsl_wsi_err(wsi, "cookie jar attach failed");
+
+		return -1;
+	}
+#endif
+
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+	/* the answer to a digest challenge, as the h1 and h2 composers send */
+	if (wsi->http.digest_auth_hdr) {
+		n = lws_add_http3_header_by_token(wsi,
+				WSI_TOKEN_HTTP_AUTHORIZATION,
+				(unsigned char *)wsi->http.digest_auth_hdr,
+				(int)strlen(wsi->http.digest_auth_hdr), &p, end);
+		lws_free_set_NULL(wsi->http.digest_auth_hdr);
+		if (n)
+			return -1;
+	}
+#endif
+
 	/*
 	 * Let the user append additional headers via callback...
 	 *
