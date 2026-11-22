@@ -343,7 +343,7 @@ fzc_connect(uint8_t cfg, int ws_ok, int ssl_flags)
 	ci.ssl_connection	= ssl_flags;
 	if (cfg & 0x40) {
 		ci.auth_username	= "fuzz";
-		ci.auth_password	= "sesame";
+		ci.auth_password	= "sesame"; /* NOSONAR: fuzz fixture */
 	}
 	if (cfg & 0x80)
 		ci.ssl_connection |= LCCSCF_CACHE_COOKIES;
