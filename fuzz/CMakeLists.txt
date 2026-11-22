@@ -106,6 +106,15 @@ if (LWS_WITH_COSE)
 	lws_add_fuzz_target(cose)
 endif()
 
+if (LWS_WITH_STRUCT_JSON)
+	lws_add_fuzz_target(struct)
+endif()
+
+if (LWS_WITH_SECURE_STREAMS AND
+    NOT LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+	lws_add_fuzz_target(ss-policy)
+endif()
+
 # the wsi-bound protocol parsers need the evil-peer helper in peer.h, which
 # uses socketpair + adopt, so they are POSIX-only
 

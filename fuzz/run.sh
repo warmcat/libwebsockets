@@ -98,7 +98,7 @@ fi
 if [ "$#" -gt 0 ]; then
 	TARGETS="$*"
 else
-	TARGETS="lejp lecp qpack upng jpeg gif lhp lhp-layout hl md svg tokenize jose cose adns h1 h2 ws ws-pmd srv-h1 srv-h2 srv-xproto cli-h1 cli-ws cli-h2 quic"
+	TARGETS="lejp lecp qpack upng jpeg gif lhp lhp-layout hl md svg tokenize jose cose struct ss-policy adns h1 h2 ws ws-pmd srv-h1 srv-h2 srv-xproto cli-h1 cli-ws cli-h2 quic"
 fi
 
 # UBSan's reports are a line with no stack unless it's asked for one
@@ -180,6 +180,7 @@ CC="$CC" cmake -S "$REPO" -B "$BUILD" --fresh -DCMAKE_BUILD_TYPE=Debug \
 	-DLWS_WITH_SYS_ASYNC_DNS=ON \
 	-DLWS_WITH_RANGES=ON \
 	-DLWS_WITH_PEER_LIMITS=ON \
+	-DLWS_WITH_STRUCT_JSON=ON \
 	$FUZZ_CMAKE_OPTS
 
 # A bare --parallel is make -j with no limit: every compile at once, which
@@ -473,7 +474,6 @@ minimize() {
 # magic values instead of having to hit on them a byte at a time.  Value
 # profiling makes the operands of comparisons count as coverage, so getting
 # closer to a magic constant or a length check is progress the fuzzer keeps.
-run_target() {
 #
 # A connection target's input is a program of what happens on it
 # (sansio-peer.h), and saying a lot takes room: several requests, a flow
@@ -493,6 +493,7 @@ len_opts() {
 	esac
 }
 
+run_target() {
 	dict=""
 	if [ -r "$REPO/fuzz/fuzz-$1/$1.dict" ]; then
 		dict="-dict=$REPO/fuzz/fuzz-$1/$1.dict"
@@ -504,8 +505,8 @@ len_opts() {
 		-artifact_prefix="$BUILD/fuzz/" \
 		-use_value_profile=1 \
 		$dict \
-		$UNIT_TIMEOUT \
 		$(len_opts "$1") \
+		$UNIT_TIMEOUT \
 		$FUZZ_OPTS
 }
 

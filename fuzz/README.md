@@ -171,6 +171,8 @@ doesn't fail.
 | `fuzz-tokenize` | `lws_tokenize` + core string helpers (`lib/core/libwebsockets.c`, `lib/misc/base64-decode.c`) | first byte selects the helper (tokenize / b64 / b32 / hex / urldecode / dumb-json / strexp / wildcard / iso8601 / uri / humanize / purify), next two are the tokenize flags; small output buffers so bounding bugs overflow |
 | `fuzz-jose` | JWK / JWS / JWE layer above lejp (`lib/jose/`) | first byte selects import / compact / flattened / JOSE-header / JWE decrypt, second selects the fixed oct / RSA / EC / 128-bit oct key; needs `LWS_WITH_JOSE`.  Its JWE seeds are lws' own AES key wrap and ECDH-ES encryptions to those keys, so decryption is reached: `LWS_FUZZ_JOSE_SEEDS=<dir> fuzz-jose` makes new ones |
 | `fuzz-cose` | cose_key import + signature validator (`lib/cose/`) | first byte selects import vs validate against a fixed key set, second the sigtype; needs `LWS_WITH_COSE` |
+| `fuzz-struct` | `lws_struct` JSON to C structs and back (`lib/misc/lws-struct-lejp.c`) | JSON for one of two schemas with every kind of member, in two chunks; what it parses is serialized, parsed again and serialized again, and must come back the same (see below); needs `LWS_WITH_STRUCT_JSON` |
+| `fuzz-ss-policy` | the Secure Streams JSON policy parser (`lib/secure-streams/policy-json.c`), which a device takes from the network | a policy in two chunks, only from a `{`, as a trusted parse takes anything else for a file's path; what a complete one built is walked for ASan, then abandoned |
 | `fuzz-adns` | async-dns response parser + dnssec (`lib/system/async-dns/`) | each input is delivered as the response to a real pending query, tid patched in; the only nameserver is a UDP sink the harness binds itself, so nothing leaves the process; first byte selects query type and DNSSEC mode |
 | `fuzz-srv-h1` | an h1 server connection and its application (`lib/sansio/http/`, `lib/roles/http/server/`) | sansIO: the input is a program of what the peer and the network do (see below); the server answers POSTs through `lws_spa`, streams, redirects, serves a file mount with ranges and gzip, and upgrades to ws with pmd |
 | `fuzz-srv-h2` | the same application over h2 (`lib/sansio/h2/`) | sansIO, h2 prior knowledge; the program's own op builds h2 frames with their lengths right ([sansio-h2.h](sansio-h2.h)) |
@@ -265,6 +267,15 @@ own, with the sanitiser's `..` handling and `lws_http_serve()`'s `..` refusal
 both disabled, and each gate check to catch a request let through it, with
 the application's own reading of its credentials or cookie disabled.
 
+### What lws_struct parses, it can give back
+
+`fuzz-struct` checks that JSON lws_struct took into structs serializes, that
+the serialization parses back as the same schema, and that serializing that
+gives the same JSON again, aborting with `LWS FUZZ ORACLE: <what>` if not.
+What the structs can't hold (a string longer than its char array, a number
+past its member's range) is lost the first time, so only the round trip from
+lws' own JSON is compared.
+
 ### The same request, sent different ways
 
 Those checks need to know what is wrong.  A request smuggled past a check, or
@@ -325,8 +336,7 @@ surfaces, easiest first:
    unix socket, evil-peer shape against the proxy's listener
  - dht bencode / rpc (`lib/misc/dht`): needs a dht ctx with a UDP wsi
  - auth-dns zone parser (`lib/system/auth-dns/`), jrpc (`lib/misc/jrpc/`),
-   `lws_struct` JSON-to-struct (`lib/misc/lws-struct-lejp.c`), sshd
-   userauth / bipacket
+   sshd userauth / bipacket
  - a QUIC *client* playing against `fuzz-quic`'s idea of a server: the
    taps tell the server's side too, so the harness can be the server
 
