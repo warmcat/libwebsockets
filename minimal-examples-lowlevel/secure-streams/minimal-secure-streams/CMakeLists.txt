@@ -99,8 +99,15 @@ if (requirements)
 				ENVIRONMENT "SAI_LIST_PORT=${PORT_MS_HBIN_TLS}")
 		set_tests_properties(ki_ms_hbin PROPERTIES FIXTURES_CLEANUP ms_hbin)
 
+		#
+		# The example's own 3s transaction timeout is too tight for
+		# CI: a loaded, slow builder (eg, riscv64 with mbedtls 2.28)
+		# can spend that on the handshake with the fixture's RSA-4096
+		# cert while it serves the other local ss tests
+		#
 		add_test(NAME ss-warmcat-local COMMAND lws-minimal-secure-streams
-			 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
+			 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json
+			 --timeout_ms 20000)
 		set_tests_properties(ss-warmcat-local PROPERTIES
 			 FIXTURES_REQUIRED "ms_hbin"
 			 TIMEOUT 40)
@@ -109,7 +116,8 @@ if (requirements)
 			configure_file(policy-local-h2.json.in policy-local-h2.json @ONLY)
 
 			add_test(NAME ss-warmcat-local-h2 COMMAND lws-minimal-secure-streams
-				 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-local-h2.json)
+				 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-local-h2.json
+				 --timeout_ms 20000)
 			set_tests_properties(ss-warmcat-local-h2 PROPERTIES
 				 FIXTURES_REQUIRED "ms_hbin"
 				 TIMEOUT 40)
