@@ -3829,11 +3829,16 @@ rops_close_kill_connection_h3(struct lws *wsi, enum lws_close_status reason)
 		struct lws *nwsi = wsi->mux.parent_wsi;
 
 		lws_wsi_mux_sibling_disconnect(wsi);
+		/*
+		 * If that was a server connection's last request stream, it
+		 * idles from now: nothing else arms its keepalive if the peer
+		 * has nothing more to send, eg, a request of its that was lost
+		 */
+		if (nwsi->quic.qn)
+			lws_quic_server_idle_check(nwsi);
 #if defined(LWS_WITH_CLIENT)
 		/* if that was the connection's last request stream, keep it warm */
 		lws_wsi_mux_client_idle_check(nwsi);
-#else
-		(void)nwsi;
 #endif
 	}
 
