@@ -108,7 +108,8 @@ enum pending_timeout {
  * \param secs:	how many seconds.  You may set to LWS_TO_KILL_ASYNC to
  *		force the connection to timeout at the next opportunity, or
  *		LWS_TO_KILL_SYNC to close it synchronously if you know the
- *		wsi is not the one currently being serviced.
+ *		wsi is not the one currently being serviced.  0 removes any
+ *		timeout, leaving the wsi with NO_PENDING_TIMEOUT.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);

@@ -269,8 +269,15 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 		goto bail;
 	}
 
+	/*
+	 * Whatever was armed goes.  With no new one, the reason goes with it:
+	 * code that asks what the wsi waits on, eg, to refresh it on rx, must
+	 * not find a deadline that no longer exists, and arm it again
+	 */
 	lws_pt_lock(pt, __func__);
 	lws_dll2_remove(&wsi->sul_timeout.list);
+	if (!secs)
+		wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	lws_pt_unlock(pt);
 
 	if (!secs)
@@ -324,8 +331,11 @@ lws_set_timeout_us(struct lws *wsi, enum pending_timeout reason, lws_usec_t us)
 		return;
 	}
 
+	/* with none armed in its place, it waits on nothing, as above */
 	lws_pt_lock(pt, __func__);
 	lws_dll2_remove(&wsi->sul_timeout.list);
+	if (!us)
+		wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	lws_pt_unlock(pt);
 
 	if (!us)
