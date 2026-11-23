@@ -48,7 +48,7 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 	struct lws_context *context = lws_get_context(wsi);
 	size_t real_len = len;
 	unsigned int n, m;
-	int queued = 0, draining = 0;
+	int queued = -1, draining = 0;
 
 	/*
 	 * If you're looking to dump data being sent down the tls tunnel, see
@@ -86,10 +86,13 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 		/*
 		 * already buflist ahead of this, add it on the tail of the
 		 * buflist, then ignore it for now and act like we're flushing
-		 * the buflist...
+		 * the buflist...  An empty write (eg, a role's zero-length
+		 * HTTP_FINAL with no framing of its own) has nothing to
+		 * queue, and a buflist has no empty segments: it only drains.
 		 */
 
-		if (lws_buflist_append_segment(&wsi->buflist_out, buf, len))
+		if (len &&
+		    lws_buflist_append_segment(&wsi->buflist_out, buf, len))
 			return -1;
 
 		/*
@@ -237,7 +240,7 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 			case -1:
 				return -1;
 			case 1:
-				return queued ? queued : (int)real_len;
+				return queued >= 0 ? queued : (int)real_len;
 			default:
 				break;
 			}
@@ -245,7 +248,7 @@ lws_io_tx_push(struct lws *wsi, unsigned char *buf, size_t len)
 		/* always callback on writeable */
 		lws_callback_on_writable(wsi);
 
-		return queued ? queued : (int)m;
+		return queued >= 0 ? queued : (int)m;
 	}
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
