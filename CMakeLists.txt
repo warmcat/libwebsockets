@@ -1773,7 +1773,12 @@ endif()
 set(CPACK_SOURCE_IGNORE_FILES $(CPACK_SOURCE_IGNORE_FILES) "/.git/" "/build/" "\\\\.tgz$" "\\\\.tar\\\\.gz$")
 
 # Most people are more used to "make dist" compared to "make package_source"
-add_custom_target(dist COMMAND "${CMAKE_MAKE_PROGRAM}" package_source)
+# Only define it when we are the top-level project: CMake target names are
+# global, so a `dist` target created from a subproject collides with any other
+# subproject that defines one (libssh does) and aborts the parent's configure.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  add_custom_target(dist COMMAND "${CMAKE_MAKE_PROGRAM}" package_source)
+endif()
 
 # "make coverage": summarize the gcov counters left by the last ctest run in
 # this tree, see READMEs/README.coverage.md
