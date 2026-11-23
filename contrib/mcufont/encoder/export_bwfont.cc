@@ -128,11 +128,11 @@ static void encode_character_range(std::ostream &out,
     
     for (const DataFile::glyphentry_t &g : glyphs)
     {
-        offsets.push_back(data.size() / stride);
+        offsets.push_back((unsigned)(data.size() / stride));
         widths.push_back(g.width);
         encode_glyph(g, new_fi, data, width);
     }    
-    offsets.push_back(data.size() / stride);
+    offsets.push_back((unsigned)(data.size() / stride));
     
     write_const_table(out, data, "uint8_t", "mf_bwfont_" + name + "_glyph_data_" + std::to_string(range_index), 1);
     
@@ -175,7 +175,7 @@ void write_source(std::ostream &out, std::string name, const DataFile &datafile)
     for (size_t i = 0; i < ranges.size(); i++)
     {
         cropinfo_t cropinfo;
-        encode_character_range(out, name, datafile, ranges.at(i), i, cropinfo);
+        encode_character_range(out, name, datafile, ranges.at(i), (unsigned)i, cropinfo);
         crops.push_back(cropinfo);
     }
     

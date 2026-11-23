@@ -124,7 +124,7 @@ std::unique_ptr<DataFile> LoadFreetype(std::istream &file, int size, bool bw,
     int u_per_em = face->units_per_EM;
     if (!u_per_em)
         throw std::runtime_error("face has no units per em");
-    auto topx = [size, u_per_em](int s) { return (s * size + u_per_em / 2) / u_per_em; };
+    auto topx = [size, u_per_em](FT_Pos s) { return (int)((s * size + u_per_em / 2) / u_per_em); };
     
     fontinfo.name = face_name(face);
     if (sized_name)
@@ -159,11 +159,12 @@ std::unique_ptr<DataFile> LoadFreetype(std::istream &file, int size, bool bw,
         }
         
         DataFile::glyphentry_t glyph;
-        glyph.width = (face->glyph->advance.x + 32) / 64;
-        glyph.chars.push_back(charcode);
+        glyph.width = (int)((face->glyph->advance.x + 32) / 64);
+        glyph.chars.push_back((int)charcode);
         glyph.data.resize(fontinfo.max_width * fontinfo.max_height);
         
-        int w = face->glyph->bitmap.width;
+        int w = (int)face->glyph->bitmap.width;
+        int rows = (int)face->glyph->bitmap.rows;
         int dw = fontinfo.max_width;
         int dx = fontinfo.baseline_x + face->glyph->bitmap_left;
         int dy = fontinfo.baseline_y - face->glyph->bitmap_top;
@@ -173,13 +174,13 @@ std::unique_ptr<DataFile> LoadFreetype(std::istream &file, int size, bool bw,
          * them inside the box in order not to crash.. */
         if (dy < 0)
             dy = 0;
-        if (dy + face->glyph->bitmap.rows > fontinfo.max_height)
-            dy = fontinfo.max_height - face->glyph->bitmap.rows;
+        if (dy + rows > fontinfo.max_height)
+            dy = fontinfo.max_height - rows;
         
         size_t s = face->glyph->bitmap.pitch;
-        for (int y = 0; y < face->glyph->bitmap.rows; y++)
+        for (int y = 0; y < rows; y++)
         {
-            for (int x = 0; x < face->glyph->bitmap.width; x++)
+            for (int x = 0; x < w; x++)
             {
                 size_t index = (y + dy) * dw + x + dx;
                 
@@ -192,7 +193,7 @@ std::unique_ptr<DataFile> LoadFreetype(std::istream &file, int size, bool bw,
                 else
                 {
                     glyph.data.at(index) =
-                        (face->glyph->bitmap.buffer[w * y + x] + 8) / 17;
+                        (uint8_t)((face->glyph->bitmap.buffer[w * y + x] + 8) / 17);
                 }
             }
         }

@@ -305,21 +305,21 @@ bool write_source(std::ostream &out, std::string _name, const DataFile &datafile
 
         for (const encoded_font_t::rlestring_t &r : encoded->rle_dictionary)
         {
-            offsets.push_back(data.size());
+            offsets.push_back((unsigned)data.size());
             data.insert(data.end(), r.begin(), r.end());
         }
 
         for (const encoded_font_t::refstring_t &r : encoded->ref_dictionary)
         {
-            offsets.push_back(data.size());
+            offsets.push_back((unsigned)data.size());
             data.insert(data.end(), r.begin(), r.end());
         }
-        offsets.push_back(data.size());
+        offsets.push_back((unsigned)data.size());
 
         out32(&hdr[MCUFO_SIZE_DICT_DATA], (uint32_t)data.size());
 
         for (size_t i = 0; i < data.size(); i++) {
-    	    u = data.at(i);
+    	    u = (uint8_t)data.at(i);
     	    if (write(fd, &u, 1) < 0)
     		    goto fail;
         }
@@ -327,8 +327,11 @@ bool write_source(std::ostream &out, std::string _name, const DataFile &datafile
         out32(&hdr[MCUFO_FOFS_DICT_OFS], (uint32_t)lseek(fd, 0, SEEK_END));
 
         for (size_t i = 0; i < offsets.size(); i++) {
-    	    uint16_t u = offsets.at(i);
     	    uint8_t b[2];
+
+    	    if (offsets.at(i) > 0xffff)
+    		    goto fail; /* the format can't express it */
+    	    uint16_t u = (uint16_t)offsets.at(i);
 
     	    b[0] = (uint8_t)(u >> 8);
     	    b[1] = (uint8_t)(u & 0xff);
@@ -372,10 +375,10 @@ bool write_source(std::ostream &out, std::string _name, const DataFile &datafile
                     width = datafile.GetGlyphEntry(glyph_index).width;
                 }
 
-                offsets.push_back(data.size());
-                already_encoded[glyph_index] = data.size();
+                offsets.push_back((unsigned)data.size());
+                already_encoded[glyph_index] = (unsigned)data.size();
 
-                data.push_back(width);
+                data.push_back((unsigned)width);
                 kern_profile_append(kern_profile(datafile, glyph_index), data);
                 data.insert(data.end(), r.begin(), r.end());
             }
@@ -384,8 +387,11 @@ bool write_source(std::ostream &out, std::string _name, const DataFile &datafile
         fofs_range_ofs[i] = (uint32_t)lseek(fd, 0, SEEK_END);
 
         for (size_t n = 0; n < offsets.size(); n++) {
-        	    uint16_t u = offsets.at(n);
         	    uint8_t b[2];
+
+        	    if (offsets.at(n) > 0xffff)
+        		    goto fail; /* the format can't express it */
+        	    uint16_t u = (uint16_t)offsets.at(n);
 
         	    b[0] = (uint8_t)(u >> 8);
         	    b[1] = (uint8_t)(u & 0xff);
@@ -397,14 +403,14 @@ bool write_source(std::ostream &out, std::string _name, const DataFile &datafile
         for (size_t n = 0; n < data.size(); n++) {
     	    uint8_t u;
 
-        	    u = data.at(n);
+        	    u = (uint8_t)data.at(n);
         	    if (write(fd, &u, 1) < 0)
         		    goto fail;
         }
     }
 
     out32(&hdr[MCUFO_FOFS_CHAR_RANGE_TABLES], (uint32_t)lseek(fd, 0, SEEK_END));
-    out32(&hdr[MCUFO_COUNT_CHAR_RANGE_TABLES], ranges.size());
+    out32(&hdr[MCUFO_COUNT_CHAR_RANGE_TABLES], (uint32_t)ranges.size());
 
     for (size_t i = 0; i < ranges.size(); i++) {
 	    uint8_t rb[16];
@@ -418,14 +424,14 @@ bool write_source(std::ostream &out, std::string _name, const DataFile &datafile
 		    goto fail;
     }
 
-    out32(&hdr[MCUFO_UNICODE_FALLBACK], select_fallback_char(datafile));
-    out16(&hdr[MCUFO16_WIDTH], datafile.GetFontInfo().max_width);
-    out16(&hdr[MCUFO16_HEIGHT], datafile.GetFontInfo().max_height);
-    out16(&hdr[MCUFO16_MIN_X_ADV], get_min_x_advance(datafile));
-    out16(&hdr[MCUFO16_MAX_X_ADV], get_max_x_advance(datafile));
-    out16(&hdr[MCUFO16_BASELINE_X], datafile.GetFontInfo().baseline_x);
-    out16(&hdr[MCUFO16_BASELINE_Y], datafile.GetFontInfo().baseline_y);
-    out16(&hdr[MCUFO16_LINE_HEIGHT], datafile.GetFontInfo().line_height);
+    out32(&hdr[MCUFO_UNICODE_FALLBACK], (uint32_t)select_fallback_char(datafile));
+    out16(&hdr[MCUFO16_WIDTH], (uint16_t)datafile.GetFontInfo().max_width);
+    out16(&hdr[MCUFO16_HEIGHT], (uint16_t)datafile.GetFontInfo().max_height);
+    out16(&hdr[MCUFO16_MIN_X_ADV], (uint16_t)get_min_x_advance(datafile));
+    out16(&hdr[MCUFO16_MAX_X_ADV], (uint16_t)get_max_x_advance(datafile));
+    out16(&hdr[MCUFO16_BASELINE_X], (uint16_t)datafile.GetFontInfo().baseline_x);
+    out16(&hdr[MCUFO16_BASELINE_Y], (uint16_t)datafile.GetFontInfo().baseline_y);
+    out16(&hdr[MCUFO16_LINE_HEIGHT], (uint16_t)datafile.GetFontInfo().line_height);
     hdr[MCUFO_KERN_BANDS] = (uint8_t)kern_bands(datafile);
     hdr[MCUFO_KERN_GAP] = (uint8_t)(opts.kern_gap ? opts.kern_gap :
                                             kern_target_gap(datafile));
@@ -485,7 +491,7 @@ bool write_source(std::ostream &out, std::string _name, const DataFile &datafile
 	s = read(fd, b, sizeof(b));
 	if (s <= 0)
 		break;
-	m = snprintf(line, sizeof(line) - 2, "/* %04X */  ", ao);
+	m = snprintf(line, sizeof(line) - 2, "/* %04zX */  ", ao);
 	for (n = 0; n < (size_t)s; n++) {
 	    m += snprintf(line + m, sizeof(line) - 2 - m, "0x%02X, ", b[n]);
 	    ao++;

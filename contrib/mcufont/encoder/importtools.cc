@@ -99,8 +99,8 @@ void crop_glyphs(std::vector<DataFile::glyphentry_t> &glyphtable,
         }
     }
     
-    fontinfo.max_width = new_w;
-    fontinfo.max_height = new_h;
+    fontinfo.max_width = (int)new_w;
+    fontinfo.max_height = (int)new_h;
     fontinfo.baseline_x -= bbox.left;
     fontinfo.baseline_y -= bbox.top;
 }

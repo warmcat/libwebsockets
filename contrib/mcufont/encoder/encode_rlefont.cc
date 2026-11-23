@@ -77,13 +77,13 @@ static encoded_font_t::rlestring_t encode_rle(const DataFile::pixels_t &pixels)
             while (count >= 64)
             {
                 size_t c = (count > 4096) ? 64 : (count / 64);
-                result.push_back(RLE_64ZEROS | (c - 1));
+                result.push_back((uint8_t)(RLE_64ZEROS | (c - 1)));
                 count -= c * 64;
             }
             
             if (count)
             {
-                result.push_back(RLE_ZEROS | count);
+                result.push_back((uint8_t)(RLE_ZEROS | count));
             }
         }
         else if (pixel == 15)
@@ -92,7 +92,7 @@ static encoded_font_t::rlestring_t encode_rle(const DataFile::pixels_t &pixels)
             while (count)
             {
                 size_t c = (count > 64) ? 64 : count;
-                result.push_back(RLE_ONES | (c - 1));
+                result.push_back((uint8_t)(RLE_ONES | (c - 1)));
                 count -= c;
             }
         }
@@ -102,7 +102,7 @@ static encoded_font_t::rlestring_t encode_rle(const DataFile::pixels_t &pixels)
             while (count)
             {
                 size_t c = (count > 4) ? 4 : count;
-                result.push_back(RLE_SHADE | ((c - 1) << 4) | pixel);
+                result.push_back((uint8_t)(RLE_SHADE | ((c - 1) << 4) | pixel));
                 count -= c;
             }
         }
@@ -312,7 +312,7 @@ static DictTreeNode* construct_tree(const std::vector<DataFile::dictentry_t> &di
     DictTreeNode* root = storage.allocate();
     
     // Populate the hardcoded entries for 0 to 15 alpha.
-    for (int j = 0; j < 16; j++)
+    for (uint8_t j = 0; j < 16; j++)
     {
         DictTreeNode *node = storage.allocate();
         node->SetIndex(j);
@@ -322,7 +322,7 @@ static DictTreeNode* construct_tree(const std::vector<DataFile::dictentry_t> &di
     }
     
     // Populate the actual dictionary entries
-    size_t i = DICT_START;
+    int i = DICT_START;
     for (DataFile::dictentry_t d : dictionary)
     {
         if (!d.replacement.size())
@@ -338,8 +338,8 @@ static DictTreeNode* construct_tree(const std::vector<DataFile::dictentry_t> &di
         for (; i < 256; i++)
         {
             DataFile::pixels_t pixels;
-            size_t bitcount = fillentry_bitcount(i);
-            uint8_t byte = i - DICT_START7BIT;
+            size_t bitcount = fillentry_bitcount((size_t)i);
+            uint8_t byte = (uint8_t)(i - DICT_START7BIT);
             for (size_t j = 0; j < bitcount; j++)
             {
                 uint8_t p = (byte & (1 << j)) ? 15 : 0;
@@ -450,7 +450,7 @@ static encoded_font_t::refstring_t encode_ref_slow(const DataFile::pixels_t &pix
     size_t pos = pixels.size();
     for (size_t i = len; i > 0; i--)
     {
-        result.at(i - 1) = chain[pos].index;
+        result.at(i - 1) = (uint8_t)chain[pos].index;
         pos = chain[pos].previous;
     }
     
@@ -516,7 +516,7 @@ static encoded_font_t::refstring_t encode_ref_fast(const DataFile::pixels_t &pix
     {
         int index;
         i += walk_tree(tree, pixels.begin() + i, pixels.end(), index, is_glyph);
-        result.push_back(index);
+        result.push_back((uint8_t)index);
     }
     
     if (i < pixels.size())

@@ -347,7 +347,8 @@ static status_t cmd_rlefont_optimize(const std::vector<std::string> &args)
         size_t newsize = mcufont::rlefont::get_encoded_size(*f);
         time_t newtime = time(NULL);
         
-        int bytes_per_min = (oldsize - newsize) * 60 / (newtime - oldtime + 1);
+        int bytes_per_min = (int)(((long long)oldsize - (long long)newsize) * 60 /
+                                  (newtime - oldtime + 1));
         
         i++;
         std::cout << "iteration " << i << ", size " << newsize

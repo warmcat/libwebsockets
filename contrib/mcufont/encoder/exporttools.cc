@@ -42,7 +42,7 @@ void wordwrap_vector(std::ostream &out, const std::vector<unsigned> &data,
         if (i % values_per_column == 0 && i != 0)
             out << std::endl << prefix;
         
-        out << "0x" << std::setw(width) << (int)data.at(i) << ", ";
+        out << "0x" << std::setw((int)width) << (int)data.at(i) << ", ";
     }
     out.flags(flags);
 }
@@ -93,7 +93,7 @@ int select_fallback_char(const DataFile &datafile)
     size_t i = 0;
     for (const DataFile::glyphentry_t &g: datafile.GetGlyphTable())
     {
-        for (size_t c: g.chars)
+        for (int c: g.chars)
         {
             chars.insert(c);
         }
@@ -134,14 +134,14 @@ std::vector<char_range_t> compute_char_ranges(const DataFile &datafile,
     while (i < chars.size())
     {
         char_range_t range;
-        range.first_char = chars.at(i);
+        range.first_char = (uint16_t)chars.at(i);
         
         // Find the point where there is a gap larger than minimum_gap.
         i++;
         while (i < chars.size() && chars.at(i) - chars.at(i - 1) < minimum_gap)
             i++;
         
-        uint16_t last_char = chars.at(i - 1);
+        uint16_t last_char = (uint16_t)chars.at(i - 1);
         
         // Then store the indices of glyphs for each character
         size_t data_length = 0;
@@ -154,14 +154,14 @@ std::vector<char_range_t> compute_char_ranges(const DataFile &datafile,
                 continue;
             }
             
-            int glyph_index = char_to_glyph[j];
+            int glyph_index = (int)char_to_glyph[j];
             
             // Monitor the amount of the data in the range and split it
             // if it grows too large.
             data_length += get_encoded_glyph_size(glyph_index);
             if (data_length > maximum_size)
             {
-                last_char = j - 1;
+                last_char = (uint16_t)(j - 1);
                 
                 // Return the rest of characters to be processed by next range.
                 while (chars.at(i-1) > last_char)
@@ -173,7 +173,7 @@ std::vector<char_range_t> compute_char_ranges(const DataFile &datafile,
             range.glyph_indices.push_back(glyph_index);
         }
         
-        range.char_count = last_char - range.first_char + 1;
+        range.char_count = (uint16_t)(last_char - range.first_char + 1);
         result.push_back(range);
     }
     

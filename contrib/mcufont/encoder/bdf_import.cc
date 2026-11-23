@@ -10,7 +10,7 @@ namespace mcufont {
 static std::string toupper(const std::string &input)
 {
     std::string result;
-    for (char c: input) result.push_back(::toupper(c));
+    for (char c: input) result.push_back((char)::toupper((unsigned char)c));
     return result;
 }
 

@@ -48,7 +48,7 @@ void optimize_worst(DataFile &datafile, size_t &size, rnd_t &rnd, bool verbose)
     
     if (newsize < size)
     {
-        d.score = size - newsize;
+        d.score = (int)size - (int)newsize;
         datafile.SetDictionaryEntry(worst, d);
         size = newsize;
         
@@ -72,7 +72,7 @@ void optimize_any(DataFile &datafile, size_t &size, rnd_t &rnd, bool verbose)
     
     if (newsize < size)
     {
-        d.score = size - newsize;
+        d.score = (int)size - (int)newsize;
         datafile.SetDictionaryEntry(index, d);
         size = newsize;
         
@@ -105,7 +105,7 @@ void optimize_expand(DataFile &datafile, size_t &size, rnd_t &rnd, bool verbose,
         }
         else
         {
-            pixel = pixeldist(rnd);
+            pixel = (uint8_t)pixeldist(rnd);
         }
         
         bool prepend = booldist(rnd);
@@ -126,7 +126,7 @@ void optimize_expand(DataFile &datafile, size_t &size, rnd_t &rnd, bool verbose,
     
     if (newsize < size)
     {
-        d.score = size - newsize;
+        d.score = (int)size - (int)newsize;
         datafile.SetDictionaryEntry(index, d);
         size = newsize;
         
@@ -166,7 +166,7 @@ void optimize_trim(DataFile &datafile, size_t &size, rnd_t &rnd, bool verbose)
     
     if (newsize < size)
     {
-        d.score = size - newsize;
+        d.score = (int)size - (int)newsize;
         datafile.SetDictionaryEntry(index, d);
         size = newsize;
         
@@ -193,7 +193,7 @@ void optimize_refdict(DataFile &datafile, size_t &size, rnd_t &rnd, bool verbose
     
     if (newsize < size)
     {
-        d.score = size - newsize;
+        d.score = (int)size - (int)newsize;
         datafile.SetDictionaryEntry(index, d);
         size = newsize;
         
@@ -226,7 +226,7 @@ void optimize_combine(DataFile &datafile, size_t &size, rnd_t &rnd, bool verbose
     
     if (newsize < size)
     {
-        d.score = size - newsize;
+        d.score = (int)size - (int)newsize;
         datafile.SetDictionaryEntry(worst, d);
         size = newsize;
         
@@ -274,7 +274,7 @@ void optimize_encpart(DataFile &datafile, size_t &size, rnd_t &rnd, bool verbose
     
     if (newsize < size)
     {
-        d.score = size - newsize;
+        d.score = (int)size - (int)newsize;
         datafile.SetDictionaryEntry(worst, d);
         size = newsize;
         
@@ -328,7 +328,7 @@ void optimize_parallel(DataFile &datafile, size_t &size, rnd_t &rnd, bool verbos
         threads.at(i)->join();
     }
     
-    int best = std::min_element(sizes.begin(), sizes.end()) - sizes.begin();
+    size_t best = (size_t)(std::min_element(sizes.begin(), sizes.end()) - sizes.begin());
     size = sizes.at(best);
     datafile = datafiles.at(best);
 }
@@ -347,7 +347,7 @@ void update_scores(DataFile &datafile, bool verbose)
         size_t newsize = get_encoded_size(trial);
         
         DataFile::dictentry_t d = datafile.GetDictionaryEntry(i);
-        d.score = newsize - oldsize;
+        d.score = (int)newsize - (int)oldsize;
         
         if (d.score > 0)
         {
@@ -410,7 +410,7 @@ void optimize(DataFile &datafile, size_t iterations)
         optimize_parallel(datafile, size, rnd, verbose);
     }
     
-    std::uniform_int_distribution<size_t> dist(0, std::numeric_limits<uint32_t>::max());
+    std::uniform_int_distribution<uint32_t> dist(0, std::numeric_limits<uint32_t>::max());
     datafile.SetSeed(dist(rnd));
 }
 
