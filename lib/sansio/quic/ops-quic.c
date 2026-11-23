@@ -2020,6 +2020,9 @@ lws_quic_discard_keys(struct lws *nwsi, int level)
 
 	lws_quic_rx_held_destroy(&qn->rx_crypto_held[level]);
 
+	/* nor is an ACK owed in a space we can no longer send in */
+	qn->needs_ack[level] = 0;
+
 	/*
 	 * RFC 9002 A.11 (OnPacketNumberSpaceDiscarded): discarding a packet
 	 * number space resets the PTO backoff.  In both directions, getting
@@ -2289,6 +2292,21 @@ lws_quic_dump(struct lws *wsi)
 						   "no request yet"),
 			(unsigned int)lws_dll2_count(
 					&nwsi->mux.child_list_owner));
+	/*
+	 * Whether that deadline is armed, and if so when, against how long
+	 * the connection has been quiet: one that's armed and never runs out
+	 * is being refreshed by what the peer sends.  -1: not armed
+	 */
+	lwsl_wsi_notice(nwsi, "  conn: timeout due in %lldms, idle restarted "
+			"%lldms ago by %s, transport idle due in %lldms",
+			lws_dll2_is_detached(&nwsi->sul_timeout.list) ? -1ll :
+				(long long)(nwsi->sul_timeout.us - now) /
+							LWS_US_PER_MS,
+			(long long)(now - qn->idle_restart_us) / LWS_US_PER_MS,
+			qn->idle_tx_since_rx ? "our tx" : "the peer",
+			lws_dll2_is_detached(&qn->idle_sul.list) ? -1ll :
+				(long long)(qn->idle_sul.us - now) /
+							LWS_US_PER_MS);
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
