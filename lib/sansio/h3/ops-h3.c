@@ -3550,6 +3550,16 @@ lws_h3_qpack_dec_cancel_stream(struct lws *wsi)
 		lwsl_wsi_warn(wsi, "unable to queue Stream Cancellation");
 }
 
+void
+lws_h3_stream_qpack_release(struct lws *wsi)
+{
+	lws_dll2_remove(&wsi->h3.qpack_blocked);
+	lws_buflist_destroy_all_segments(&wsi->h3.qpack_blocked_bl);
+#if defined(LWS_WITH_CLIENT)
+	lws_buflist_destroy_all_segments(&wsi->h3.qpack_held_hdrs);
+#endif
+}
+
 static int
 rops_close_kill_connection_h3(struct lws *wsi, enum lws_close_status reason)
 {
@@ -3579,10 +3589,8 @@ rops_close_kill_connection_h3(struct lws *wsi, enum lws_close_status reason)
 
 	lws_h3_qpack_dec_cancel_stream(wsi);
 	/* nothing it held is wanted now */
-	lws_dll2_remove(&wsi->h3.qpack_blocked);
-	lws_buflist_destroy_all_segments(&wsi->h3.qpack_blocked_bl);
+	lws_h3_stream_qpack_release(wsi);
 #if defined(LWS_WITH_CLIENT)
-	lws_buflist_destroy_all_segments(&wsi->h3.qpack_held_hdrs);
 	{
 		struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 

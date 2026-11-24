@@ -129,6 +129,15 @@ void
 lws_h3_server_goaway(struct lws *nwsi);
 #endif
 
+/*
+ * What a stream holds for qpack of its own, apart from its decode state: its
+ * place among the connection's streams waiting for inserts, the rest of its
+ * input held meanwhile, and a request held for the peer's acks.  It is let go
+ * when the stream closes, or is reset to go again as a new request.
+ */
+void
+lws_h3_stream_qpack_release(struct lws *wsi);
+
 #if defined(LWS_WITH_CLIENT)
 /*
  * A client h3 connection is going: its requests the server is known not to
