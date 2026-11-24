@@ -106,7 +106,12 @@ struct vhd {
 	unsigned int		rate_lines;	/* per source per minute */
 	unsigned int		max_session_secs;
 	unsigned int		max_past_secs;
-	char			trust_login_headers;
+#if defined(LWS_WITH_JOSE)
+	/* with jwt-jwk, we check the session cookie ourselves */
+	struct lws_jwk		jwk;
+	const char		*cookie_name;	/* NULL for "auth_session" */
+	char			has_jwk;
+#endif
 };
 
 /* a line from a shipper, while it's being parsed */

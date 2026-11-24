@@ -635,7 +635,21 @@ li_init(struct lws *wsi, const struct lws_protocol_vhost_options *pvo)
 		return -1;
 	}
 	if (!lws_pvo_get_str((void *)pvo, "trust-login-headers", &p))
-		vhd->trust_login_headers = !!atoi(p);
+		lwsl_vhost_warn(vhd->vh, "trust-login-headers is no longer "
+				"supported and is ignored: give jwt-jwk instead");
+#if defined(LWS_WITH_JOSE)
+	if (!lws_pvo_get_str((void *)pvo, "cookie-name", &p))
+		vhd->cookie_name = p;
+	if (!lws_pvo_get_str((void *)pvo, "jwt-jwk", &p)) {
+		/* the auth server's public key, inline or in a file */
+		if ((p[0] == '{' || lws_jwk_load(&vhd->jwk, p, NULL, NULL)) &&
+		    lws_jwk_import(&vhd->jwk, NULL, NULL, p, strlen(p))) {
+			lwsl_vhost_err(vhd->vh, "can't load or import jwt-jwk");
+			return -1;
+		}
+		vhd->has_jwk = 1;
+	}
+#endif
 
 	if (li_pvo_uint(pvo, "retention-days", &days) ||
 	    li_pvo_uint(pvo, "rate-lines", &vhd->rate_lines) ||
@@ -691,6 +705,10 @@ li_init(struct lws *wsi, const struct lws_protocol_vhost_options *pvo)
 static void
 li_destroy(struct vhd *vhd)
 {
+#if defined(LWS_WITH_JOSE)
+	if (vhd->has_jwk)
+		lws_jwk_destroy(&vhd->jwk);
+#endif
 	lws_sul_cancel(&vhd->sul_expire);
 	lws_sul_cancel(&vhd->sul_sessions);
 

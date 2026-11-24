@@ -244,7 +244,8 @@ pvo|default|what it is
 `own-logs`|`1`|keep this process' own lines too, unless it already has a shipper; they're listed as connected, marked local
 `own-kind`|`lws-log-ingest`|the kind this process' own lines are kept as
 `always`||sources always in a window, see "Always"
-`trust-login-headers`|`0`|see "Who can use the api"
+`jwt-jwk`||the auth server's public JWK, inline or a file: see "Who can use the api"
+`cookie-name`|`auth_session`|the session cookie name, as lws-login's `cookie-name`
 
 Whatever a shipper sends is checked as if it came from anywhere: the secret
 only says it's one of ours, not that what it says is sane.  A message may be at
@@ -393,11 +394,14 @@ with 403.  It checks the stamped service is its own `service`, so if the mount
 in front of it is missing or for another grant, it refuses.  Sessions record
 the `x-lws-login-sub` of who started them.
 
-The stamp is read from inside lwsws, `lws_http_get_onward_header()`, so the
-ingestor must be served by the same lwsws as lws-login.  If instead it sits
-behind a front end that proxies to it, eg, on a unix socket, set
-`trust-login-headers` to read them from the request: then nothing else may be
-able to reach the ingestor, since anyone who can could send their own.
+The stamp is read from inside lwsws, `lws_http_get_onward_header()`, so it is
+only there when the ingestor is served by the same lwsws as lws-login.  If
+instead it sits behind a front end that proxies to it, eg, on another box, give
+it the auth server's public key as `jwt-jwk`: the proxy forwards the browser's
+`Cookie:` header, and the ingestor checks the session token in it itself, with
+`lws_jwt_auth_session_state()`, the same way lws-login would have.  The
+`x-lws-login-*` headers as they arrive in a request are never believed, since
+anything that can reach the ingestor could send its own.
 
 Agents use an account given the grant, and log in like a browser:
 

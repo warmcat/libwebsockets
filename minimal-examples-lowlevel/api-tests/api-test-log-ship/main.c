@@ -8,14 +8,19 @@
  *
  * Drives a log shipper (lib/misc/log-ship) against the lws-log-ingest plugin,
  * built in, both in this one process: the shipper connects to the ingestor
- * over ws on loopback, and we use the ingestor's http api as an agent would,
- * the lws-login result stamped in the headers a trusted front end would send.
+ * over ws on loopback, and we use the ingestor's http api as an agent would.
+ * Our requests come by their lws-login state the two ways the ingestor
+ * believes: mostly a session cookie, that it checks itself with its jwt-jwk,
+ * as it would with no bouncer in front, and once stamped in-process by an
+ * interceptor standing in for lws-login, the way lws-login stamps it.
  *
  * The shipper is made by the vhost, from its "lws-log-ship" pvos, as lwsws
  * makes one from its config:
  *
- *  - the api refuses a request with no login state (403), and a session
- *    started with a body that isn't JSON (415)
+ *  - the api refuses a request with no login state, even one claiming to be
+ *    a global admin in its own x-lws-login-* headers (403), and one whose
+ *    session cookie has no grant for it (403), and a session started with a
+ *    body that isn't JSON (415)
  *
  *  - a shipper with the wrong secret is disconnected, and never listed
  *
@@ -85,6 +90,7 @@ static int raise_lvl = RAISE;
 enum {
 	ST_WAIT_CONNECTED,	/* GET sources until the shipper is there */
 	ST_NO_LOGIN,		/* GET sources, no login state: 403 */
+	ST_NO_GRANT,		/* GET sources, not the api's grant: 403 */
 	ST_NOT_JSON,		/* POST sessions as text/plain: 415 */
 	ST_BAD_SECRET,		/* a shipper with the wrong secret */
 	ST_NOTHING_YET,		/* GET logs: nothing was sent */
@@ -126,6 +132,14 @@ static char url[128], always;
 #define SHIP_HOST	"api-test-host"
 
 /* the request for this step */
+
+/*
+ * How a request comes by its login state: L_COOKIE has a session cookie with
+ * the api's grant, L_NO_GRANT one without it, L_STAMP our stand-in for
+ * lws-login stamping a global admin on it in-process, and L_SPOOF nothing but
+ * its own x-lws-login-* headers claiming to be a global admin
+ */
+enum { L_SPOOF, L_COOKIE, L_STAMP, L_NO_GRANT };
 
 typedef struct {
 	const char	*method;
@@ -247,6 +261,13 @@ answered(void)
 	case ST_NO_LOGIN:
 		if (status != 403)
 			fail("no login state wasn't refused");
+		else
+			next(ST_NO_GRANT, 1);
+		return;
+
+	case ST_NO_GRANT:
+		if (status != 403)
+			fail("a session without the grant wasn't refused");
 		else
 			next(ST_NOT_JSON, 1);
 		return;
@@ -418,10 +439,13 @@ step(lws_sorted_usec_list_t *sul)
 
 	switch (state) {
 	case ST_WAIT_CONNECTED:
-		get("/api/sources", 1);
+		get("/api/sources", L_STAMP);
 		break;
 	case ST_NO_LOGIN:
-		get("/api/sources", 0);
+		get("/api/sources", L_SPOOF);
+		break;
+	case ST_NO_GRANT:
+		get("/api/sources", L_NO_GRANT);
 		break;
 	case ST_NOT_JSON:
 		post("/api/sessions", "text/plain", "{}");
@@ -535,6 +559,61 @@ step(lws_sorted_usec_list_t *sul)
 	}
 }
 
+/* a throwaway HS256 key, that the session tokens here are signed with */
+static const char test_jwk[] =
+	"{\"kty\":\"oct\",\"k\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}";
+
+/* a session cookie, with or without the api's grant, as the auth server
+ * mints them */
+
+static int
+session_cookie(struct lws *wsi, int grant, uint8_t **p, uint8_t *end)
+{
+	unsigned long long now = (unsigned long long)lws_now_secs();
+	char tok[768], temp[2048], ck[800];
+	size_t tok_len = sizeof(tok);
+	struct lws_jwk jwk;
+	int r;
+
+	if (lws_jwk_import(&jwk, NULL, NULL, test_jwk, strlen(test_jwk)))
+		return 1;
+
+	r = lws_jwt_sign_compact(context, &jwk, "HS256", tok, &tok_len, temp,
+				 (int)sizeof(temp),
+				 "{\"iss\":\"apitest\",\"pur\":\""
+				 LWS_JWT_AUTH_PURPOSE_SSO "\",\"sub\":\"ctest\","
+				 "\"uid\":1,\"iat\":%llu,\"exp\":%llu,"
+				 "\"grants\":{%s}}", now, now + 600,
+				 grant ? "\"" LI_SERVICE_DEF "\":1" : "");
+	lws_jwk_destroy(&jwk);
+	if (r)
+		return 1;
+
+	r = lws_snprintf(ck, sizeof(ck), "auth_session=%s", tok);
+
+	return r >= (int)sizeof(ck) ||
+	       lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE,
+					    (const uint8_t *)ck, r, p, end);
+}
+
+/*
+ * Our stand-in for an in-process lws-login bouncer on the api's mount: it
+ * lets every request through, stamping a global admin on the ones that have
+ * it, the way lws-login stamps what it found
+ */
+static int
+callback_stamper(struct lws *wsi, enum lws_callback_reasons reason,
+		 void *user, void *in, size_t len)
+{
+	if (reason == LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK &&
+	    req.login == L_STAMP &&
+	    (lws_http_add_onward_header(wsi, LWS_LOGIN_HDR_STATE, "4") ||
+	     lws_http_add_onward_header(wsi, LWS_LOGIN_HDR_SUB, "ctest")))
+		return 1;
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
 static int
 callback_api_client(struct lws *wsi, enum lws_callback_reasons reason,
 		    void *user, void *in, size_t len)
@@ -551,7 +630,11 @@ callback_api_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
 		p = (uint8_t **)in;
 		end = (*p) + len;
-		if (req.login) {
+		if (req.login == L_COOKIE || req.login == L_NO_GRANT) {
+			if (session_cookie(wsi, req.login == L_COOKIE, p, end))
+				return -1;
+		}
+		if (req.login == L_SPOOF) {
 			/* what lws-login stamps for a global admin */
 			if (lws_add_http_header_by_name(wsi,
 					(const uint8_t *)LWS_LOGIN_HDR_STATE ":",
@@ -655,14 +738,24 @@ static const struct lws_protocols protocols[] = {
 	LWS_PLUGIN_PROTOCOL_LWS_LOG_INGEST,
 	{ "api-client", callback_api_client, 0, 0, 0, NULL, 0 },
 	{ "bad-shipper", callback_bad_shipper, 0, 0, 0, NULL, 0 },
+	{ "stamper", callback_stamper, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 
+static const struct lws_http_mount mount_stamper = {
+	.mountpoint		= "/stamper",
+	.protocol		= "stamper",
+	.origin_protocol	= LWSMPRO_CALLBACK,
+	.mountpoint_len		= 8,
+};
+
 static const struct lws_http_mount mount_api = {
+	.mount_next		= &mount_stamper,
 	.mountpoint		= "/api",
 	.origin			= LWS_LOG_SHIP_WS_PROTOCOL,
 	.origin_protocol	= LWSMPRO_CALLBACK,
 	.mountpoint_len		= 4,
+	.interceptor_path	= "/stamper",
 };
 
 /* our lines about the markers are tagged "marker/x" */
@@ -699,10 +792,10 @@ static const struct lws_protocol_vhost_options hdr_hsts = {
 	"form-action 'self' https://auth.example.com"
 };
 
-static struct lws_protocol_vhost_options pvo_trust = {
-	NULL, NULL, "trust-login-headers", "1"
+static struct lws_protocol_vhost_options pvo_jwk = {
+	NULL, NULL, "jwt-jwk", test_jwk
 }, pvo_own = {
-	&pvo_trust, NULL, "own-logs", "0"
+	&pvo_jwk, NULL, "own-logs", "0"
 }, pvo_secret = {
 	&pvo_own, NULL, "secret", SECRET
 }, pvo_db = {

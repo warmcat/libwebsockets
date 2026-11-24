@@ -367,58 +367,65 @@ valid_session_id(const char *s)
 	return !s[n];
 }
 
-/* a header lws-login stamped, in-process, or from a trusted front end */
-
-static int
-li_login_hdr(struct vhd *vhd, struct lws *wsi, const char *name, char *buf,
-	     size_t len)
-{
-	int n = lws_http_get_onward_header(wsi, name, buf, len);
-#if defined(LWS_WITH_CUSTOM_HEADERS)
-	char hn[48];
-#endif
-
-	if (n >= 0 || !vhd->trust_login_headers)
-		return n;
-
-#if defined(LWS_WITH_CUSTOM_HEADERS)
-	n = lws_snprintf(hn, sizeof(hn), "%s:", name);
-	return lws_hdr_custom_copy(wsi, buf, (int)len, hn, n);
-#else
-	return -1;
-#endif
-}
+/*
+ * Who is asking, and whether lws-login lets them use the api: from what an
+ * lws-login bouncer in this process stamped on the request, or with
+ * jwt-jwk, decided from the session cookie itself, as the bouncer would
+ * have.  The x-lws-login-* headers as they arrive in the request are never
+ * looked at: anything that can reach us could send its own.
+ */
 
 static int
 li_allowed(struct vhd *vhd, struct lws *wsi, char *sub, size_t sl)
 {
 	char state[8], service[64];
-	int n, st;
+	int st;
 
-	n = li_login_hdr(vhd, wsi, LWS_LOGIN_HDR_STATE, state, sizeof(state));
-	if (n != 1 || state[0] < '0' || state[0] > '9') {
-		lwsl_wsi_notice(wsi, "log query refused: no trustworthy %s",
-				LWS_LOGIN_HDR_STATE);
+	if (lws_http_get_onward_header(wsi, LWS_LOGIN_HDR_STATE, state,
+				       sizeof(state)) == 1 &&
+	    state[0] >= '0' && state[0] <= '9') {
+		st = state[0] - '0';
+
+		if (lws_http_get_onward_header(wsi, LWS_LOGIN_HDR_SUB, sub,
+					       sl) <= 0)
+			lws_strncpy(sub, "?", sl);
+
+		/* the stamped state is about the bouncer's grant: ours? */
+		if (st >= LWS_LOGIN_STATE_USER &&
+		    st != LWS_LOGIN_STATE_GLOBAL_ADMIN &&
+		    (lws_http_get_onward_header(wsi, LWS_LOGIN_HDR_SERVICE,
+					service, sizeof(service)) <= 0 ||
+		     strcmp(service, vhd->service))) {
+			lwsl_wsi_notice(wsi, "log query by '%s' refused: state "
+					"%d is not for grant '%s'", sub, st,
+					vhd->service);
+			return 0;
+		}
+	}
+#if defined(LWS_WITH_JOSE)
+	else if (vhd->has_jwk) {
+		const char *reason = "";
+
+		st = lws_jwt_auth_session_state(wsi, &vhd->jwk,
+						vhd->cookie_name, vhd->service,
+						NULL, sub, sl, &reason);
+		if (!sub[0])
+			lws_strncpy(sub, "?", sl);
+		if (st == LWS_LOGIN_STATE_ANON) {
+			lwsl_wsi_notice(wsi, "log query refused: %s", reason);
+			return 0;
+		}
+	}
+#endif
+	else {
+		lwsl_wsi_notice(wsi, "log query refused: no %s stamped "
+				"in-process, and no jwt-jwk", LWS_LOGIN_HDR_STATE);
 		return 0;
 	}
-	st = state[0] - '0';
-
-	if (li_login_hdr(vhd, wsi, LWS_LOGIN_HDR_SUB, sub, sl) <= 0)
-		lws_strncpy(sub, "?", sl);
-
-	if (st == LWS_LOGIN_STATE_GLOBAL_ADMIN)
-		return 1;
 
 	if (st < LWS_LOGIN_STATE_USER) {
 		lwsl_wsi_notice(wsi, "log query by '%s' refused: state %d, not "
 				"a user of the grant", sub, st);
-		return 0;
-	}
-
-	if (li_login_hdr(vhd, wsi, LWS_LOGIN_HDR_SERVICE, service,
-			 sizeof(service)) <= 0 || strcmp(service, vhd->service)) {
-		lwsl_wsi_notice(wsi, "log query by '%s' refused: state %d is "
-				"not for grant '%s'", sub, st, vhd->service);
 		return 0;
 	}
 
