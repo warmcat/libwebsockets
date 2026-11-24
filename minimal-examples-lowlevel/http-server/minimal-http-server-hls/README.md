@@ -30,7 +30,7 @@ www-dir, so the whole app is a single mount and every link is relative.
 
 - `--media-dir <path>`: Override the default directory containing media files (default: installed `media/` path).
 - `--port <port>`: Port to listen on (default 7681).
-- `--trust-login-headers`: Trust `x-lws-login-*` headers forwarded by an lws proxy in front (see the plugin README).
+- `-j <jwk>`: The auth server's public JWK, inline or a file, to check session cookies with when there is no lws-login bouncer in-process (see "Delete permission").
 - `--help`: Show built-in LWS options (e.g. `-d <log level>`).
 
 ## Subtitle and audio tracks
@@ -115,12 +115,13 @@ grant's level, or the `"*"` wildcard's when there is none, so `media:2`
 and `*:2` arrive as 2 while `*:1` arrives as 1.  The app knows no grant
 names, only the threshold; `media:2` and `*:2` may delete, `media:1`,
 `*:1` and anonymous users browse and play but see no delete buttons, and
-the backend refuses their deletes the same way.  On a vhost behind the
-bouncer's proxy, set `trust-login-headers` so the forwarded header is
-honoured (the bouncer snips the browser's own copy, so it is trusted from
-that path); with the bouncer in-process no configuration is needed.  The
-jwt-jwk fallback only applies on a vhost with no bouncer at all, and asks
-the same threshold of the service-name grant.  The player page asks the
+the backend refuses their deletes the same way.  With the bouncer
+in-process no configuration is needed.  On a vhost with no bouncer
+in-process, eg, behind an lws reverse proxy on another box, give the auth
+server's public key with `-j` (the plugin's `jwt-jwk`): the proxy forwards
+the browser's cookies, and the plugin checks the session token itself,
+asking the same threshold of the service-name grant.  An
+`x-lws-login-grant-level` arriving in the request itself is never believed.  The player page asks the
 server's own decision in its index-status poll, so what it shows always
 matches what the backend will honour.
 

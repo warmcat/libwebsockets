@@ -174,17 +174,15 @@ plugin takes it from, in order:
    stamped on the request (nothing to configure: only an interceptor can stamp
    it)
 
- - `"trust-login-headers": "1"`: the same header as forwarded by an lws reverse
-   proxy whose mount is gated by `lws-login` on the box in front of this one.
-   The bouncer strips the browser's own copy, so it is trustworthy from that
-   path; setting this asserts the vhost is not reachable any other way.  Off by
-   default
+ - `"jwt-jwk"`: the auth server's public JWK, to validate the session cookie
+   directly (`auth_session`, or as `"cookie-name"` says; only the auth server's
+   session tokens, signed with the `"pur":"sso"` purpose, are accepted); the `"*"`
+   wildcard grant or a `"service-name"` (default `hls`) grant at level 2 or more
+   qualifies.  For a vhost with no bouncer in-process, eg, behind an lws reverse
+   proxy on another box, which forwards the browser's `Cookie:` header
 
- - `"jwt-jwk"`: the auth server's public JWK, to validate the `auth_session`
-   cookie directly (only its session tokens, signed with the `"pur":"sso"`
-   purpose, are accepted); the `"*"` wildcard grant or a `"service-name"` (default
-   `hls`) grant at level 2 or more qualifies.  For a vhost with the bouncer
-   neither in-process nor in front of it
+The `x-lws-login-*` headers as they arrive in a request are never believed:
+anything that can reach the plugin could send its own.
 
 The client side asks the bouncer at `.lws-login-status` whether to show the
 buttons (the cookie is `HttpOnly`); the server enforces regardless.  When the
