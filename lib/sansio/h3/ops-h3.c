@@ -3115,7 +3115,9 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						 * primitive.  h2 refuses both the same way.
 						 */
 						if (lws_hdr_extant(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING) ||
-						    lws_hdr_extant(wsi, WSI_TOKEN_CONNECTION)) {
+						    lws_hdr_extant(wsi, WSI_TOKEN_CONNECTION) ||
+						    /* an h3 ws upgrade is an extended CONNECT */
+						    lws_hdr_extant(wsi, WSI_TOKEN_UPGRADE)) {
 							lwsl_wsi_notice(wsi, "H3 MESSAGE_ERROR: connection-specific header in request");
 							lws_quic_enter_closing_state(nwsi, LWS_H3_MESSAGE_ERROR, 0, 1);
 							return 1;
