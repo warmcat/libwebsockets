@@ -25,8 +25,10 @@ if (requirements)
 	set(GRT_CERTS ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-close)
 
 	lws_get_free_port(PORT_GRT)
+	lws_get_free_port(PORT_GRT_E)
 	add_test(NAME api-test-h3-goaway-retry
 		 COMMAND lws-api-test-h3-goaway-retry -p ${PORT_GRT}
+			 --port-e ${PORT_GRT_E}
 			 --cert ${GRT_CERTS}/localhost-100y.cert
 			 --key ${GRT_CERTS}/localhost-100y.key)
 	set_tests_properties(api-test-h3-goaway-retry PROPERTIES TIMEOUT 60)

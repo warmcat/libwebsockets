@@ -35,6 +35,18 @@
  *     what came after the response broke it (the h3_conn_close_on_reply
  *     fault).  A second GET to the same place goes at once, on a new
  *     connection, and is answered there before the old one is gone.
+ *
+ * And a reply that came is not a request left unanswered:
+ *
+ *  E: two GETs on one connection to a second server, which answers each
+ *     with a field section referring to a qpack insert it never sends, so
+ *     both replies wait at the client for it.  The server then closes the
+ *     connection with GOAWAY 0 (the h3_goaway_0 fault), claiming it
+ *     processed neither.  The GETs must fail with the connection, not go
+ *     again: their replies came.  They used to go again, and the retry
+ *     reset the first GET's stream while it was still on the connection's
+ *     list of streams waiting for inserts, so the second one's close wrote
+ *     into it after it was freed.
  */
 
 #include <libwebsockets.h>
@@ -56,6 +68,8 @@ enum {
 	GRT_C2,
 	GRT_D1,
 	GRT_D2,
+	GRT_E1,
+	GRT_E2,
 
 	GRT_COUNT
 };
@@ -72,31 +86,40 @@ struct grt_req {
 	struct lws		*srv_nwsi;
 	const char		*fault; /* on its first try */
 	char			want_ok;
+	char			want_hits; /* times the server should hear it */
+	char			srv_e; /* it goes to the second server */
 };
 
 static struct grt_req reqs[GRT_COUNT] = {
 	[GRT_A]  = { .path = "/a",  .method = "GET",  .fault = "h3_req_lost",
-		     .want_ok = 1 },
+		     .want_ok = 1, .want_hits = 1 },
 	[GRT_B]  = { .path = "/b",  .method = "POST", .fault = "h3_req_lost" },
-	[GRT_C1] = { .path = "/c1", .method = "GET",  .want_ok = 1 },
+	[GRT_C1] = { .path = "/c1", .method = "GET",  .want_ok = 1,
+		     .want_hits = 1 },
 	[GRT_C2] = { .path = "/c2", .method = "GET",  .fault = "h3_req_lost",
-		     .want_ok = 1 },
+		     .want_ok = 1, .want_hits = 1 },
 	[GRT_D1] = { .path = "/d1", .method = "GET",
-		     .fault = "h3_conn_close_on_reply", .want_ok = 1 },
-	[GRT_D2] = { .path = "/d2", .method = "GET",  .want_ok = 1 },
+		     .fault = "h3_conn_close_on_reply", .want_ok = 1,
+		     .want_hits = 1 },
+	[GRT_D2] = { .path = "/d2", .method = "GET",  .want_ok = 1,
+		     .want_hits = 1 },
+	[GRT_E1] = { .path = "/e1", .method = "GET",  .want_hits = 1,
+		     .srv_e = 1 },
+	[GRT_E2] = { .path = "/e2", .method = "GET",  .want_hits = 1,
+		     .srv_e = 1 },
 };
 
 /* the vhost, and so the connection, each request starts on */
 static const int req_vh[GRT_COUNT] = {
 	[GRT_A] = 0, [GRT_B] = 1, [GRT_C1] = 2, [GRT_C2] = 2,
-	[GRT_D1] = 3, [GRT_D2] = 3,
+	[GRT_D1] = 3, [GRT_D2] = 3, [GRT_E1] = 4, [GRT_E2] = 4,
 };
 
 static struct lws_context *context;
-static struct lws_vhost *vh_cli[4];
+static struct lws_vhost *vh_cli[5];
 static lws_sorted_usec_list_t sul_watchdog, sul_c2, sul_d2;
 static const char *server_addr = "127.0.0.1";
-static int port, result = 1, finished;
+static int port, port_e, result = 1, finished;
 
 static void grt_check(void);
 
@@ -166,6 +189,8 @@ grt_ev_dump(void)
 
 struct pss_srv {
 	char			respond;
+	/* the reply refers to a qpack insert that never comes */
+	char			blocked;
 };
 
 static int
@@ -189,6 +214,7 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 				reqs[n].srv_nwsi = lws_get_network_wsi(wsi);
 			}
 		pss->respond = 1;
+		pss->blocked = ((const char *)in)[1] == 'e';
 		lws_callback_on_writable(wsi);
 		return 0;
 
@@ -199,8 +225,22 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 		pss->respond = 0;
 
 		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
-						"text/plain", 2, &p, end) ||
-		    lws_finalize_write_http_header(wsi, start, &p, end))
+						"text/plain", 2, &p, end))
+			return -1;
+		if (pss->blocked) {
+			/*
+			 * The section's prefix says it needs one insert, with
+			 * a base of 0: the field line is a one-byte post-base
+			 * index 0 reference to it.  We never send the insert.
+			 */
+			lws_qpack_set_wsi_base_and_ric(wsi, 0, 1);
+			n = lws_qpack_tx_encode_dynamic_index(p,
+					lws_ptr_diff_size_t(end, p), 0, 0);
+			if (n < 0)
+				return -1;
+			p += n;
+		}
+		if (lws_finalize_write_http_header(wsi, start, &p, end))
 			return -1;
 		memcpy(start, "ok", 2);
 		if (lws_write(wsi, start, 2, LWS_WRITE_HTTP_FINAL) != 2)
@@ -240,7 +280,7 @@ grt_request(int idx)
 	i.address		= server_addr;
 	i.host			= server_addr;
 	i.origin		= server_addr;
-	i.port			= port;
+	i.port			= r->srv_e ? port_e : port;
 	i.path			= r->path;
 	i.method		= r->method;
 	i.alpn			= "h3";
@@ -410,11 +450,16 @@ grt_check(void)
 			return;
 		}
 		if (!r->want_ok && r->status > 0) {
-			grt_finish("the POST was answered", 0);
+			lwsl_err("%s: %s %s ended %d\n", __func__, r->method,
+				 r->path, r->status);
+			grt_finish("a request that should fail was answered", 0);
 			return;
 		}
-		/* the server sees each request it answers once, the POST never */
-		if (r->srv_hits != (r->want_ok ? 1 : 0)) {
+		/*
+		 * the server hears once each request it answers, or whose
+		 * reply came, and the POST never
+		 */
+		if (r->srv_hits != r->want_hits) {
 			lwsl_err("%s: the server saw %s %d times\n", __func__,
 				 r->path, r->srv_hits);
 			grt_finish("the server saw a request the wrong number "
@@ -446,7 +491,8 @@ grt_check(void)
 	}
 
 	grt_finish("lost GETs answered on a new connection, the lost POST "
-		   "failed, a closing connection took no new GET", 1);
+		   "failed, a closing connection took no new GET, GETs whose "
+		   "replies came were not sent again", 1);
 }
 
 static void
@@ -467,6 +513,7 @@ main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	const char *p, *cert, *key;
+	lws_fi_t fi;
 	int n;
 
 	lws_context_info_defaults(&info, NULL);
@@ -476,10 +523,14 @@ main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--port-e")))
+		port_e = atoi(p);
 	cert = lws_cmdline_option(argc, argv, "--cert");
 	key = lws_cmdline_option(argc, argv, "--key");
-	if (!cert || !key || port < 1 || port > 65535) {
-		lwsl_err("-p <port>, --cert and --key are required\n");
+	if (!cert || !key || port < 1 || port > 65535 || port_e < 1 ||
+	    port_e > 65535) {
+		lwsl_err("-p <port>, --port-e <port>, --cert and --key are "
+			 "required\n");
 		return 1;
 	}
 
@@ -510,6 +561,19 @@ main(int argc, const char **argv)
 		goto bail;
 	}
 
+	/* E's server, whose GOAWAY claims it processed nothing */
+	memset(&fi, 0, sizeof(fi));
+	fi.name = "h3_goaway_0";
+	fi.type = LWSFI_ALWAYS;
+	if (lws_fi_add(&info.fic, &fi))
+		goto bail;
+	info.port			= port_e;
+	info.vhost_name			= "srv-e";
+	if (!lws_create_vhost(context, &info)) { /* it takes the fault */
+		lwsl_err("Failed to create the second server vhost\n");
+		goto bail;
+	}
+
 	info.port			= CONTEXT_PORT_NO_LISTEN;
 	info.ssl_cert_filepath		= NULL;
 	info.ssl_private_key_filepath	= NULL;
@@ -520,7 +584,8 @@ main(int argc, const char **argv)
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(vh_cli); n++) {
 		/* the vhost keeps the name */
 		static const char * const names[] = { "cli-a", "cli-b",
-						      "cli-c", "cli-d" };
+						      "cli-c", "cli-d",
+						      "cli-e" };
 
 		info.vhost_name = names[n];
 		vh_cli[n] = lws_create_vhost(context, &info);
@@ -536,7 +601,8 @@ main(int argc, const char **argv)
 	ev_t0 = lws_now_usecs();
 
 	if (grt_request(GRT_A) || grt_request(GRT_B) || grt_request(GRT_C1) ||
-	    grt_request(GRT_D1)) {
+	    grt_request(GRT_D1) || grt_request(GRT_E1) ||
+	    grt_request(GRT_E2)) {
 		lwsl_err("Failed to start the requests\n");
 		goto bail;
 	}

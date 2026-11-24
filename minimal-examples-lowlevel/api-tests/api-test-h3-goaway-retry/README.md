@@ -32,8 +32,16 @@ And a connection the client itself is closing takes no new request:
    fault).  A second GET to the same place goes at once, on a new connection,
    and is answered there before the old one is gone.
 
+And a reply that came is not a request left unanswered:
+
+ - E: two GETs on one connection to a second server, which answers each with
+   a field section referring to a qpack insert it never sends, so both replies
+   wait at the client for it.  The server then closes the connection with
+   GOAWAY 0 (the `h3_goaway_0` fault), claiming it processed neither.  The
+   GETs must fail with the connection, not go again: their replies came.
+
 ```
-$ ./lws-api-test-h3-goaway-retry -p 7681 --cert ../api-test-ws-close/localhost-100y.cert \
+$ ./lws-api-test-h3-goaway-retry -p 7681 --port-e 7682 --cert ../api-test-ws-close/localhost-100y.cert \
 	--key ../api-test-ws-close/localhost-100y.key
 ```
 
