@@ -1397,9 +1397,10 @@ deaddrop_handler_server_ws_filter_protocol_connection(struct vhd_deaddrop *vhd,
 	deaddrop_get_auth_identity(vhd, pss, wsi);
 
 	/*
-	 * The ws upgrade never passes through mounts or the lws-login
-	 * bouncer: this callback is the only place the upgrade can be
-	 * refused.  Anonymous sessions otherwise receive the whole file
+	 * The ws upgrade meets the gates of whatever mount its path is in,
+	 * which may be none: deaddrop declares itself self-gated, so it is
+	 * bound from any path, and this callback is where it refuses the
+	 * upgrade itself.  Anonymous sessions otherwise receive the whole file
 	 * listing and every logged-in user's IP, so unless the vhost
 	 * explicitly asked for that, they end here.
 	 */
@@ -1863,6 +1864,17 @@ _deaddrop_callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 			return 0;
 
 		deaddrop_handler_server_protocol_init(wsi, in);
+
+		/*
+		 * We refuse a ws session with no authenticated user ourselves
+		 * (unless "allow-anon" says otherwise), so lws may bind us on
+		 * the page's path as well as on our gated mounts' paths
+		 */
+		if (lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+					     lws_get_protocol(wsi)) &&
+		    lws_vhost_protocol_self_gated(lws_get_vhost(wsi),
+						  lws_get_protocol(wsi)))
+			return -1;
 		break;
 
 	case LWS_CALLBACK_HTTP:

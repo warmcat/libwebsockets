@@ -689,6 +689,9 @@ protocol or, on a reverse proxy mount, relayed to the backend.  Without valid
 credentials it is refused with 401 and the `WWW-Authenticate` challenge, as an
 http request to the mount would be.
 
+Without `LWS_WITH_HTTP_BASIC_AUTH`, a vhost with a mount that has `basic-auth`,
+or a protocol with a "basic-auth" pvo, is refused rather than served without it.
+
 8) You can also control the exact path matching and redirect behavior per-mount.
 
 ```json
@@ -700,15 +703,22 @@ http request to the mount would be.
 }
 ```
 
-- `"exact-match": "1"` forces the mount to only match if the request URL is exactly the `mountpoint` (no directory prefix matching).
+- `"exact-match": "1"` forces the mount to only match if the request URL is exactly the `mountpoint` (no directory prefix matching).  Otherwise a mount covers its mountpoint and the paths below it, `/x` covering `/x` and `/x/...` but not `/xy`, and a mountpoint ending in `/` covering the paths below it.  Where several mounts cover a path, the one with the longest mountpoint serves it, whatever order they are listed in; that includes `gzip://` mounts.
 - `"append-path": "1"` can be used with HTTP/HTTPS redirects (`>http://` or `>https://`). By default, redirects strictly redirect to the `origin` without appending the trailing path of the URL. Setting this flag will append the remainder of the request URL to the redirect destination, always as a path after the origin: a `/` is put between them if neither has one.
-- `"no-ws-upgrades": "1"` instructs the router to ignore this mount if the incoming HTTP request is a WebSocket upgrade request (its `Upgrade:` header is `websocket`).  Any other request, including an h1 request upgrading to h2c, which is an http request served on h2 stream 1, is given to the mount as usual, and meets its gates, such as its basic auth and interceptors.  This is useful to prevent WSS connections from being accidentally swallowed by a broad alias or redirect mount (e.g. `/`) when they were intended for a different, overlapping protocol.
+- `"no-ws-upgrades": "1"` instructs the router to ignore this mount if the incoming HTTP request is a WebSocket upgrade request (its `Upgrade:` header is `websocket`).  Any other request, including an h1 request upgrading to h2c, which is an http request served on h2 stream 1, is given to the mount as usual, and meets its gates, such as its basic auth and interceptors.  A ws upgrade it ignores is served by the mount around it, but still meets this mount's gates as well as that mount's: the path is in this mount, whoever serves it.  This is useful to prevent WSS connections from being accidentally swallowed by a broad alias or redirect mount (e.g. `/`) when they were intended for a different, overlapping protocol.
 
 In the case you want to also protect being able to connect to a ws protocol on
 a particular vhost by requiring the http part can authenticate using Basic
 Auth before the ws upgrade, this is also possible.  In this case, the
 "basic-auth": and filepath to the credentials file is passed as a pvo in the
 "ws-protocols" section of the vhost definition.
+
+A ws protocol that a gated mount (one with interceptors, basic auth or access
+rights) is served with is only bound by an upgrade whose path meets gates of its
+own: an upgrade to an ungated path that names it is not given it.  A protocol
+that authenticates its sessions itself, and so expects to be reached from an
+ungated path, says so with `lws_vhost_protocol_self_gated()`.  The same goes for
+WebTransport sessions.
 
 ## Using mount interception
 
@@ -735,6 +745,25 @@ mountpoint of the interceptor plugin, like this
 With this arrangement, the original mountpoint will only be visible once
 the intercepting protocol is satisfied, either by a correct login for the
 login one, or by the captcha / ratelimit one being satisfied.
+
+The "interceptor-path" must be exactly the mountpoint of another mount on the
+vhost, served by a callback protocol on the vhost.  The interceptor's own mount
+may have an "interceptor-path" too, and then both are met, up to 8 deep.  A
+vhost whose interceptor-path names no such mount, or whose chain loops, is
+refused when it is created, as is one with an interceptor-path when lws is built
+without `LWS_WITH_JOSE`.  If an interceptor cannot be found while serving, the
+request is refused 403, never served past it.
+
+A request for a path meets the gates of the mount that covers it, even if
+another mount ends up serving it, eg, because of "no-ws-upgrades".  Gates are
+not accepted on `connect://` mounts, nor interceptors or basic auth on
+`gzip://` mounts, which only describe a mount's content; those vhosts are
+refused.
+
+Reverse proxy mounts are matched case-sensitively, on the path before any `?`.
+A backend that treats paths case-insensitively, or `;` as a separator, may see
+a path the mount would not have matched as one it serves: gate the whole proxy
+mount, not only sub-paths of it.
 
 ## Requiring a Client Cert on a vhost
 

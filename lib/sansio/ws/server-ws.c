@@ -323,8 +323,9 @@ lws_process_ws_upgrade2(struct lws *wsi)
 	    !lws_pvo_get_str((void *)pvos->options, "basic-auth",
 			     &ws_prot_basic_auth)) {
 		lwsl_info("%s: ws upgrade requires basic auth\n", __func__);
-		switch (lws_check_basic_auth(wsi, ws_prot_basic_auth, LWSAUTHM_DEFAULT
-						/* no callback based auth here */)) {
+		switch (lws_check_basic_auth(wsi, ws_prot_basic_auth,
+					     LWSAUTHM_DEFAULT, NULL
+					     /* no callback based auth here */)) {
 		case LCBA_CONTINUE:
 		case LCBA_AUTH_RETRY_KEEPALIVE:
 			break;
@@ -514,6 +515,7 @@ ws_upgrade_refuse(struct lws *wsi, unsigned int code, const char *why)
 int
 lws_process_ws_upgrade(struct lws *wsi)
 {
+	const struct lws_http_mount *gate = NULL;
 	const struct lws_protocols *pcol = NULL;
 	char buf[128], name[64];
 	struct lws_tokenize ts;
@@ -672,6 +674,15 @@ lws_process_ws_upgrade(struct lws *wsi)
 		return ws_upgrade_refuse(wsi, HTTP_STATUS_BAD_REQUEST,
 					 "protocol list too long");
 	ts.len = (unsigned int)n;
+
+	{
+		int uri_len = 0;
+		char *uri_ptr;
+
+		if (lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len) >= 0)
+			gate = lws_find_mount_gate(wsi, uri_ptr, uri_len);
+	}
+
 	if (!ts.len) {
 		int n = wsi->a.vhost->default_protocol_index;
 		/*
@@ -687,6 +698,11 @@ lws_process_ws_upgrade(struct lws *wsi)
 		if (n >= wsi->a.vhost->count_protocols)
 			return ws_upgrade_refuse(wsi, HTTP_STATUS_BAD_REQUEST,
 						 "no protocol");
+
+		if (!lws_http_protocol_reachable(wsi,
+				&wsi->a.vhost->protocols[n], gate))
+			return ws_upgrade_refuse(wsi, HTTP_STATUS_FORBIDDEN,
+						 "default protocol is gated");
 
 		lwsl_info("%s: defaulting to prot handler %d\n", __func__, n);
 
@@ -746,6 +762,13 @@ lws_process_ws_upgrade(struct lws *wsi)
 			}
 #endif
 			pcol = lws_vhost_name_to_protocol(wsi->a.vhost, name);
+			if (pcol && !lws_http_protocol_reachable(wsi, pcol,
+							       gate)) {
+				/* not here: as if we did not know it */
+				lwsl_wsi_info(wsi, "%s: gated, path is not",
+					      pcol->name);
+				pcol = NULL;
+			}
 			if (pcol) {
 				/* if we know it, bind to it and stop looking */
 				lws_bind_protocol(wsi, pcol, "ws upg pcol");

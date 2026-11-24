@@ -19,6 +19,8 @@ require_lws_config(LWS_ROLE_RAW 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
 require_lws_config(LWS_WITH_FILE_OPS 1 requirements)
+# its private mount is behind basic auth
+require_lws_config(LWS_WITH_HTTP_BASIC_AUTH 1 requirements)
 
 if (requirements AND NOT WIN32)
 	add_executable(${SAMP} ${SRCS})

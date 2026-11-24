@@ -120,6 +120,28 @@ LWS_VISIBLE LWS_EXTERN const struct lws_protocols *
 lws_protocol_get(struct lws *wsi) LWS_WARN_DEPRECATED;
 
 /**
+ * lws_vhost_protocol_self_gated() - declare a protocol vets its own ws sessions
+ * \param vh:		the vhost
+ * \param prot:		the protocol, on that vhost
+ *
+ * A protocol that some mount with gates (an interceptor_path, basic auth or
+ * access rights) serves its path with is a gated app: lws does not bind it to
+ * a ws upgrade whose path meets no gates at all, unless the protocol has a
+ * "basic-auth" pvo of its own.  Otherwise any path could reach it, eg, an
+ * upgrade to an ungated "/" could bind the protocol of a gated "/admin".
+ *
+ * A protocol that decides itself who its ws peers are, eg, from a secret they
+ * send it, or a session token it checks, calls this in its
+ * LWS_CALLBACK_PROTOCOL_INIT, and is bound on any path, as if no gated mount
+ * served it.
+ *
+ * Returns 0, or nonzero on OOM or if the protocol is not the vhost's.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_vhost_protocol_self_gated(struct lws_vhost *vh,
+			      const struct lws_protocols *prot);
+
+/**
  * lws_protocol_vh_priv_zalloc() - Allocate and zero down a protocol's per-vhost
  *				   storage
  * \param vhost:	vhost the instance is related to

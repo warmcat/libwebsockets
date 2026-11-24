@@ -858,101 +858,357 @@ notfound:
 #endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+
+/*
+ * Is the request a ws upgrade?  On h1 it says so in its Upgrade header.  On
+ * h2 / h3 it is an extended CONNECT with :protocol websocket (RFC 8441, RFC
+ * 9220), with no Upgrade header: they refuse a request carrying one as
+ * malformed.
+ */
+int
+lws_http_is_ws_upgrade(struct lws *wsi)
+{
+	const char *p;
+
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+	if (wsi->mux_substream) {
+		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
+		if (!p || strcmp(p, "CONNECT"))
+			return 0;
+		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_COLON_PROTOCOL);
+
+		return p && !strcmp(p, "websocket");
+	}
+#endif
+	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE);
+
+	return p && !strcasecmp(p, "websocket");
+}
+
+/*
+ * Is the path inside the mount?  It is if it starts with the mountpoint and
+ * the mountpoint ends there on a path segment boundary: "/admin" covers
+ * "/admin" and "/admin/x", not "/administrator".  A mountpoint ending in '/',
+ * "/" itself or eg "/admin/", is a boundary already, so it covers everything
+ * below it: "/admin/" covers "/admin/x", which used to fall through to a less
+ * specific mount and miss its gates.  An exact_match mount covers only its
+ * mountpoint.
+ */
+static int
+lws_mount_covers(const struct lws_http_mount *hm, const char *uri, int len)
+{
+	if (hm->origin_protocol == LWSMPRO_CONNECT || !hm->mountpoint_len ||
+	    len < hm->mountpoint_len ||
+	    strncmp(uri, hm->mountpoint, (size_t)hm->mountpoint_len))
+		return 0;
+
+	if (hm->exact_match)
+		return len == hm->mountpoint_len;
+
+	return len == hm->mountpoint_len || uri[hm->mountpoint_len] == '/' ||
+	       hm->mountpoint[hm->mountpoint_len - 1] == '/';
+}
+
+/* is hm a better (more specific) match than the best so far? */
+static int
+lws_mount_better(const struct lws_http_mount *hm,
+		 const struct lws_http_mount *best)
+{
+	return !best || hm->mountpoint_len > best->mountpoint_len ||
+	       (hm->mountpoint_len == best->mountpoint_len &&
+		hm->exact_match && !best->exact_match);
+}
+
+/*
+ * The mount whose gates a request for this path meets: the most specific one
+ * that covers it, decided by the path alone.  Nothing else about the request,
+ * its method, an upgrade or its headers, can choose a less specific mount
+ * with fewer gates.  A "gzip://" (LWSMPRO_NO_MOUNT) mount, which may carry no
+ * gates, is NULL here as it is for the routing.
+ */
+LWS_VISIBLE const struct lws_http_mount *
+lws_find_mount_gate(struct lws *wsi, const char *uri_ptr, int uri_len)
+{
+	const struct lws_http_mount *hm, *hit = NULL;
+
+	if (!uri_ptr || uri_len <= 0)
+		return NULL;
+
+	for (hm = wsi->a.vhost->http.mount_list; hm; hm = hm->mount_next)
+		if (lws_mount_covers(hm, uri_ptr, uri_len) &&
+		    lws_mount_better(hm, hit))
+			hit = hm;
+
+	if (hit && hit->origin_protocol == LWSMPRO_NO_MOUNT)
+		return NULL;
+
+	return hit;
+}
+
+/*
+ * The mount that serves the request: the most specific one that covers the
+ * path, except that
+ *
+ *  - a no_ws_upgrades mount passes a ws upgrade over to the mount it is in,
+ *    and
+ *
+ *  - a mount that serves files, or is proxied, only serves requests with a
+ *    method that has a path
+ *
+ * Neither changes the gates, which come from lws_find_mount_gate().  A
+ * "gzip://" (LWSMPRO_NO_MOUNT) mount matched like any other means no mount:
+ * it used to end the search wherever it was in the list, so a more specific
+ * mount listed after it, and its gates, were never found.
+ */
 LWS_VISIBLE const struct lws_http_mount *
 lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 {
 	const struct lws_http_mount *hm, *hit = NULL;
-	int best = 0;
+	int ws = -1;
 
-	lwsl_debug("H3_TRACE: lws_find_mount: wsi %p, role %s, uri '%.*s' (len %d), mux_substream %d\n",
-		    wsi, wsi->role_ops ? wsi->role_ops->name : "none",
-		    uri_len, uri_ptr ? uri_ptr : "NULL", uri_len, wsi->mux_substream);
+	if (!uri_ptr || uri_len <= 0)
+		return NULL;
 
-	hm = wsi->a.vhost->http.mount_list;
-	while (hm) {
-		/*
-		 * A CONNECT mount's mountpoint is an authority, not a path:
-		 * only lws_http_connect_protocol() looks at it
-		 */
-		if (hm->origin_protocol == LWSMPRO_CONNECT) {
-			hm = hm->mount_next;
+	for (hm = wsi->a.vhost->http.mount_list; hm; hm = hm->mount_next) {
+		if (!lws_mount_covers(hm, uri_ptr, uri_len) ||
+		    !lws_mount_better(hm, hit))
+			continue;
+
+		if (hm->no_ws_upgrades) {
+			if (ws < 0)
+				ws = lws_http_is_ws_upgrade(wsi);
+			if (ws) {
+				lwsl_info("%s: %s: skip for ws upgrade\n",
+					  __func__, hm->mountpoint);
+				continue;
+			}
+		}
+
+		if (hm->origin_protocol != LWSMPRO_CALLBACK &&
+		    hm->origin_protocol != LWSMPRO_CGI &&
+		    hm->origin_protocol != LWSMPRO_NO_MOUNT &&
+		    !lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) &&
+		    !lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) &&
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
+		    /* as h2 and h3 do, by their :path */
+		    !lws_hdr_total_length(wsi, WSI_TOKEN_OPTIONS_URI) &&
+		    !lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI) &&
+		    !lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) &&
+		    !lws_hdr_total_length(wsi, WSI_TOKEN_DELETE_URI) &&
+#endif
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+		    !(wsi->mux_substream &&
+		      lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH)) &&
+#endif
+		    !lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI))
+			continue;
+
+		hit = hm;
+	}
+
+	if (hit && hit->origin_protocol == LWSMPRO_NO_MOUNT)
+		return NULL;
+
+#if defined(LWS_WITH_SYS_METRICS)
+	if (hit)
+		lws_metrics_tag_wsi_add(wsi, "mnt", hit->mountpoint);
+#endif
+
+	return hit;
+}
+
+static const struct lws_http_mount *
+lws_mount_list_find(const struct lws_http_mount *hm, const char *mountpoint)
+{
+	if (!mountpoint)
+		return NULL;
+
+	for (; hm; hm = hm->mount_next)
+		if (hm->origin_protocol != LWSMPRO_CONNECT &&
+		    hm->mountpoint && !strcmp(hm->mountpoint, mountpoint))
+			return hm;
+
+	return NULL;
+}
+
+LWS_VISIBLE const struct lws_http_mount *
+lws_find_mount_by_mountpoint(struct lws_vhost *vh, const char *mountpoint)
+{
+	return lws_mount_list_find(vh->http.mount_list, mountpoint);
+}
+
+/* does the mount have gates of its own? */
+static int
+lws_http_mount_gated(const struct lws_http_mount *m)
+{
+	if (!m)
+		return 0;
+#if defined(LWS_WITH_JOSE)
+	if (m->interceptor_path)
+		return 1;
+#endif
+	return m->basic_auth_login_file || m->auth_mask;
+}
+
+/*
+ * May an upgrade, ws or WebTransport, for a path in mount `gate`
+ * (lws_find_mount_gate()) bind this protocol?
+ *
+ * A protocol that a gated mount serves its path with is a gated app.  An
+ * upgrade used to bind it on any path that offered its name, meeting only
+ * that path's gates, so an upgrade to an ungated "/" bound the protocol of a
+ * gated "/admin" mount with no gate at all.  Its sessions may still come in on
+ * another path than its mount's, eg, a page's own path, but then that path
+ * has to be gated too, or the protocol has to gate its upgrades itself, with
+ * its "basic-auth" pvo.
+ *
+ * A protocol no gated mount serves is bound on any path, behind that path's
+ * gates, and so is one that vets its sessions itself, and said so with
+ * lws_vhost_protocol_self_gated().
+ */
+int
+lws_http_protocol_reachable(struct lws *wsi, const struct lws_protocols *pcol,
+			  const struct lws_http_mount *gate)
+{
+	const struct lws_protocol_vhost_options *pvo;
+	const struct lws_http_mount *m;
+	const char *ba;
+
+	if (lws_http_mount_gated(gate) ||
+	    lws_vhost_protocol_is_self_gated(wsi->a.vhost, pcol))
+		return 1;
+
+	pvo = lws_vhost_protocol_options(wsi->a.vhost, pcol->name);
+	if (pvo && pvo->options &&
+	    !lws_pvo_get_str((void *)pvo->options, "basic-auth", &ba))
+		return 1;
+
+	for (m = wsi->a.vhost->http.mount_list; m; m = m->mount_next) {
+		const char *name = m->protocol;
+
+		if (!name && m->origin_protocol == LWSMPRO_CALLBACK)
+			name = m->origin;
+		if (name && !strcmp(name, pcol->name) && lws_http_mount_gated(m))
+			return 0;
+	}
+
+	return 1;
+}
+
+/*
+ * Refuse mounts whose gates would not be enforced as they say, before the
+ * vhost serves anything through them.  Every one of these used to be served
+ * open, silently:
+ *
+ *  - an interceptor-path that is not exactly some mount's mountpoint, whose
+ *    mount has no protocol the vhost knows, or whose chain loops or is too
+ *    long (an unusable chain was once taken to mean "let it through")
+ *
+ *  - basic auth, in a build without LWS_WITH_HTTP_BASIC_AUTH, including the
+ *    "basic-auth" pvo of a ws protocol, or with no app protocol to verify
+ *    the credentials (LWSAUTHM_BASIC_AUTH_CALLBACK), or an unknown auth mode
+ *
+ *  - access rights (auth_mask bits other than the auth mode) on a mount
+ *    other than a callback mount: only a callback mount's app is asked them
+ *
+ *  - any gate on a CONNECT mount, which nothing applies, or on a "gzip://"
+ *    mount, which means "no mount"
+ *
+ * Returns 0 if the mounts may be used, else -1 having logged why not.
+ */
+int
+lws_http_mounts_check(struct lws_vhost *vh, const struct lws_http_mount *mounts)
+{
+	const struct lws_protocol_vhost_options *pvo;
+	const struct lws_http_mount *m, *im, *c;
+	const char *why = NULL;
+	int hops;
+
+	for (m = mounts; m; m = m->mount_next) {
+		int gated = m->basic_auth_login_file || m->auth_mask;
+
+#if defined(LWS_WITH_JOSE)
+		gated |= !!m->interceptor_path;
+#endif
+
+		if (m->origin_protocol == LWSMPRO_CONNECT) {
+			if (gated) {
+				why = "a CONNECT mount applies no gates";
+				break;
+			}
 			continue;
 		}
 
-		int cond1 = uri_len >= hm->mountpoint_len;
-		int cond2 = cond1 && !strncmp(uri_ptr, hm->mountpoint, hm->mountpoint_len);
-		int cond3 = cond2 && (hm->exact_match ?
-				      (uri_len == hm->mountpoint_len) :
-				      (uri_ptr[hm->mountpoint_len] == '\0' ||
-				       uri_ptr[hm->mountpoint_len] == '/' ||
-				       hm->mountpoint_len == 1));
-
-		lwsl_debug("  mount check: mnt '%s' (len %d), exact %d, origin '%s', protocol %d -> match_conds: %d %d %d\n",
-			    hm->mountpoint, hm->mountpoint_len, hm->exact_match,
-			    hm->origin ? hm->origin : "NULL", hm->origin_protocol,
-			    cond1, cond2, cond3);
-
-		if (cond3) {
-#if defined(LWS_WITH_SYS_METRICS)
-			lws_metrics_tag_wsi_add(wsi, "mnt", hm->mountpoint);
-#endif
-
-			if (hm->no_ws_upgrades) {
-				const char *up = lws_hdr_simple_ptr(wsi,
-							WSI_TOKEN_UPGRADE);
-
-				if (up && !strcasecmp(up, "websocket")) {
-					lwsl_notice("    skip due to no_ws_upgrades\n");
-					hm = hm->mount_next;
-					continue;
-				}
-			}
-
-			if (hm->origin_protocol == LWSMPRO_NO_MOUNT) {
-				lwsl_notice("    origin LWSMPRO_NO_MOUNT -> NULL\n");
-				return NULL;
-			}
-
-			int has_token = (hm->origin_protocol == LWSMPRO_CALLBACK ||
-					 hm->origin_protocol == LWSMPRO_CGI ||
-					 lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) ||
-					 lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) ||
-#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
-					 /*
-					  * as h2 and h3 do, by their :path, so
-					  * the mount's gates see it on each
-					  */
-					 lws_hdr_total_length(wsi, WSI_TOKEN_OPTIONS_URI) ||
-					 lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI) ||
-					 lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) ||
-					 lws_hdr_total_length(wsi, WSI_TOKEN_DELETE_URI) ||
-#endif
-					 lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI) ||
-#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
-					 (wsi->mux_substream &&
-					  lws_hdr_total_length(wsi,
-							WSI_TOKEN_HTTP_COLON_PATH)) ||
-#endif
-					 hm->protocol);
-
-			int is_better = hm->mountpoint_len > best ||
-					(hm->mountpoint_len == best &&
-					 hm->exact_match && (!hit || !hit->exact_match));
-
-			lwsl_debug("    has_token: %d, is_better: %d (best was %d)\n",
-				    has_token, is_better, best);
-
-			if (has_token && is_better) {
-				best = hm->mountpoint_len;
-				hit = hm;
-				lwsl_debug("    => selected mount %s\n", hit->mountpoint);
-			}
+		if (m->origin_protocol == LWSMPRO_NO_MOUNT && gated) {
+			why = "a gzip:// mount applies no gates";
+			break;
 		}
-		hm = hm->mount_next;
+
+		if ((m->auth_mask & ~AUTH_MODE_MASK) &&
+		    m->origin_protocol != LWSMPRO_CALLBACK) {
+			why = "only a callback mount's app decides access rights";
+			break;
+		}
+
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+		switch (m->auth_mask & AUTH_MODE_MASK) {
+		case LWSAUTHM_DEFAULT:
+			break;
+		case LWSAUTHM_BASIC_AUTH_CALLBACK:
+			if (!lws_http_mount_app_protocol(vh, m))
+				why = "no app protocol to verify basic auth";
+			break;
+		default:
+			why = "unknown authentication mode";
+			break;
+		}
+#else
+		if (m->basic_auth_login_file || (m->auth_mask & AUTH_MODE_MASK))
+			why = "basic auth needs LWS_WITH_HTTP_BASIC_AUTH";
+#endif
+
+#if defined(LWS_WITH_JOSE)
+		for (c = m, hops = 0; !why && c->interceptor_path; c = im) {
+			im = lws_mount_list_find(mounts, c->interceptor_path);
+			if (!im)
+				why = "interceptor-path is no mount's mountpoint";
+			else if (!im->protocol ||
+				 !lws_vhost_name_to_protocol(vh, im->protocol))
+				why = "interceptor mount has no protocol here";
+			else if (++hops > LWS_HTTP_INTERCEPTOR_MAX_HOPS)
+				why = "interceptor chain loops or is too long";
+		}
+#else
+		(void)c;
+		(void)im;
+		(void)hops;
+#endif
+		if (why)
+			break;
 	}
 
-	lwsl_debug("  lws_find_mount result: %s\n", hit ? hit->mountpoint : "NULL");
-	return hit;
+	if (why) {
+		lwsl_vhost_err(vh, "mount %s: %s", m->mountpoint ?
+					m->mountpoint : "(null)", why);
+		return -1;
+	}
+
+#if !defined(LWS_WITH_HTTP_BASIC_AUTH)
+	for (pvo = vh->pvo; pvo; pvo = pvo->next) {
+		const char *ba;
+
+		if (pvo->options && !lws_pvo_get_str((void *)pvo->options,
+						     "basic-auth", &ba)) {
+			lwsl_vhost_err(vh, "protocol %s: basic-auth needs "
+				       "LWS_WITH_HTTP_BASIC_AUTH", pvo->name);
+			return -1;
+		}
+	}
+#else
+	(void)pvo;
+#endif
+
+	return 0;
 }
 #endif
 
@@ -1171,6 +1427,36 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 	return -1;
 }
 
+/*
+ * The protocol that is the app for a mount: the one a callback mount names,
+ * otherwise the vhost's first.  It verifies the mount's basic auth
+ * credentials and decides its access rights, whichever protocol the
+ * connection happens to be bound to when they are checked: that used to
+ * depend on what came earlier on the connection.
+ */
+const struct lws_protocols *
+lws_http_mount_app_protocol(struct lws_vhost *vh,
+			    const struct lws_http_mount *m)
+{
+	if (m && m->origin_protocol == LWSMPRO_CALLBACK)
+		return lws_vhost_name_to_protocol(vh, m->protocol ?
+						  m->protocol : m->origin);
+
+	return vh->count_protocols ? &vh->protocols[0] : NULL;
+}
+
+/*
+ * Ask the protocol a gate callback, giving it the wsi's pss only if it is
+ * the protocol the wsi is bound to: another protocol's pss is not its own
+ */
+static int
+lws_http_gate_callback(struct lws *wsi, const struct lws_protocols *p,
+		       enum lws_callback_reasons reason, void *in, size_t len)
+{
+	return p->callback(wsi, reason, p == wsi->a.protocol ?
+					wsi->user_space : NULL, in, len);
+}
+
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
 
 /*
@@ -1204,7 +1490,7 @@ lws_http_basic_auth_rewrite(struct lws *wsi)
 
 enum lws_check_basic_auth_results
 lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
-		     unsigned int auth_mode)
+		     unsigned int auth_mode, const struct lws_protocols *verifier)
 {
 #if defined(LWS_WITH_FILE_OPS)
 	char b64[160], plain[(sizeof(b64) * 3) / 4], *pcolon;
@@ -1263,11 +1549,17 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 		return LCBA_FAILED_AUTH;
 
 	case LWSAUTHM_BASIC_AUTH_CALLBACK:
-		bar = wsi->a.protocol->callback(wsi,
-				LWS_CALLBACK_VERIFY_BASIC_AUTHORIZATION,
-				wsi->user_space, plain, (unsigned int)m);
-		if (!bar)
+		if (!verifier) {
+			lws_explicit_bzero(plain, sizeof(plain));
 			return LCBA_FAILED_AUTH;
+		}
+		bar = lws_http_gate_callback(wsi, verifier,
+				LWS_CALLBACK_VERIFY_BASIC_AUTHORIZATION,
+				plain, (unsigned int)m);
+		if (!bar) {
+			lws_explicit_bzero(plain, sizeof(plain));
+			return LCBA_FAILED_AUTH;
+		}
 		break;
 	default:
 		/* Invalid auth mode so lets fail all authentication attempts */
@@ -1295,6 +1587,7 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 
 	return LCBA_CONTINUE;
 #else
+	(void)verifier;
 	if (!basic_auth_login_file && auth_mode == LWSAUTHM_DEFAULT)
 		return LCBA_CONTINUE;
 	return LCBA_FAILED_AUTH;
@@ -2139,8 +2432,66 @@ bail_nuke_ah:
 }
 
 /*
- * Walk the mount's interceptor chain and give each interceptor protocol the
- * chance to take the request away from the mount it was aimed at.
+ * Ask one mount's interceptor chain.  Each interceptor is found by its exact
+ * mountpoint, not by routing its path as a request: that depended on the
+ * request, eg, a ws upgrade passing over a no_ws_upgrades interceptor mount,
+ * and a chain that could not be followed let the request through.  The
+ * vhost refused a chain that cannot be followed when it was created
+ * (lws_http_mounts_check()), so here it is a belt over the braces.
+ *
+ * Returns 0 if every interceptor let the request on, 1 with *taken set to
+ * the mount of the interceptor that took it, or -1 if the chain cannot be
+ * followed, which must fail closed.
+ */
+static int
+lws_http_interceptor_chain(struct lws *wsi, const struct lws_http_mount *m,
+			   const struct lws_http_mount **taken)
+{
+#if defined(LWS_WITH_JOSE)
+	const struct lws_http_mount *gated = m;
+	const struct lws_protocols *p;
+	int hops = 0, r;
+
+	while (m && m->interceptor_path) {
+		const struct lws_http_mount *im = lws_find_mount_by_mountpoint(
+					wsi->a.vhost, m->interceptor_path);
+
+		if (!im || !im->protocol ||
+		    ++hops > LWS_HTTP_INTERCEPTOR_MAX_HOPS ||
+		    !(p = lws_vhost_name_to_protocol(wsi->a.vhost,
+						     im->protocol))) {
+			lwsl_wsi_err(wsi, "interceptor %s of %s unusable, "
+				     "denying", m->interceptor_path,
+				     gated->mountpoint);
+			return -1;
+		}
+
+		wsi->http.interceptor_gated = gated;
+		r = p->callback(wsi, LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK,
+				wsi->user_space, (void *)p, 0);
+		if (r) {
+			/* it stays, telling the interceptor where it came from */
+			*taken = im;
+
+			return 1;
+		}
+		wsi->http.interceptor_gated = NULL;
+
+		m = im;
+	}
+#else
+	/* lws_http_mount has no interceptor_path: there are no chains */
+	(void)wsi;
+	(void)m;
+	(void)taken;
+#endif
+
+	return 0;
+}
+
+/*
+ * Ask the interceptors whether the request may go on, before anything mounted
+ * may act on it.
  *
  * This is the single place the decision is made, for every role and every
  * method, through lws_http_mount_gates(): http requests arrive there from
@@ -2151,83 +2502,97 @@ bail_nuke_ah:
  * protocol is bound and before LWS_CALLBACK_HTTP is delivered, ie, before any
  * user code for the protected mount can run.
  *
+ * Two mounts may be asked about: the one the request's path is in, `gate`
+ * (lws_find_mount_gate()), and the one that is going to serve it, `route`
+ * (lws_find_mount()).  They are the same mount unless the routing passed the
+ * path's own mount over, eg, a ws upgrade to a no_ws_upgrades mount, served
+ * by the mount around it.  Then the request has to be allowed by both: by
+ * its path's, whose gates no routing choice can take away, and by the
+ * serving mount's, whose app it reaches.  Either may be NULL.
+ *
  * Returns
  *
- *  - the interceptor's mount, having pointed uri_ptr / uri_len at its
- *    mountpoint (a forced internal redirect), if an interceptor took the
- *    request.  wsi->http.interceptor_diverted is then set for this
- *    transaction, so the interceptor's own LWS_CALLBACK_HTTP can tell a
- *    request that was gated and sent to it from one the peer addressed to
- *    its own mountpoint (eg, a captcha or login form POST)
+ *  - 1, with *taken set to the interceptor's mount, having pointed
+ *    uri_ptr / uri_len at its mountpoint (a forced internal redirect), if
+ *    an interceptor took the request.  wsi->http.interceptor_diverted is
+ *    then set for this transaction, so the interceptor's own
+ *    LWS_CALLBACK_HTTP can tell a request that was gated and sent to it
+ *    from one the peer addressed to its own mountpoint (eg, a captcha or
+ *    login form POST)
  *
- *  - hit unchanged, if the request may proceed to the mount it asked for
+ *  - 0 if the request may go on to the mount serving it
  *
- *  - NULL if the chain cannot be evaluated (a configured interceptor
- *    protocol does not exist).  This fails CLOSED: the caller must refuse
- *    the request rather than serve the mount
+ *  - -1 if a chain cannot be followed.  This fails CLOSED: the caller must
+ *    refuse the request rather than serve the mount
  *
- * The chain is asked once per transaction, whatever path the request takes
+ * The chains are asked once per transaction, whatever path the request takes
  * through the gates.  Asking the interceptors twice had each of them do
  * whatever it does for a request twice: lws-login stamped its x-lws-login-*
  * headers twice, and a backend rightly refuses duplicates as a possible
- * spoof.  Later calls for the same mount get the first answer.
+ * spoof.  Later calls for the same mounts get the first answer.
  */
 
-const struct lws_http_mount *
-lws_http_evaluate_interceptors(struct lws *wsi, const struct lws_http_mount *hit,
-			       char **uri_ptr, int *uri_len)
+int
+lws_http_evaluate_interceptors(struct lws *wsi,
+			       const struct lws_http_mount *gate,
+			       const struct lws_http_mount *route,
+			       char **uri_ptr, int *uri_len,
+			       const struct lws_http_mount **taken)
 {
-#if defined(LWS_WITH_JOSE)
-	const struct lws_http_mount *curr = hit;
+	const struct lws_http_mount *im = NULL;
+	int r;
+
+	*taken = NULL;
 
 	if (wsi->http.interceptors_evaluated &&
-	    wsi->http.interceptor_hit == hit) {
-		const struct lws_http_mount *r = wsi->http.interceptor_result;
-
-		if (r != hit) {
-			*uri_ptr = (char *)r->mountpoint;
-			*uri_len = (int)r->mountpoint_len;
-		}
-
-		return r;
+	    wsi->http.interceptor_gate == gate &&
+	    wsi->http.interceptor_route == route) {
+		im = wsi->http.interceptor_result;
+		r = !!im;
+		goto done;
 	}
 
-	while (curr && curr->interceptor_path) {
-		const struct lws_http_mount *m_interceptor = lws_find_mount(wsi,
-					curr->interceptor_path, (int)strlen(curr->interceptor_path));
-
-		if (!m_interceptor || !m_interceptor->protocol)
-			break;
-
-		const struct lws_protocols *p = lws_vhost_name_to_protocol(
-							wsi->a.vhost, m_interceptor->protocol);
-
-		if (p) {
-			if (p->callback(wsi, LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK,
-				       wsi->user_space, (void *)p, 0)) {
-
-				*uri_ptr = (char *)m_interceptor->mountpoint; /* forced internal redirect */
-				*uri_len = (int)m_interceptor->mountpoint_len;
-				wsi->http.interceptor_diverted = 1;
-				wsi->http.interceptors_evaluated = 1;
-				wsi->http.interceptor_hit = hit;
-				wsi->http.interceptor_result = m_interceptor;
-				return m_interceptor;
-			}
-		} else {
-			lwsl_err("%s: Interceptor protocol '%s' not found, denying access\n",
-				 __func__, m_interceptor->protocol);
-			return NULL; /* Fail CLOSED */
-		}
-		curr = m_interceptor;
-	}
+	r = lws_http_interceptor_chain(wsi, gate, &im);
+	if (!r && route != gate)
+		r = lws_http_interceptor_chain(wsi, route, &im);
+	if (r < 0)
+		return -1;
 
 	wsi->http.interceptors_evaluated = 1;
-	wsi->http.interceptor_hit = hit;
-	wsi->http.interceptor_result = hit;
-#endif
+	wsi->http.interceptor_gate = gate;
+	wsi->http.interceptor_route = route;
+	wsi->http.interceptor_result = im;
+	if (r)
+		wsi->http.interceptor_diverted = 1;
 
-	return hit;
+done:
+	if (r) {
+		/* forced internal redirect */
+		*uri_ptr = (char *)im->mountpoint;
+		*uri_len = (int)im->mountpoint_len;
+		*taken = im;
+	}
+
+	return r;
+}
+
+/* a new request: what the interceptors decided for the last is not its */
+
+void
+lws_http_interceptors_reset(struct lws *wsi)
+{
+	wsi->http.interceptor_diverted = 0;
+	wsi->http.interceptors_evaluated = 0;
+	wsi->http.interceptor_gate = NULL;
+	wsi->http.interceptor_route = NULL;
+	wsi->http.interceptor_result = NULL;
+	wsi->http.interceptor_gated = NULL;
+}
+
+const struct lws_http_mount *
+lws_http_interceptor_gated_mount(struct lws *wsi)
+{
+	return wsi->http.interceptor_gated;
 }
 
 /*
@@ -2866,41 +3231,124 @@ lws_http_action_request(struct lws *wsi, struct lws_http_gate *g)
 	return 0;
 }
 
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
 /*
- * The mount's own gates, for a request that landed in it: its redirect, its
- * interceptor chain and its basic auth, in that order.  g->uri_ptr / uri_len
- * are the request path, and are repointed at the interceptor's mountpoint if
- * an interceptor takes the request.  For an upgrade, an interceptor that would
- * take the request refuses it with 401 instead.  Returns 0 with g->hit set to
- * the mount to act on, or 1 having decided the request, with g->verdict set.
+ * One mount's basic auth.  Returns 0 to let the request on, or 1 having
+ * decided it, with g->verdict set.
+ */
+static int
+lws_http_mount_basic_auth(struct lws *wsi, struct lws_http_gate *g,
+			  const struct lws_http_mount *m)
+{
+	if (!m)
+		return 0;
+
+	switch (lws_check_basic_auth(wsi, m->basic_auth_login_file,
+				     m->auth_mask & AUTH_MODE_MASK,
+				     lws_http_mount_app_protocol(wsi->a.vhost,
+								 m))) {
+	case LCBA_CONTINUE:
+	case LCBA_AUTH_RETRY_KEEPALIVE:
+		return 0;
+	case LCBA_FAILED_AUTH:
+		g->verdict = lws_unauthorised_basic_auth(wsi);
+		return 1;
+	case LCBA_END_TRANSACTION:
+		break;
+	}
+
+	lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+	g->verdict = lws_http_transaction_completed(wsi);
+
+	return 1;
+}
+#endif
+
+/*
+ * A mount's access rights, its auth_mask bits other than the authentication
+ * mode, decided by the mount's app (LWS_CALLBACK_CHECK_ACCESS_RIGHTS).  An
+ * http request to a callback mount is asked them once its protocol is bound,
+ * in lws_http_action_bind_mount(): here are the requests that would not be,
+ * an upgrade, or a request served by another mount than the one its path is
+ * in.  Only a callback mount may have them (lws_http_mounts_check()).
+ * Returns 0 to let the request on, or 1 having refused it.
+ */
+static int
+lws_http_mount_access_rights(struct lws *wsi, struct lws_http_gate *g,
+			     const struct lws_http_mount *m)
+{
+	struct lws_process_html_args args;
+	const struct lws_protocols *pp;
+
+	if (!m || !(m->auth_mask & ~AUTH_MODE_MASK))
+		return 0;
+
+	pp = lws_http_mount_app_protocol(wsi->a.vhost, m);
+	memset(&args, 0, sizeof(args));
+	args.p = g->uri_ptr;
+	args.len = g->uri_len;
+	args.max_len = (int)(m->auth_mask & ~AUTH_MODE_MASK);
+
+	if (pp && !lws_http_gate_callback(wsi, pp,
+					  LWS_CALLBACK_CHECK_ACCESS_RIGHTS,
+					  &args, 0))
+		return 0;
+
+	lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED, NULL);
+
+	return lws_http_gate_bail(wsi, g);
+}
+
+/*
+ * The mounts' own gates, for a request: its redirect, its interceptor chains,
+ * its basic auth and its access rights, in that order.
+ *
+ * `gate` is the mount the path is in (lws_find_mount_gate()), and `route` the
+ * one that serves it (lws_find_mount()).  Usually they are the same mount.
+ * When the routing passed the path's mount over, eg, a ws upgrade to a
+ * no_ws_upgrades mount, they are not, and the request has to pass the gates
+ * of both: it is in one, and reaches the app of the other.  The gates used to
+ * come only from the serving mount, so a no_ws_upgrades mount's own gates
+ * never saw a ws upgrade to its path.  Either may be NULL.
+ *
+ * g->uri_ptr / uri_len are the request path, and are repointed at the
+ * interceptor's mountpoint if an interceptor takes the request.  For an
+ * upgrade, an interceptor that would take the request refuses it with 401
+ * instead.  Returns 0 with g->hit set to the mount to act on, or 1 having
+ * decided the request, with g->verdict set.
  */
 static int
 lws_http_mount_gates(struct lws *wsi, struct lws_http_gate *g,
-		     const struct lws_http_mount *hit, int upgrade)
+		     const struct lws_http_mount *gate,
+		     const struct lws_http_mount *route, int upgrade)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	const struct lws_http_mount *ihit;
+	const struct lws_http_mount *taken;
 	int ha, n;
 
-	n = lws_http_redirect_hit(pt, wsi, hit, g->uri_ptr, g->uri_len, &ha);
-	if (ha) {
-		g->verdict = n;
+	if (route) {
+		n = lws_http_redirect_hit(pt, wsi, route, g->uri_ptr,
+					  g->uri_len, &ha);
+		if (ha) {
+			g->verdict = n;
 
-		return 1;
+			return 1;
+		}
 	}
 
 	/*
-	 * If the mount has a interceptor requirement, and the plugin that implements
-	 * it says we are not authorized, divert the connection to the interceptor
-	 * mount
+	 * If a mount has an interceptor requirement, and the plugin that
+	 * implements it says we are not authorized, divert the connection to
+	 * the interceptor mount
 	 */
-	ihit = lws_http_evaluate_interceptors(wsi, hit, &g->uri_ptr, &g->uri_len);
-	if (!ihit) {
+	n = lws_http_evaluate_interceptors(wsi, gate, route, &g->uri_ptr,
+					   &g->uri_len, &taken);
+	if (n < 0) {
 		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 		return lws_http_gate_bail(wsi, g);
 	}
 
-	if (upgrade && ihit != hit) {
+	if (upgrade && n) {
 		/*
 		 * An interceptor would not let the upgrade through.  A login
 		 * page is no answer to an upgrade, so refuse it instead of
@@ -2911,22 +3359,18 @@ lws_http_mount_gates(struct lws *wsi, struct lws_http_gate *g,
 	}
 
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
-
-	/* basic auth? */
-
-	switch (lws_check_basic_auth(wsi, ihit->basic_auth_login_file,
-				     ihit->auth_mask & AUTH_MODE_MASK)) {
-	case LCBA_CONTINUE:
-	case LCBA_AUTH_RETRY_KEEPALIVE:
-		break;
-	case LCBA_FAILED_AUTH:
-		g->verdict = lws_unauthorised_basic_auth(wsi);
-		return 1;
-	case LCBA_END_TRANSACTION:
-		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
-		g->verdict = lws_http_transaction_completed(wsi);
-		return 1;
-	}
+	/*
+	 * Diverted, the request is the interceptor's to serve, under its own
+	 * basic auth.  Otherwise it meets the basic auth of both mounts.
+	 */
+	if (n) {
+		if (lws_http_mount_basic_auth(wsi, g, taken))
+			return 1;
+	} else
+		if (lws_http_mount_basic_auth(wsi, g, gate) ||
+		    (route != gate &&
+		     lws_http_mount_basic_auth(wsi, g, route)))
+			return 1;
 
 	/*
 	 * An http request meets no other basic auth check after this one.  An
@@ -2937,7 +3381,14 @@ lws_http_mount_gates(struct lws *wsi, struct lws_http_gate *g,
 		lws_http_basic_auth_rewrite(wsi);
 #endif
 
-	g->hit = ihit;
+	if (!n && ((upgrade || route != gate) &&
+		   lws_http_mount_access_rights(wsi, g, gate)))
+		return 1;
+	if (!n && upgrade && route != gate &&
+	    lws_http_mount_access_rights(wsi, g, route))
+		return 1;
+
+	g->hit = n ? taken : route;
 
 	return 0;
 }
@@ -2946,9 +3397,10 @@ lws_http_mount_gates(struct lws *wsi, struct lws_http_gate *g,
  * The gates for an upgrade: a ws upgrade on any role (h1, or an h2 / h3
  * extended CONNECT), and a WebTransport CONNECT.  Before anything binds a
  * protocol for it or proxies it onward, it passes the gates of the mount its
- * path lands in, as an http request to the same path would, the mount's basic
- * auth included.  A ws upgrade to a proxying mount used to go straight to the
- * backend, unauthenticated (G-489).
+ * path is in, and of the mount serving it if that is another, as an http
+ * request to the same path would, the mounts' basic auth included.  A ws
+ * upgrade to a proxying mount used to go straight to the backend,
+ * unauthenticated (G-489).
  *
  * g->uri_ptr / uri_len are the request path.  Returns 0 to let the upgrade
  * on, or 1 having decided the request, with g->verdict set.
@@ -2956,13 +3408,14 @@ lws_http_mount_gates(struct lws *wsi, struct lws_http_gate *g,
 static int
 lws_http_upgrade_gates(struct lws *wsi, struct lws_http_gate *g)
 {
-	const struct lws_http_mount *hit;
+	const struct lws_http_mount *gate, *route;
 
 	g->hit = NULL;
 	g->mount_rel = NULL;
 
-	hit = lws_find_mount(wsi, g->uri_ptr, g->uri_len);
-	if (!hit)
+	gate = lws_find_mount_gate(wsi, g->uri_ptr, g->uri_len);
+	route = lws_find_mount(wsi, g->uri_ptr, g->uri_len);
+	if (!gate && !route)
 		return 0;
 
 	/*
@@ -2972,15 +3425,16 @@ lws_http_upgrade_gates(struct lws *wsi, struct lws_http_gate *g)
 	if (lws_bind_protocol_assigned(wsi))
 		return lws_http_gate_bail(wsi, g);
 
-	g->mount_rel = g->uri_ptr + hit->mountpoint_len;
+	if (route)
+		g->mount_rel = g->uri_ptr + route->mountpoint_len;
 
-	return lws_http_mount_gates(wsi, g, hit, 1);
+	return lws_http_mount_gates(wsi, g, gate, route, 1);
 }
 
 int
 lws_http_action_gates(struct lws *wsi, struct lws_http_gate *g)
 {
-	const struct lws_http_mount *hit;
+	const struct lws_http_mount *hit, *gate;
 	unsigned int n;
 
 	g->hit = NULL;
@@ -3047,12 +3501,25 @@ lws_http_action_gates(struct lws *wsi, struct lws_http_gate *g)
 	wsi->http.mount_specific_headers = NULL;
 	wsi->http.mount_specific_keepalive_timeout_secs = 0;
 
+	gate = lws_find_mount_gate(wsi, g->uri_ptr, g->uri_len);
 	hit = lws_find_mount(wsi, g->uri_ptr, g->uri_len);
 	lwsl_debug("%s: lws_find_mount returned %p (%s) for wsi %p\n", __func__,
 		   hit, hit ? hit->mountpoint : "none", wsi);
-	if (!hit)
+	if (!gate && !hit)
 		/* nothing further to gate: the vhost's own protocol has it */
 		return 0;
+
+	if (!hit) {
+		/*
+		 * The path is in a mount that does not serve this request:
+		 * the vhost's own protocol does, once the mount's gates have
+		 * let it.  What follows its mountpoint is still what was asked
+		 * for in it, if an interceptor takes the request.
+		 */
+		g->mount_rel = g->uri_ptr + gate->mountpoint_len;
+
+		return lws_http_mount_gates(wsi, g, gate, NULL, 0);
+	}
 
 	wsi->mount_hit = 1;
 	wsi->http.mount_specific_headers = hit->headers;
@@ -3088,7 +3555,7 @@ lws_http_action_gates(struct lws *wsi, struct lws_http_gate *g)
 	 */
 	g->mount_rel = g->uri_ptr + hit->mountpoint_len;
 
-	return lws_http_mount_gates(wsi, g, hit, 0);
+	return lws_http_mount_gates(wsi, g, gate, hit, 0);
 }
 
 int
@@ -4098,9 +4565,7 @@ raw_transition:
 		 * earlier one on this connection is nothing to do with it,
 		 * however that one ended
 		 */
-		wsi->http.interceptors_evaluated = 0;
-		wsi->http.interceptor_hit = NULL;
-		wsi->http.interceptor_result = NULL;
+		lws_http_interceptors_reset(wsi);
 
 		/*
 		 * So he may have come to us requesting one or another kind
@@ -4525,10 +4990,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * scratch.
 	 */
 	wsi->http.sent_response_headers = 0;
-	wsi->http.interceptor_diverted = 0;
-	wsi->http.interceptors_evaluated = 0;
-	wsi->http.interceptor_hit = NULL;
-	wsi->http.interceptor_result = NULL;
+	lws_http_interceptors_reset(wsi);
 
 #if defined(LWS_WITH_SYS_METRICS)
 	{

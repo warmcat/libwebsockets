@@ -1265,6 +1265,35 @@ lws_login_ends_with(const char *str, const char *suffix)
 }
 
 /*
+ * A PMO for the mount a request is gated by: the mount's own, or else the
+ * first mount of its interceptor chain that has it.  The chain is followed by
+ * exact mountpoint, as the core follows it, never by routing the interceptor
+ * path as a request.  Returns 0 with *val set, or 1 if none has it.
+ */
+static int
+lws_login_mount_pmo(struct lws_vhost *vh, const struct lws_http_mount *m,
+		    const char *name, const char **val)
+{
+	int hops = 0;
+
+	while (m) {
+		if (!lws_pmo_get_str(m, name, val))
+			return 0;
+#if defined(LWS_WITH_JOSE)
+		if (!m->interceptor_path || ++hops > 8)
+			break;
+		m = lws_find_mount_by_mountpoint(vh, m->interceptor_path);
+#else
+		(void)vh;
+		(void)hops;
+		break;
+#endif
+	}
+
+	return 1;
+}
+
+/*
  * Copy this request's URI (path only, args are sealed off at the '?') into
  * uri[], scanning the method tokens the same way the core's
  * lws_http_get_uri_and_method() does, so PUT / PATCH / DELETE / OPTIONS /
@@ -2954,24 +2983,11 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			return 1;
 		}
 		if (uri[0]) {
-			mount = lws_find_mount(wsi, uri, (int)strlen(uri));
-			if (mount) {
-				if (!lws_pmo_get_str(mount, "service-name", &service_name)) {
-					lwsl_info("%s: using service_name %s from target pmo for bypass api\n", __func__, service_name);
-				}
-#if defined(LWS_WITH_JOSE)
-				else if (mount->interceptor_path) {
-					const struct lws_http_mount *im = mount;
-					while (im && im->interceptor_path) {
-						im = lws_find_mount(wsi, im->interceptor_path, (int)strlen(im->interceptor_path));
-						if (im && !lws_pmo_get_str(im, "service-name", &service_name)) {
-							lwsl_info("%s: using service_name %s from interceptor pmo for bypass api\n", __func__, service_name);
-							break;
-						}
-					}
-				}
-#endif
-			}
+			mount = lws_find_mount_gate(wsi, uri, (int)strlen(uri));
+			if (!lws_login_mount_pmo(lws_get_vhost(wsi), mount,
+						 "service-name", &service_name))
+				lwsl_info("%s: service_name %s from pmo for "
+					  "bypass api\n", __func__, service_name);
 		}
 
 		if (!service_name)
@@ -3034,44 +3050,23 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 		service_name = vhd->service_name;
 		int unauth_allow = vhd->unauth_allow;
-		if (uri[0]) {
-			mount = lws_find_mount(wsi, uri, (int)strlen(uri));
-			if (mount) {
-				const char *pmo_val;
-				int target_sn = !lws_pmo_get_str(mount, "service-name", &service_name);
-				int target_ua = !lws_pmo_get_str(mount, "unauth-allow", &pmo_val);
+		const char *pmo_val;
 
-				if (target_sn)
-					lwsl_info("%s: using service_name %s from target pmo\n", __func__, service_name);
-				if (target_ua) {
-					unauth_allow = atoi(pmo_val);
-					lwsl_info("%s: using unauth_allow %d from target pmo\n", __func__, unauth_allow);
-				}
-
-#if defined(LWS_WITH_JOSE)
-				if (!target_sn && mount->interceptor_path) {
-					const struct lws_http_mount *im = mount;
-					while (im && im->interceptor_path) {
-						im = lws_find_mount(wsi, im->interceptor_path, (int)strlen(im->interceptor_path));
-						if (im && !lws_pmo_get_str(im, "service-name", &service_name)) {
-							lwsl_info("%s: using service_name %s from interceptor pmo\n", __func__, service_name);
-							break;
-						}
-					}
-				}
-				if (!target_ua && mount->interceptor_path) {
-					const struct lws_http_mount *im = mount;
-					while (im && im->interceptor_path) {
-						im = lws_find_mount(wsi, im->interceptor_path, (int)strlen(im->interceptor_path));
-						if (im && !lws_pmo_get_str(im, "unauth-allow", &pmo_val)) {
-							unauth_allow = atoi(pmo_val);
-							lwsl_info("%s: using unauth_allow %d from interceptor pmo\n", __func__, unauth_allow);
-							break;
-						}
-					}
-				}
-#endif
-			}
+		/*
+		 * The mount the core is asking about: the request may be asked
+		 * about for two, the one its path is in and the one serving
+		 * it, so finding one from the uri is not the same
+		 */
+		mount = lws_http_interceptor_gated_mount(wsi);
+		if (!lws_login_mount_pmo(lws_get_vhost(wsi), mount,
+					 "service-name", &service_name))
+			lwsl_info("%s: service_name %s from pmo\n", __func__,
+				  service_name);
+		if (!lws_login_mount_pmo(lws_get_vhost(wsi), mount,
+					 "unauth-allow", &pmo_val)) {
+			unauth_allow = atoi(pmo_val);
+			lwsl_info("%s: unauth_allow %d from pmo\n", __func__,
+				  unauth_allow);
 		}
 
 		if (lws_dll2_count(&vhd->wl)) {
@@ -3200,43 +3195,22 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		n = (int)strlen(path);
 
-		if (n > 0) {
-			mount = lws_find_mount(wsi, path, n);
-			if (mount) {
-				int target_sn = !lws_pmo_get_str(mount, "service-name", &service_name);
-				int target_ua = !lws_pmo_get_str(mount, "unauth-allow", &pmo_val);
-
-				if (target_sn)
-					lwsl_info("%s: using service_name %s from target pmo\n", __func__, service_name);
-				if (target_ua) {
-					unauth_allow = atoi(pmo_val);
-					lwsl_info("%s: using unauth_allow %d from target pmo\n", __func__, unauth_allow);
-				}
-
-#if defined(LWS_WITH_JOSE)
-				if (!target_sn && mount->interceptor_path) {
-					const struct lws_http_mount *im = mount;
-					while (im && im->interceptor_path) {
-						im = lws_find_mount(wsi, im->interceptor_path, (int)strlen(im->interceptor_path));
-						if (im && !lws_pmo_get_str(im, "service-name", &service_name)) {
-							lwsl_info("%s: using service_name %s from interceptor pmo\n", __func__, service_name);
-							break;
-						}
-					}
-				}
-				if (!target_ua && mount->interceptor_path) {
-					const struct lws_http_mount *im = mount;
-					while (im && im->interceptor_path) {
-						im = lws_find_mount(wsi, im->interceptor_path, (int)strlen(im->interceptor_path));
-						if (im && !lws_pmo_get_str(im, "unauth-allow", &pmo_val)) {
-							unauth_allow = atoi(pmo_val);
-							lwsl_info("%s: using unauth_allow %d from interceptor pmo\n", __func__, unauth_allow);
-							break;
-						}
-					}
-				}
-#endif
-			}
+		/*
+		 * Diverted here, the mount whose interceptor chain sent it;
+		 * otherwise the mount its path is in
+		 */
+		mount = lws_http_interceptor_gated_mount(wsi);
+		if (!mount && n > 0)
+			mount = lws_find_mount_gate(wsi, path, n);
+		if (!lws_login_mount_pmo(lws_get_vhost(wsi), mount,
+					 "service-name", &service_name))
+			lwsl_info("%s: service_name %s from pmo\n", __func__,
+				  service_name);
+		if (!lws_login_mount_pmo(lws_get_vhost(wsi), mount,
+					 "unauth-allow", &pmo_val)) {
+			unauth_allow = atoi(pmo_val);
+			lwsl_info("%s: unauth_allow %d from pmo\n", __func__,
+				  unauth_allow);
 		}
 
 		if (lws_dll2_count(&vhd->wl)) {

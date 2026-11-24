@@ -533,7 +533,7 @@ struct _lws_http_mode_related {
 	unsigned int cgi_transaction_complete:1;
 	unsigned int interceptors_evaluated:1;
 	/**< lws_http_evaluate_interceptors() has run for this transaction, and
-	 * interceptor_hit / interceptor_result hold what it decided.  Cleared
+	 * interceptor_gate / _route / _result hold what it decided.  Cleared
 	 * on transaction rearm. */
 	unsigned int interceptor_diverted:1;
 	/**< set by lws_http_evaluate_interceptors() for the duration of this
@@ -568,11 +568,19 @@ struct _lws_http_mode_related {
 
 	/*
 	 * What lws_http_evaluate_interceptors() decided for this transaction:
-	 * the mount it was asked about, and where the request goes, that mount
-	 * or an interceptor's.  Valid while interceptors_evaluated.
+	 * the two mounts it was asked about, the one the path is in and the
+	 * one serving it, and the interceptor's mount that took the request,
+	 * or NULL if none did.  Valid while interceptors_evaluated.
 	 */
-	const struct lws_http_mount *interceptor_hit;
+	const struct lws_http_mount *interceptor_gate;
+	const struct lws_http_mount *interceptor_route;
 	const struct lws_http_mount *interceptor_result;
+	/*
+	 * The mount whose interceptor chain is being asked, while it is, and
+	 * the one whose chain took the request, after (see
+	 * lws_http_interceptor_gated_mount())
+	 */
+	const struct lws_http_mount *interceptor_gated;
 };
 
 
@@ -627,7 +635,12 @@ enum lws_check_basic_auth_results {
 };
 
 enum lws_check_basic_auth_results
-lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file, unsigned int auth_mode);
+lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
+		     unsigned int auth_mode, const struct lws_protocols *verifier);
+
+const struct lws_protocols *
+lws_http_mount_app_protocol(struct lws_vhost *vh,
+			    const struct lws_http_mount *m);
 
 void
 lws_http_basic_auth_rewrite(struct lws *wsi);
@@ -677,9 +690,28 @@ lws_http_action_bind_mount(struct lws *wsi, struct lws_http_gate *g);
  * The one place mount interceptors are evaluated, shared by every role that
  * dispatches a request (see the comment on the implementation in server.c)
  */
-const struct lws_http_mount *
-lws_http_evaluate_interceptors(struct lws *wsi, const struct lws_http_mount *hit,
-			       char **uri_ptr, int *uri_len);
+int
+lws_http_evaluate_interceptors(struct lws *wsi,
+			       const struct lws_http_mount *gate,
+			       const struct lws_http_mount *route,
+			       char **uri_ptr, int *uri_len,
+			       const struct lws_http_mount **taken);
+
+void
+lws_http_interceptors_reset(struct lws *wsi);
+
+int
+lws_http_mounts_check(struct lws_vhost *vh, const struct lws_http_mount *mounts);
+
+int
+lws_http_protocol_reachable(struct lws *wsi, const struct lws_protocols *pcol,
+			    const struct lws_http_mount *gate);
+
+int
+lws_http_is_ws_upgrade(struct lws *wsi);
+
+/* the most hops a mount's interceptor chain may take */
+#define LWS_HTTP_INTERCEPTOR_MAX_HOPS 8
 
 /*
  * Release the request headers once the request has been dispatched as far as

@@ -619,6 +619,11 @@ lws_create_vhost(struct lws_context *context,
 		goto bail;
 	}
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_WITH_SERVER)
+	/* nothing is served through gates it would not enforce */
+	if (lws_http_mounts_check(vh, info->mounts))
+		goto bail;
+#endif
 	vh->http.mount_list = info->mounts;
 #endif
 
@@ -854,6 +859,7 @@ bail:
 	vh->tls.cfg_key_path = NULL;
 #endif
 	lws_free_set_NULL(vh->same_vh_protocol_owner);
+	lws_free_set_NULL(vh->protocol_self_gated);
 	if (vh->allocated_vhost_protocols) {
 		lws_free((void *)vh->protocols);
 		vh->protocols = NULL;
@@ -869,12 +875,18 @@ early_bail:
 	return NULL;
 }
 
-void
+int
 lws_vhost_set_mounts(struct lws_vhost *vh, const struct lws_http_mount *mounts)
 {
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-        vh->http.mount_list = mounts;
+#if defined(LWS_WITH_SERVER)
+	if (lws_http_mounts_check(vh, mounts))
+		return -1;
 #endif
+	vh->http.mount_list = mounts;
+#endif
+
+	return 0;
 }
 
 int
@@ -1256,6 +1268,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	}
 	if (vh->protocol_vh_privs)
 		lws_free(vh->protocol_vh_privs);
+	lws_free_set_NULL(vh->protocol_self_gated);
 	lws_free_set_NULL(vh->protocol_init);
 #if defined(LWS_WITH_SERVER)
 	lws_tls_ctx_ref_destroy_all(vh);

@@ -1446,6 +1446,10 @@ lws_vhost_protocol_options(struct lws_vhost *vh, const char *name);
 const struct lws_http_mount *
 lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len);
 
+int
+lws_vhost_protocol_is_self_gated(struct lws_vhost *vh,
+				 const struct lws_protocols *prot);
+
 #ifdef LWS_WITH_HTTP2
 int lws_wsi_is_h2(struct lws *wsi);
 #else

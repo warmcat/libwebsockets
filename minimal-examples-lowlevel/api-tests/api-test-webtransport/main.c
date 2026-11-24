@@ -32,7 +32,10 @@
  *    refused with a 404, and plain-ws never sees the request.
  *
  *  - a CONNECT to a mount with basic auth, sent without credentials, is
- *    refused with a 401 before its protocol sees the request.
+ *    refused with a 401 before its protocol sees the request.  And a CONNECT
+ *    to an ungated path, offering only that mount's protocol, is refused
+ *    with a 404: a gated mount's protocol is only given sessions through
+ *    gates.
  *
  *  - the server opens a bidi stream on the client's session and sends a
  *    message on it: the client must get it on a stream of its session.
@@ -72,6 +75,7 @@ enum {
 	WTAT_CLIENT_ENDS,	/* the client opens a stream, then closes */
 	WTAT_NOWT,		/* connect to the server without wt */
 	WTAT_NAMED_NOT_WT,	/* offer only a protocol that takes no wt */
+	WTAT_NAMED_GATED,	/* offer only a gated mount's, ungated path */
 	WTAT_MOUNT_NOT_WT,	/* :path is the mount of a non-wt protocol */
 	WTAT_BASIC_AUTH,	/* :path is a basic auth mount, no credentials */
 	WTAT_SERVER_OPENS,	/* the server opens a stream on the session */
@@ -97,6 +101,10 @@ static const struct xcase cases[] = {
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 	{ "only a non-wt protocol offered: refused", "/",
 		"WT CONNECT refused 404", WTAT_NAMED_NOT_WT },
+#endif
+#if defined(LWS_WITH_CUSTOM_HEADERS) && defined(LWS_WITH_HTTP_BASIC_AUTH)
+	{ "only a gated mount's protocol offered, ungated path: refused", "/",
+		"WT CONNECT refused 404", WTAT_NAMED_GATED },
 #endif
 	{ "path is a non-wt protocol's mount: refused", "/not-wt",
 		"WT CONNECT refused 404", WTAT_MOUNT_NOT_WT },
@@ -496,6 +504,13 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 				(const unsigned char *)"\"plain-ws\"", 10,
 				(unsigned char **)in, (unsigned char *)in + len))
 			return -1;
+		/* ... or only the gated /auth mount's, for an ungated path */
+		if (cases[cur].type == WTAT_NAMED_GATED &&
+		    lws_add_http_header_by_name(wsi,
+				(const unsigned char *)"wt-available-protocols:",
+				(const unsigned char *)"\"webtransport-auth\"", 19,
+				(unsigned char **)in, (unsigned char *)in + len))
+			return -1;
 		break;
 #endif
 
@@ -658,6 +673,14 @@ next_case(lws_sorted_usec_list_t *sul)
 
 static const struct lws_protocols protocols_srv[] = {
 	{ "webtransport", callback_srv, 0, 1024, 0, NULL, 0 },
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+	/*
+	 * the gated /auth mount's own: a protocol a gated mount serves is not
+	 * given sessions for paths outside its gates, so the ungated cases
+	 * use "webtransport"
+	 */
+	{ "webtransport-auth", callback_srv, 0, 1024, 0, NULL, 0 },
+#endif
 	{ "plain-ws", callback_plain, 0, 1024, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
@@ -675,21 +698,32 @@ static const struct lws_protocol_vhost_options pvo_srv = {
 	NULL, &pvo_wt_opt, "webtransport", ""
 };
 
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+static const struct lws_protocol_vhost_options pvo_srv_auth = {
+	&pvo_srv, &pvo_wt_opt, "webtransport-auth", ""
+};
+#endif
+
 /*
  * The client sends no credentials, so the login file is never opened: the
  * CONNECT is refused for the missing Authorization header alone
  */
 
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+/* without basic auth, the vhost is refused a mount with it */
 static const struct lws_http_mount mount_auth = {
 	.mountpoint		= "/auth",
-	.origin			= "webtransport",
+	.origin			= "webtransport-auth",
 	.origin_protocol	= LWSMPRO_CALLBACK,
 	.mountpoint_len		= 5,
 	.basic_auth_login_file	= "./wt-api-test-no-such-login-file",
 };
+#endif
 
 static const struct lws_http_mount mount_srv = {
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
 	.mount_next		= &mount_auth,
+#endif
 	.mountpoint		= "/not-wt",
 	.origin			= "plain-ws",
 	.origin_protocol	= LWSMPRO_CALLBACK,
@@ -763,7 +797,11 @@ int main(int argc, const char **argv)
 	/* both server vhosts share the test cert */
 
 	info.protocols = protocols_srv;
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+	info.pvo = &pvo_srv_auth;
+#else
 	info.pvo = &pvo_srv;
+#endif
 	info.mounts = &mount_srv;
 	info.server_ssl_cert_mem = test_cert;
 	info.server_ssl_cert_mem_len = (unsigned int)strlen(test_cert);
