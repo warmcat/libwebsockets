@@ -467,13 +467,11 @@ struct per_vhost_data__lws_hls {
 #endif
 	/*
 	 * Who may delete media (see hls_can_delete()): the login state an
-	 * lws-login bouncer stamped on the request, read from this wsi when
-	 * the bouncer is in-process, or from the request headers when it is
-	 * on a box in front of us and the operator set trust-login-headers;
-	 * or, with jwt-jwk, the session cookie's grant for service-name
+	 * in-process lws-login bouncer stamped on the request, or with
+	 * jwt-jwk, the session cookie's grant for service-name
 	 */
-	int trust_login_headers;
 	const char *service_name;
+	const char *cookie_name;	/* NULL for "auth_session" */
 	int has_jwk;
 	struct lws_jwk jwk;
 };

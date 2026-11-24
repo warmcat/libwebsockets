@@ -598,17 +598,13 @@ hls_serve_asset(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
  *     on this wsi.  Only an interceptor can stamp it, so it needs no
  *     configuration to be trusted
  *
- *  2. with trust-login-headers=1: the same header as it arrives in the
- *     request, forwarded by an lws reverse proxy whose mount is gated by
- *     lws-login on the box in front of us.  The bouncer snips the
- *     browser's own copy before stamping its own, so it is trustworthy
- *     from that path; the operator asserts with the pvo that this vhost
- *     is not reachable any other way (an internal box).  Off by default
+ *  2. with jwt-jwk (the auth server's public jwk): the session cookie
+ *     itself, for the service-name grant at level >= 2.  For a vhost that
+ *     has no bouncer in-process, eg, one behind an lws reverse proxy on
+ *     another box, which forwards the browser's Cookie header
  *
- *  3. with jwt-jwk (the auth server's public jwk): the auth_session cookie
- *     itself, for the service-name grant at level >= 2.  Only for a vhost
- *     that has the bouncer neither in-process nor in front of it; a
- *     deployment with a bouncer never reaches this
+ * The x-lws-login-* headers as they arrive in the request are never looked
+ * at: anything that can reach us could send its own.
  */
 
 /*
@@ -621,6 +617,7 @@ static int
 hls_can_delete(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 	       char *why, size_t wl)
 {
+	const char *reason = NULL;
 	char st[16];
 	int n;
 
@@ -632,79 +629,24 @@ hls_can_delete(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 		return n >= 2;
 	}
 
-#if defined(LWS_WITH_CUSTOM_HEADERS)
-	if (vhd->trust_login_headers) {
-		if (lws_hdr_custom_copy(wsi, st, sizeof(st),
-					LWS_LOGIN_HDR_GRANT_LEVEL ":",
-					(int)strlen(LWS_LOGIN_HDR_GRANT_LEVEL ":")) > 0) {
-			n = atoi(st);
-			lws_snprintf(why, wl,
-				     "forwarded login grant level %d "
-				     "(need >= 2)", n);
-			return n >= 2;
-		}
-		lwsl_wsi_info(wsi, "trust-login-headers set but no %s header",
-			      LWS_LOGIN_HDR_GRANT_LEVEL);
-	}
-#else
-	if (vhd->trust_login_headers)
-		lwsl_wsi_warn(wsi, "trust-login-headers needs "
-				   "LWS_WITH_CUSTOM_HEADERS");
-#endif
-
-	if (vhd->has_jwk) {
-		struct lws_jwt_auth_info ai;
-		struct lws_jwt_auth *ja;
-		int ok = 0;
-
-		/* only the auth server's session tokens, not any it signed */
-		memset(&ai, 0, sizeof(ai));
-		ai.jwk		= &vhd->jwk;
-		ai.cookie_name	= "auth_session";
-		ai.purpose	= LWS_JWT_AUTH_PURPOSE_SSO;
-		ai.user		= wsi;
-
-		ja = lws_jwt_auth_create_via_info(wsi, &ai, NULL);
-
-		if (!ja) {
-			lws_snprintf(why, wl, "no valid auth_session jwt");
-			return 0;
-		}
-
-		{
-			uint64_t exp = lws_jwt_auth_get_exp(ja);
-
-			/*
-			 * lws_jwt_auth_create() returns a token that verified
-			 * but has already expired, leaving the expiry decision
-			 * to us: an expired session cookie grants nothing
-			 */
-			n = lws_jwt_auth_query_grant(ja, vhd->service_name);
-			if (!exp || exp <= (uint64_t)lws_now_secs())
-				lws_snprintf(why, wl, "auth_session jwt expired");
-			else if (n >= 2) {
-				/* the named grant, or "*" when there is none */
-				lws_snprintf(why, wl, "jwt grant level %d for "
-						      "'%s'", n,
-					     vhd->service_name);
-				ok = 1;
-			} else
-				lws_snprintf(why, wl,
-					     "jwt grant level %d for '%s' "
-					     "(need >= 2)", n,
-					     vhd->service_name);
-
-			lws_jwt_auth_destroy(&ja);
-		}
-
-		return ok;
+	if (!vhd->has_jwk) {
+		lws_snprintf(why, wl, "no login grant level: not stamped "
+				      "in-process, and no jwt-jwk");
+		return 0;
 	}
 
-	lws_snprintf(why, wl, "no login grant level: not stamped in-process, "
-			      "trust-login-headers=%d, jwt-jwk=%d",
-		     vhd->trust_login_headers, vhd->has_jwk);
+	/* the named grant's level, or "*"'s when there is no named one */
+	if (lws_jwt_auth_session_state(wsi, &vhd->jwk, vhd->cookie_name,
+				       vhd->service_name, &n, NULL, 0,
+				       &reason) == LWS_LOGIN_STATE_ANON) {
+		lws_snprintf(why, wl, "%s", reason);
+		return 0;
+	}
 
-	return 0;
+	lws_snprintf(why, wl, "jwt grant level %d for '%s' (need >= 2)", n,
+		     vhd->service_name);
+
+	return n >= 2;
 }
 
 #if defined(LWS_PLUGIN_STATIC)
@@ -788,8 +730,14 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "service-name")))
 			vhd->service_name = pvo->value;
 
-		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "trust-login-headers")))
-			vhd->trust_login_headers = atoi(pvo->value);
+		vhd->cookie_name = NULL; /* "auth_session" */
+		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "cookie-name")))
+			vhd->cookie_name = pvo->value;
+
+		if (lws_pvo_search((const struct lws_protocol_vhost_options *)in, "trust-login-headers"))
+			lwsl_vhost_warn(lws_get_vhost(wsi), "%s: trust-login-headers "
+					"is no longer supported and is ignored: "
+					"give jwt-jwk instead", __func__);
 
 		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "jwt-jwk"))) {
 			if (pvo->value[0] == '{' || lws_jwk_load(&vhd->jwk, pvo->value, NULL, NULL)) {

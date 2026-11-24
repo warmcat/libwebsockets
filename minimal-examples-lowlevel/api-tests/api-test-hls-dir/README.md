@@ -47,11 +47,16 @@ It fetches media through the download endpoint and asserts:
  - media under a dot-dir, a dotfile copy in progress and a non-media
    sidecar are not found (404).
 
-It then drives the delete endpoint, forwarding the login grant level the
-way an `lws-login` gated proxy in front would (the vhost sets
-`trust-login-headers`), and asserts:
+It then drives the delete endpoint, which needs grant level 2.  An
+in-process interceptor standing in for `lws-login` stamps it on some
+requests, as `lws-login` does; on others the plugin checks the session
+cookie itself, with its `jwt-jwk`, as it would with no bouncer in front.
+It asserts:
 
- - a delete without the grant is refused (403) and the file stays;
+ - a delete without the grant is refused (403) and the file stays, even
+   when the request claims the grant in its own `x-lws-login-grant-level`,
+   and when its session cookie has the grant only at level 1;
+ - a delete with a session cookie granting level 2 is done;
  - media in a subdirectory is deleted by its path, and the subdirectory,
    stray non-media contents included, goes with it once nothing playable
    is left in it;

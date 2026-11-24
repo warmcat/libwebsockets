@@ -36,10 +36,15 @@
  * as an attachment named by its basename, escaped for filename*=, but only
  * for what the listing would show, and only once it is all there.
  *
- * It then drives the delete endpoint, with the login grant level forwarded
- * the way an lws-login proxy in front stamps it (trust-login-headers):
+ * It then drives the delete endpoint, which needs grant level 2, given by
+ * an in-process interceptor standing in for lws-login, stamping it the way
+ * lws-login does, or by the session cookie itself, which the plugin checks
+ * with its jwt-jwk, as it would without a bouncer in front:
  *
- *  - a delete without the grant is refused and the file stays;
+ *  - a delete without the grant is refused and the file stays, even when
+ *    the request claims the grant in its own x-lws-login-grant-level, and
+ *    when its session cookie has the grant at level 1;
+ *  - a delete with a session cookie granting level 2 is done;
  *  - media in a subdirectory is deleted by its path, and the subdirectory
  *    goes with it once nothing playable is left in it, stray non-media
  *    contents included;
@@ -151,9 +156,17 @@ static void check_download_nested(void);
 static void check_download_special(void);
 
 /*
- * The client's requests, in order.  grant sends the login grant level an
- * lws-login proxy in front would forward (the vhost trusts it, see
- * pvo_trust); status is the response status the step expects.
+ * How a step's request comes by its grant: G_STAMP has our stand-in for
+ * lws-login stamp level 2 on it in-process; G_SPOOF has no stamp, but the
+ * request claims level 2 in its own x-lws-login-grant-level; G_COOKIE and
+ * G_COOKIE_LOW have no stamp, but a session cookie granting hls level 2 or
+ * 1, for the plugin's jwt-jwk to check
+ */
+enum { G_NONE, G_STAMP, G_SPOOF, G_COOKIE, G_COOKIE_LOW };
+
+/*
+ * The client's requests, in order.  status is the response status the step
+ * expects.
  */
 static const struct step {
 	const char	*method;
@@ -185,11 +198,16 @@ static const struct step {
 	{ "GET",  "/media/download/" RSYNC_TEMP,	0, 404, NULL },
 	{ "GET",  "/media/download/" NESTED_STRAY,	0, 404, NULL },
 	/* ...but an admin can delete a copy that died */
-	{ "POST", "/media/delete/" STALLED_MEDIA,	1, 200, NULL },
-	{ "POST", "/media/delete/" REFUSED_MEDIA,	0, 403, check_refused },
-	{ "POST", "/media/delete/" NESTED_MEDIA,	1, 200,
+	{ "POST", "/media/delete/" STALLED_MEDIA,	G_STAMP, 200, NULL },
+	{ "POST", "/media/delete/" REFUSED_MEDIA,	G_NONE, 403,
+						check_refused },
+	{ "POST", "/media/delete/" REFUSED_MEDIA,	G_SPOOF, 403,
+						check_refused },
+	{ "POST", "/media/delete/" REFUSED_MEDIA,	G_COOKIE_LOW, 403,
+						check_refused },
+	{ "POST", "/media/delete/" NESTED_MEDIA,	G_COOKIE, 200,
 						check_nested_deleted },
-	{ "POST", "/media/delete/" SPECIAL_URL,	1, 200,
+	{ "POST", "/media/delete/" SPECIAL_URL,	G_STAMP, 200,
 						check_special_deleted },
 };
 static size_t cur;
@@ -200,13 +218,31 @@ static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len);
 
+/*
+ * Our stand-in for an in-process lws-login bouncer on the media mount: it
+ * lets every request through, stamping grant level 2 on the steps that have
+ * it, the way lws-login stamps the grant it found for the mount's service
+ */
+static int
+callback_stamper(struct lws *wsi, enum lws_callback_reasons reason,
+		 void *user, void *in, size_t len)
+{
+	if (reason == LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK &&
+	    cur < LWS_ARRAY_SIZE(steps) && steps[cur].grant == G_STAMP &&
+	    lws_http_add_onward_header(wsi, LWS_LOGIN_HDR_GRANT_LEVEL, "2"))
+		return 1;
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
 static const struct lws_protocols
 	defprot = { "defprot", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
 	prot_hls = LWS_PLUGIN_PROTOCOL_LWS_HLS,
+	prot_stamper = { "stamper", callback_stamper, 0, 0, 0, NULL, 0 },
 	prot_cli = { "lws-api-test-hls-dir-cli", callback_cli, 0, 0, 0, NULL, 0 };
 
 static const struct lws_protocols
-	*pprotocols_hls[] = { &defprot, &prot_hls, NULL },
+	*pprotocols_hls[] = { &defprot, &prot_hls, &prot_stamper, NULL },
 	*pprotocols_cli[]  = { &defprot, &prot_cli, NULL };
 
 /*
@@ -219,21 +255,32 @@ static const lws_plugin_protocol_t * const composed_plugins[] = {
 };
 
 static const struct lws_http_mount
+	mount_stamper = {
+		.mountpoint		= "/stamper",
+		.protocol		= "stamper",
+		.origin_protocol	= LWSMPRO_CALLBACK,
+		.mountpoint_len		= 8,
+	},
 	mount_hls = {
+		.mount_next		= &mount_stamper,
 		.mountpoint		= "/media",
 		.protocol		= "lws-hls",
 		.origin_protocol	= LWSMPRO_CALLBACK,
 		.mountpoint_len		= 6,
+		.interceptor_path	= "/stamper",
 	};
 
+/* a throwaway HS256 key, that the session tokens here are signed with */
+static const char test_jwk[] =
+	"{\"kty\":\"oct\",\"k\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}";
+
 /*
- * pvo chain handing the plugin its fixture media dir, and telling it to
- * trust the login grant level forwarded in the request, as it would behind
- * an lws-login gated proxy
+ * pvo chain handing the plugin its fixture media dir, and the key to check
+ * session cookies with
  */
 static struct lws_protocol_vhost_options
-	pvo_trust	= { NULL, NULL, "trust-login-headers", "1" },
-	pvo_media_dir	= { &pvo_trust, NULL, "media-dir", NULL },
+	pvo_jwk		= { NULL, NULL, "jwt-jwk", test_jwk },
+	pvo_media_dir	= { &pvo_jwk, NULL, "media-dir", NULL },
 	pvo_hls		= { NULL, &pvo_media_dir, "lws-hls", NULL };
 
 /* -------------------------------------------------------------- client */
@@ -355,6 +402,40 @@ step_end(int ok)
 	lws_sul_schedule(context, 0, &sul_connect, sul_connect_cb, 1);
 }
 
+/* a session cookie granting hls at level, as the auth server mints them */
+
+static int
+add_session_cookie(struct lws *wsi, int level, unsigned char **p,
+		   unsigned char *end)
+{
+	unsigned long long now = (unsigned long long)lws_now_secs();
+	char tok[768], temp[2048], ck[800];
+	size_t tok_len = sizeof(tok);
+	struct lws_jwk jwk;
+	int r;
+
+	if (lws_jwk_import(&jwk, NULL, NULL, test_jwk, strlen(test_jwk)))
+		return 1;
+
+	r = lws_jwt_sign_compact(context, &jwk, "HS256", tok, &tok_len, temp,
+				 (int)sizeof(temp),
+				 "{\"iss\":\"apitest\",\"pur\":\""
+				 LWS_JWT_AUTH_PURPOSE_SSO "\",\"sub\":\"alice\","
+				 "\"uid\":1,\"iat\":%llu,\"exp\":%llu,"
+				 "\"grants\":{\"hls\":%d}}", now, now + 600,
+				 level);
+	lws_jwk_destroy(&jwk);
+	if (r)
+		return 1;
+
+	r = lws_snprintf(ck, sizeof(ck), "auth_session=%s", tok);
+
+	return r >= (int)sizeof(ck) ||
+	       lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE,
+					    (const unsigned char *)ck, r, p,
+					    end);
+}
+
 static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
@@ -375,10 +456,17 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
 		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
 
-		if (steps[cur].grant &&
+		/* a grant we have no business claiming */
+		if (steps[cur].grant == G_SPOOF &&
 		    lws_add_http_header_by_name(wsi,
 				(const unsigned char *)LWS_LOGIN_HDR_GRANT_LEVEL ":",
 				(const unsigned char *)"2", 1, p, end))
+			return -1;
+
+		if ((steps[cur].grant == G_COOKIE ||
+		     steps[cur].grant == G_COOKIE_LOW) &&
+		    add_session_cookie(wsi, steps[cur].grant == G_COOKIE ?
+						2 : 1, p, end))
 			return -1;
 
 		/* a bodyless POST, as the pages send it */
