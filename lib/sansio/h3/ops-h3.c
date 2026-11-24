@@ -4579,6 +4579,7 @@ lws_h3_rx_goaway(struct lws *wsi, uint64_t id)
  *    body to send again,
  *
  *  - nothing of its response came: it is waiting to go, or for the reply,
+ *    and no field section of a reply is waiting for qpack inserts either,
  *
  *  - and it did not go again already: it is retried once.
  *
@@ -4608,6 +4609,8 @@ lws_h3_client_retry_unanswered(struct lws *nwsi)
 		    !w->quic.qs || w->quic.qs->is_unidirectional ||
 		    (lwsi_state(w) != LRS_WAITING_SERVER_REPLY &&
 		     lwsi_state(w) != LRS_H2_WAITING_TO_SEND_HEADERS) ||
+		    /* its reply came, it is only waiting to be decoded */
+		    !lws_dll2_is_detached(&w->h3.qpack_blocked) ||
 		    (h3n->goaway_rx && w->quic.qs->stream_id < h3n->goaway_id))
 			continue;
 
