@@ -884,7 +884,13 @@ drain_extension:
 			n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &pmdrx, 0);
 			lwsl_debug("%s: ext says %d / ebuf.len %d\n", __func__,
 				   n, pmdrx.eb_out.len);
-			if (wsi->ws->rx_draining_ext)
+			/*
+			 * A drain entry already took us off the draining list,
+			 * so wsi->ws->rx_draining_ext alone no longer says we
+			 * are draining: without the local flag, inflated output
+			 * reached here from the bulk path with NO_CB was lost
+			 */
+			if (rx_draining_ext || wsi->ws->rx_draining_ext)
 				already_processed &= (char)~ALREADY_PROCESSED_NO_CB;
 #endif
 
