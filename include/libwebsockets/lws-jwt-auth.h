@@ -207,6 +207,39 @@ LWS_VISIBLE LWS_EXTERN int
 lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reason);
 
 /**
+ * lws_jwt_auth_session_state() - what a request's own session cookie entitles
+ *				  it to, for a service
+ *
+ * \param wsi: the request
+ * \param jwk: the auth server's public key
+ * \param cookie_name: NULL for "auth_session", or the name the lws-login
+ *		       bouncer in front is configured with ("cookie-name")
+ * \param service: the grant name, as lws-login's "service-name"
+ * \param level: NULL, or set to the grant level for \p service, or the "*"
+ *		 wildcard's when there is no named grant, or -1 if neither
+ * \param sub: NULL, or where to copy the token's subject (empty if none)
+ * \param sub_len: the size of \p sub
+ * \param reason: NULL, or set to why the result is LWS_LOGIN_STATE_ANON
+ *
+ * For an app whose requests reach it without an lws-login bouncer in the same
+ * process, typically behind an lws reverse proxy on another box, which
+ * forwards the browser's Cookie header.  The app decides for itself from the
+ * auth server's signed session token, the same way the bouncer would have: a
+ * token signed by \p jwk with the "sso" purpose, that has not expired.  The
+ * x-lws-login-* headers the bouncer stamps are never something to read from
+ * a request: anything that can reach the app could send its own.
+ *
+ * Returns the enum lws_login_state lws-login would have stamped for the
+ * request, LWS_LOGIN_STATE_ANON if there is no valid, unexpired session
+ * token.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_jwt_auth_session_state(struct lws *wsi, struct lws_jwk *jwk,
+			   const char *cookie_name, const char *service,
+			   int *level, char *sub, size_t sub_len,
+			   const char **reason);
+
+/**
  * lws_jwt_auth_destroy() - Gracefully cancels SUL instances and frees the allocation
  *
  * \param ja: Double-pointer to the object to cleanly wipe

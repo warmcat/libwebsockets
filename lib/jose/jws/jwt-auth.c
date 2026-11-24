@@ -647,6 +647,72 @@ lws_jwt_auth_query_grant(struct lws_jwt_auth *ja, const char *service_name)
 	return wildcard_level;
 }
 
+int
+lws_jwt_auth_session_state(struct lws *wsi, struct lws_jwk *jwk,
+			   const char *cookie_name, const char *service,
+			   int *level, char *sub, size_t sub_len,
+			   const char **reason)
+{
+	struct lws_jwt_auth_info ai;
+	struct lws_jwt_auth *ja;
+	const char *r = NULL;
+	uint64_t exp;
+	int lv, st;
+
+	if (level)
+		*level = -1;
+	if (sub && sub_len)
+		*sub = '\0';
+
+	memset(&ai, 0, sizeof(ai));
+	ai.jwk		= jwk;
+	ai.cookie_name	= cookie_name ? cookie_name : "auth_session";
+	/* only the auth server's session tokens, not anything else it signed */
+	ai.purpose	= LWS_JWT_AUTH_PURPOSE_SSO;
+
+	ja = lws_jwt_auth_create_via_info(wsi, &ai, &r);
+	if (!ja) {
+		if (reason)
+			*reason = r ? r : "no valid session token";
+
+		return LWS_LOGIN_STATE_ANON;
+	}
+
+	/*
+	 * A token that verified but has expired comes back too, leaving the
+	 * decision to us: it entitles nobody to anything
+	 */
+	exp = lws_jwt_auth_get_exp(ja);
+	if (!exp || exp <= (uint64_t)lws_now_secs()) {
+		lws_jwt_auth_destroy(&ja);
+		if (reason)
+			*reason = "session token expired";
+
+		return LWS_LOGIN_STATE_ANON;
+	}
+
+	/* the same reduction lws-login makes for x-lws-login-state */
+
+	lv = lws_jwt_auth_query_grant(ja, service);
+	if (lws_jwt_auth_query_grant(ja, "*") >= 1)
+		st = LWS_LOGIN_STATE_GLOBAL_ADMIN;
+	else if (lv >= 2)
+		st = LWS_LOGIN_STATE_APP_ADMIN;
+	else if (lv >= 1)
+		st = LWS_LOGIN_STATE_USER;
+	else
+		st = LWS_LOGIN_STATE_NO_GRANT;
+
+	if (level)
+		*level = lv;
+	if (sub && sub_len && lws_jwt_auth_get_sub(ja))
+		lws_strncpy(sub, lws_jwt_auth_get_sub(ja), sub_len);
+
+	lws_jwt_auth_destroy(&ja);
+
+	return st;
+}
+
 void
 lws_jwt_auth_destroy(struct lws_jwt_auth **ja)
 {
