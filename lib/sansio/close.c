@@ -309,6 +309,11 @@ __lws_reset_wsi(struct lws *wsi)
 
 #if defined(LWS_ROLE_H3)
 	/* the stream's qpack decoder state is its own, h3n is the connection's */
+	lws_dll2_remove(&wsi->h3.qpack_blocked);
+	lws_buflist_destroy_all_segments(&wsi->h3.qpack_blocked_bl);
+#if defined(LWS_WITH_CLIENT)
+	lws_buflist_destroy_all_segments(&wsi->h3.qpack_held_hdrs);
+#endif
 	if (wsi->h3.qpack_dec_state)
 		lws_free_set_NULL(wsi->h3.qpack_dec_state);
 	memset(&wsi->h3, 0, sizeof(wsi->h3));
