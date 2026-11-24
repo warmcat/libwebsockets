@@ -62,6 +62,14 @@
  * inserting into a pt's timer list holds it, so a path breaking the rule
  * aborts here every run.
  *
+ * Each round, each service thread also asks one name the fake nameserver
+ * answers with a TTL of 0, and keeps the result HOLD_US before freeing it,
+ * as a requester that is slow to give its results back does.  The cache
+ * entry expires while it is held, so it is freed by that freeaddrinfo,
+ * the last reference.  Before PR #3696 lws_async_dns_freeaddrinfo()
+ * unlocked the context through the entry it had just freed, which in SMP
+ * builds ASan sees here every run.
+ *
  * --stall has the last service thread, half way through the rounds, block
  * for STALL_US once it has asked its round, as a thread does that gets no
  * cpu for a while on a loaded machine.  A lookup gives up if it can't write
@@ -107,11 +115,27 @@
 #define DEADLINE_US		(20 * LWS_US_PER_SEC)
 #define STALL_US		(1500 * LWS_US_PER_MS)	/* --stall */
 #define TEST_DOMAIN		"adns-smp.invalid"
+/* names the fake nameserver answers with a TTL of 0 start with this */
+#define HOLD_PREFIX		"hold-"
+#define HOLD_US			(100 * LWS_US_PER_MS)
+
+/* a lookup's opaque: the tsi it asked on, and 1 + the round, if it holds */
+#define LOOKUP_OPAQUE(tsi, hr)	((void *)((intptr_t)(tsi) | \
+					  ((intptr_t)(hr) << 8)))
+#define LOOKUP_TSI(o)		((int)((intptr_t)(o) & 0xff))
+#define LOOKUP_HOLD_ROUND(o)	((int)((intptr_t)(o) >> 8))
 
 static const uint8_t answer_ads[] = { 127, 0, 0, 1 };
 
+/* a result kept past its TTL, freed by its timer */
+struct held {
+	lws_sorted_usec_list_t	sul;
+	const struct addrinfo	*ai;
+};
+
 struct svc {
 	lws_sorted_usec_list_t	sul_round;
+	struct held		held[ROUNDS];
 	pthread_t		self;	/* written and read on this thread */
 	pthread_t		thread;
 	int			tsi;
@@ -129,7 +153,7 @@ static volatile int interrupted, ns_stop;
 
 /* guarded by lock */
 static int asked, answered, wrong_thread, wrong_ads, failed, conns_asked,
-	   conns_done, conns_failed, accepted;
+	   conns_done, conns_failed, accepted, holding, released;
 
 static void
 count(int *what, int n)
@@ -145,8 +169,8 @@ done(void)
 	int r;
 
 	pthread_mutex_lock(&lock);
-	r = answered + failed == asked && conns_done + conns_failed ==
-						conns_asked &&
+	r = answered + failed == asked && !holding &&
+	    conns_done + conns_failed == conns_asked &&
 	    conns_asked == threads * CONNS_PER_THREAD;
 	pthread_mutex_unlock(&lock);
 
@@ -180,11 +204,23 @@ on_thread(int tsi)
 	return 1;
 }
 
+static void
+sul_release_cb(lws_sorted_usec_list_t *sul)
+{
+	struct held *h = lws_container_of(sul, struct held, sul);
+
+	/* its cache entry expired meanwhile: this frees it */
+	lws_async_dns_freeaddrinfo(&h->ai);
+	count(&released, 1);
+	count(&holding, -1);
+	finish_if_done();
+}
+
 static struct lws *
 lookup_cb(struct lws *wsi, const char *ads, const struct addrinfo *result,
 	  int n, void *opaque)
 {
-	int tsi = (int)(intptr_t)opaque;
+	int tsi = LOOKUP_TSI(opaque), hr = LOOKUP_HOLD_ROUND(opaque);
 	const struct addrinfo *ai;
 	int good = 0;
 
@@ -209,6 +245,17 @@ lookup_cb(struct lws *wsi, const char *ads, const struct addrinfo *result,
 
 	count(&answered, 1);
 
+	if (hr && on_thread(tsi)) {
+		struct held *h = &svc[tsi].held[hr - 1];
+
+		/* keep it past its TTL, then free it from our own thread */
+		count(&holding, 1);
+		h->ai = result;
+		lws_sul_schedule(context, tsi, &h->sul, sul_release_cb, HOLD_US);
+
+		return wsi ? wsi : LADNS_NO_WSI_BUT_OK;
+	}
+
 bail:
 	lws_async_dns_freeaddrinfo(&result);
 	finish_if_done();
@@ -217,7 +264,7 @@ bail:
 }
 
 static void
-ask(int tsi, const char *name)
+ask(int tsi, const char *name, int hold_round)
 {
 	count(&asked, 1);
 
@@ -226,7 +273,8 @@ ask(int tsi, const char *name)
 					LWS_ADNS_NOCACHE |
 					LWS_ADNS_IGNORE_HOSTS_FILE |
 					LWS_ADNS_INDICATE_LACKS_DNSSEC),
-				lookup_cb, NULL, (void *)(intptr_t)tsi, NULL) <
+				lookup_cb, NULL, LOOKUP_OPAQUE(tsi, hold_round),
+				NULL) <
 							LADNS_RET_CONTINUING)
 		lwsl_notice("%s: %s did not start\n", __func__, name);
 		/* lookup_cb() was told, and counted it */
@@ -269,13 +317,17 @@ sul_round_cb(lws_sorted_usec_list_t *sul)
 	for (n = 0; n < PER_ROUND_OWN; n++) {
 		lws_snprintf(name, sizeof(name), "t%d-r%d-%d." TEST_DOMAIN,
 			     s->tsi, s->round, n);
-		ask(s->tsi, name);
+		ask(s->tsi, name, 0);
 	}
+
+	lws_snprintf(name, sizeof(name), HOLD_PREFIX "t%d-r%d." TEST_DOMAIN,
+		     s->tsi, s->round);
+	ask(s->tsi, name, s->round + 1);
 
 	for (n = 0; n < PER_ROUND_SHARED; n++) {
 		lws_snprintf(name, sizeof(name), "shared-r%d-%d." TEST_DOMAIN,
 			     s->round, n);
-		ask(s->tsi, name);
+		ask(s->tsi, name, 0);
 	}
 
 	for (n = 0; n < PER_ROUND_CONNS; n++) {
@@ -360,7 +412,7 @@ static const struct lws_protocols protocols[] = {
 /*
  * The fake nameserver: answer every question, as soon as it arrives, A with
  * our address and anything else (the AAAA half of the pair) with an empty
- * NOERROR
+ * NOERROR.  The A of a name starting HOLD_PREFIX gets a TTL of 0.
  */
 
 static void *
@@ -372,6 +424,7 @@ ns_thread(void *d)
 	socklen_t pl;
 	ssize_t r;
 	size_t o;
+	int ttl0;
 
 	(void)d;
 
@@ -396,6 +449,9 @@ ns_thread(void *d)
 			continue;
 		o += 5; /* the root label, QTYPE and QCLASS */
 
+		ttl0 = pkt[12] > sizeof(HOLD_PREFIX) - 1 &&
+		       !memcmp(&pkt[13], HOLD_PREFIX, sizeof(HOLD_PREFIX) - 1);
+
 		memcpy(resp, pkt, o);
 		resp[2] = 0x81;		/* QR + RD */
 		resp[3] = 0x80;		/* RA, NOERROR */
@@ -412,7 +468,7 @@ ns_thread(void *d)
 			resp[o++] = 0;
 			resp[o++] = 0;
 			resp[o++] = 0;
-			resp[o++] = 60;		/* TTL */
+			resp[o++] = ttl0 ? 0 : 60;	/* TTL */
 			resp[o++] = 0;
 			resp[o++] = 4;		/* RDLENGTH */
 			memcpy(&resp[o], answer_ads, 4);
@@ -573,17 +629,28 @@ main(int argc, const char **argv)
 		pthread_join(svc[n].thread, &retval);
 
 	lws_sul_cancel(&sul_deadline);
-	for (n = 0; n < threads; n++)
+	for (n = 0; n < threads; n++) {
+		int r;
+
 		lws_sul_cancel(&svc[n].sul_round);
+		/* on a timeout: what we still hold goes before the context */
+		for (r = 0; r < ROUNDS; r++)
+			if (svc[n].held[r].ai) {
+				lws_sul_cancel(&svc[n].held[r].sul);
+				lws_async_dns_freeaddrinfo(&svc[n].held[r].ai);
+			}
+	}
 
 	lwsl_user("%d threads: %d lookups asked, %d answered, %d failed, "
 		  "%d with the wrong address; %d connections, %d connected, "
-		  "%d failed, %d accepted; %d callbacks on the wrong thread\n",
+		  "%d failed, %d accepted; %d callbacks on the wrong thread; "
+		  "%d held past their TTL\n",
 		  threads, asked, answered, failed, wrong_ads, conns_asked,
-		  conns_done, conns_failed, accepted, wrong_thread);
+		  conns_done, conns_failed, accepted, wrong_thread, released);
 
-	if (asked == threads * ROUNDS * (PER_ROUND_OWN + PER_ROUND_SHARED) &&
+	if (asked == threads * ROUNDS * (PER_ROUND_OWN + 1 + PER_ROUND_SHARED) &&
 	    answered == asked && !failed && !wrong_ads &&
+	    released == threads * ROUNDS &&
 	    conns_asked == threads * CONNS_PER_THREAD &&
 	    conns_done == conns_asked && !conns_failed && !wrong_thread)
 		result = 0;
