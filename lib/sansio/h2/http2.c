@@ -3020,13 +3020,29 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		 * not merely useless here, it is the classic h2 -> h1
 		 * downgrade request-smuggling primitive if we let it through to
 		 * an onward h1 leg.  (Connection is refused just above, and TE
-		 * -- which is allowed, but only as "trailers" -- just below.)
+		 * -- which is allowed, but only as "trailers" -- just below.
+		 * Lws has no token for Keep-Alive or Proxy-Connection: they
+		 * are kept only as custom headers, which lws never acts on.)
 		 */
 
 		if (lws_hdr_extant(h2n->swsi,
 				   WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
 			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 				      "Transfer-Encoding in h2 request"))
+				return 1;
+			break;
+		}
+
+		/*
+		 * ... and Upgrade: an h2 ws upgrade is an extended CONNECT
+		 * (RFC 8441), never this.  It is more than useless: lws reads
+		 * "Upgrade: websocket" as an h1 ws upgrade, and once let a
+		 * request carrying it pass a no_ws_upgrades mount over and be
+		 * served by the mount around it.
+		 */
+		if (lws_hdr_extant(h2n->swsi, WSI_TOKEN_UPGRADE)) {
+			if (lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
+				      "Upgrade in h2 request"))
 				return 1;
 			break;
 		}

@@ -27,6 +27,14 @@
  *
  *  - /index.html, upgrading to h2c: the public file, on stream 1
  *
+ *  - /index.html, upgrading to h2c, and once stream 1 has answered, on
+ *    stream 3, /private/index.html without credentials, carrying
+ *    "upgrade: websocket".  h2 has no such
+ *    header (an h2 ws upgrade is an extended CONNECT), and it once made the
+ *    request pass /private over as if it were a ws upgrade, so / served the
+ *    private file with no credentials.  The request is malformed: the
+ *    connection goes away, with no answer on stream 3.
+ *
  * The files and the login file are made in the cwd, named with the process
  * id, and removed afterwards.
  */
@@ -52,6 +60,8 @@ enum expect {
 	EX_401,		/* refused 401, as h1 */
 	EX_PRIVATE,	/* upgraded, and stream 1 is the private file */
 	EX_PUBLIC,	/* upgraded, and stream 1 is the public file */
+	EX_GOAWAY,	/* upgraded, and the connection ends with no answer
+			 * on stream 3 */
 };
 
 static const struct hcase {
@@ -65,6 +75,22 @@ static const struct hcase {
 	{ "h2c, credentials",	  "/private/index.html", H2C_HDRS AUTH_HDR,
 								   EX_PRIVATE },
 	{ "h2c, public",	  "/index.html",	 H2C_HDRS, EX_PUBLIC },
+	{ "h2, upgrade header",	  "/index.html",	 H2C_HDRS, EX_GOAWAY },
+};
+
+/*
+ * HEADERS on stream 3, END_STREAM | END_HEADERS: GET /private/index.html,
+ * with an "upgrade: websocket" field, in hpack literals without indexing
+ */
+static const uint8_t hdrs_upgrade[] = {
+	0x00, 0x00, 53, 0x01, 0x05, 0x00, 0x00, 0x00, 0x03,
+	0x82,					/* :method GET */
+	0x86,					/* :scheme http */
+	0x04, 19, '/', 'p', 'r', 'i', 'v', 'a', 't', 'e', '/',
+		  'i', 'n', 'd', 'e', 'x', '.', 'h', 't', 'm', 'l',
+	0x01, 9, 'l', 'o', 'c', 'a', 'l', 'h', 'o', 's', 't',
+	0x00, 7, 'u', 'p', 'g', 'r', 'a', 'd', 'e',
+		 9, 'w', 'e', 'b', 's', 'o', 'c', 'k', 'e', 't',
 };
 
 static struct lws_context *context;
@@ -83,6 +109,9 @@ static struct {
 	int		status;		/* the h1 status line's */
 	int		upgraded;	/* sent the h2 preface */
 	int		ended;		/* stream 1 ended */
+	int		goaway;		/* 1 + the GOAWAY's error code */
+	int		s3;		/* stream 3 had an answer */
+	struct lws	*wsi;
 	int		done;
 } cli;
 
@@ -123,6 +152,14 @@ case_judge(void)
 	pub = !!strstr(cli.body, PUBLIC_MARK);
 
 	switch (c->expect) {
+	case EX_GOAWAY:
+		/*
+		 * If the GOAWAY made it before the close, it says
+		 * PROTOCOL_ERROR; either way, nothing on stream 3
+		 */
+		ok = cli.upgraded == 3 && !cli.s3 && !priv &&
+		     (!cli.goaway || cli.goaway == 1 + 1);
+		break;
 	case EX_401:
 		ok = !cli.upgraded && cli.status == 401;
 		break;
@@ -135,9 +172,10 @@ case_judge(void)
 	}
 
 	lwsl_user("--- case %d \"%s\" %s: %s (status %d, upgraded %d, "
-		  "stream 1 %s, %s) ---\n", cur, c->name, c->path,
-		  ok ? "PASS" : "FAIL", cli.status, cli.upgraded,
-		  cli.ended ? "ended" : "did not end",
+		  "stream 1 %s, goaway %d, stream 3 %s, %s) ---\n", cur,
+		  c->name, c->path, ok ? "PASS" : "FAIL", cli.status,
+		  cli.upgraded, cli.ended ? "ended" : "did not end",
+		  cli.goaway - 1, cli.s3 ? "answered" : "not answered",
 		  priv ? "PRIVATE FILE SERVED" : (pub ? "public file" :
 							"no file"));
 	if (!ok)
@@ -183,7 +221,7 @@ cli_parse(void)
 			return; /* the rest of the frame to come */
 		sid = lws_ser_ru32be(f + 5) & 0x7fffffff;
 
-		if (sid == 1 && !f[3] && flen) { /* DATA */
+		if ((sid == 1 || sid == 3) && !f[3] && flen) { /* DATA */
 			if (flen > sizeof(cli.body) - 1 - cli.body_len)
 				flen = sizeof(cli.body) - 1 - cli.body_len;
 			memcpy(cli.body + cli.body_len, f + 9, flen);
@@ -193,9 +231,32 @@ cli_parse(void)
 		cli.pos += 9 + (((size_t)f[0] << 16) | ((size_t)f[1] << 8) |
 				f[2]);
 
-		/* DATA or HEADERS with END_STREAM, or RST_STREAM, or GOAWAY */
+		if (f[3] == 7 && flen >= 8) {
+			cli.goaway = 1 + (int)lws_ser_ru32be(f + 9 + 4);
+			case_judge();
+			return;
+		}
+
+		if (cases[cur].expect == EX_GOAWAY) {
+			/* stream 1 answered: now ask on stream 3 */
+			if (sid == 1 && f[3] <= 1 && (f[4] & 1)) {
+				cli.ended = 1;
+				lws_callback_on_writable(cli.wsi);
+			}
+			/* stream 3 is what is judged: any answer is a FAIL */
+			if (sid == 3 && f[3] <= 1)
+				cli.s3 = 1;
+			if (sid == 3 && ((f[3] <= 1 && (f[4] & 1)) ||
+					 f[3] == 3)) {
+				case_judge();
+				return;
+			}
+			continue;
+		}
+
+		/* DATA or HEADERS with END_STREAM, or RST_STREAM */
 		if ((sid == 1 && f[3] <= 1 && (f[4] & 1)) ||
-		    (sid == 1 && f[3] == 3) || f[3] == 7) {
+		    (sid == 1 && f[3] == 3)) {
 			cli.ended = sid == 1 && f[3] <= 1;
 			case_judge();
 			return;
@@ -221,6 +282,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_RAW_CONNECTED:
+		cli.wsi = wsi;
 		lws_callback_on_writable(wsi);
 		break;
 
@@ -232,6 +294,18 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 						(int)sizeof(preface) - 1)
 				return -1;
 			cli.upgraded = 2;
+			break;
+		}
+
+		if (cli.upgraded == 2) {
+			if (!cli.ended)
+				break;
+			memcpy(start, hdrs_upgrade, sizeof(hdrs_upgrade));
+			if (lws_write(wsi, (uint8_t *)start,
+				      sizeof(hdrs_upgrade), LWS_WRITE_RAW) !=
+						(int)sizeof(hdrs_upgrade))
+				return -1;
+			cli.upgraded = 3;
 			break;
 		}
 
