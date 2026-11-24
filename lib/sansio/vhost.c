@@ -146,6 +146,58 @@ lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
 	return vhost->protocol_vh_privs[n];
 }
 
+/* the protocol's index on the vhost, by identity, else by name; or -1 */
+static int
+lws_vhost_protocol_index(struct lws_vhost *vh, const struct lws_protocols *prot)
+{
+	int n;
+
+	if (!vh || !vh->protocols || !prot || !prot->name)
+		return -1;
+
+	for (n = 0; n < vh->count_protocols; n++)
+		if (&vh->protocols[n] == prot)
+			return n;
+
+	for (n = 0; n < vh->count_protocols; n++)
+		if (vh->protocols[n].name &&
+		    !strcmp(vh->protocols[n].name, prot->name))
+			return n;
+
+	return -1;
+}
+
+int
+lws_vhost_protocol_self_gated(struct lws_vhost *vh,
+			      const struct lws_protocols *prot)
+{
+	int n = lws_vhost_protocol_index(vh, prot);
+
+	if (n < 0)
+		return 1;
+
+	if (!vh->protocol_self_gated) {
+		vh->protocol_self_gated = lws_zalloc(
+				(size_t)vh->count_protocols, "self gated");
+		if (!vh->protocol_self_gated)
+			return 1;
+	}
+
+	vh->protocol_self_gated[n] = 1;
+
+	return 0;
+}
+
+int
+lws_vhost_protocol_is_self_gated(struct lws_vhost *vh,
+				 const struct lws_protocols *prot)
+{
+	int n = lws_vhost_protocol_index(vh, prot);
+
+	return n >= 0 && vh->protocol_self_gated &&
+	       vh->protocol_self_gated[n];
+}
+
 void *
 lws_protocol_vh_priv_get(struct lws_vhost *vhost,
 			 const struct lws_protocols *prot)

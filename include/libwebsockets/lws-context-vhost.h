@@ -2168,7 +2168,10 @@ struct lws_http_mount {
 	int cache_max_age;
 	/**< max-age for reuse of client cache of files, seconds */
 	unsigned int auth_mask;
-	/**< bits set here must be set for authorized client session */
+	/**< bits set here must be set for authorized client session.  Other than
+	 * the LWSAUTHM_ mode, only on a LWSMPRO_CALLBACK mount: its protocol is
+	 * asked LWS_CALLBACK_CHECK_ACCESS_RIGHTS, for http and for ws upgrades
+	 * to paths in the mount.  Otherwise the vhost is refused. */
 
 	unsigned int cache_reusable:1; /**< set if client cache may reuse this */
 	unsigned int cache_revalidate:1; /**< set if client cache should revalidate on use */
@@ -2177,7 +2180,9 @@ struct lws_http_mount {
 	unsigned int exact_match:1; /**< set if mountpoint must match exactly */
 	unsigned int append_path:1; /**< set if we should append the rest of the path during a redirect */
 	unsigned int no_ws_upgrades:1; /**< set to ignore this mount for ws upgrades
-					* (Upgrade: websocket), not for h2c */
+					* (Upgrade: websocket), not for h2c.  The
+					* mount around it serves them, but they
+					* still meet this mount's gates too */
 
 	unsigned char origin_protocol; /**< one of enum lws_mount_protocols */
 	unsigned char mountpoint_len; /**< length of mountpoint string */
@@ -2208,7 +2213,10 @@ struct lws_http_mount {
 #if defined(LWS_WITH_JOSE)
 	const char *interceptor_path;
 	/**< NULL, or an alternative mount path to divert the connection to
-	 * if the protocol on that mount says we are not authorized.
+	 * if the protocol on that mount says we are not authorized.  It must
+	 * be exactly the mountpoint of a callback mount on the vhost, whose
+	 * protocol is on the vhost, and a chain of them must not loop or be
+	 * more than 8 deep, else the vhost is refused.
 	 */
 #endif
 
@@ -2220,7 +2228,18 @@ struct lws_http_mount {
 	 */
 };
 
-LWS_VISIBLE LWS_EXTERN void
+/**
+ * lws_vhost_set_mounts() - replace the vhost's mounts
+ *
+ * \param v: the vhost
+ * \param mounts: the new list of mounts
+ *
+ * Returns 0, or nonzero, leaving the vhost's mounts as they were, if the new
+ * mounts have gates that would not be enforced as they say, as
+ * lws_create_vhost() refuses them (eg, an interceptor_path that is no mount's
+ * mountpoint, or basic auth in a build without it).
+ */
+LWS_VISIBLE LWS_EXTERN int
 lws_vhost_set_mounts(struct lws_vhost *v, const struct lws_http_mount *mounts);
 
 ///@}

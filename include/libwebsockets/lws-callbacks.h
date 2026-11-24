@@ -342,14 +342,25 @@ enum lws_callback_reasons {
 	 * `in` points to a credential string of the form `username:password` If
 	 * the callback returns zero (the default if unhandled), then the
 	 * transaction ends with HTTP_STATUS_UNAUTHORIZED, otherwise the request
-	 * will be processed */
+	 * will be processed.
+	 *
+	 * It is asked of the mount's own protocol, for a callback mount, else of
+	 * the vhost's first protocol, whatever protocol the wsi is bound to then;
+	 * `user` is NULL unless it is that one. */
 
 	LWS_CALLBACK_CHECK_ACCESS_RIGHTS			= 51,
 	/**< This gives the user code a chance to forbid an http access.
 	 * `in` points to a `struct lws_process_html_args`, which
 	 * describes the URL, and a bit mask describing the type of
 	 * authentication required.  If the callback returns nonzero,
-	 * the transaction ends with HTTP_STATUS_UNAUTHORIZED. */
+	 * the transaction ends with HTTP_STATUS_UNAUTHORIZED.
+	 *
+	 * The mask is the mount's auth_mask without its authentication mode,
+	 * and only a callback mount may have one.  An http request to a
+	 * callback mount always asks it, with the mount's protocol bound.  A
+	 * ws upgrade to a path in a mount with a mask asks the mount's
+	 * protocol too, before any protocol is bound for the upgrade: then
+	 * `user` is NULL, and lws_get_protocol() is not the one asked. */
 
 	LWS_CALLBACK_PROCESS_HTML				= 52,
 	/**< This gives your user code a chance to mangle outgoing

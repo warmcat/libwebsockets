@@ -852,6 +852,9 @@ struct lws_vhost {
 
 	const struct lws_protocols *protocols;
 	void **protocol_vh_privs;
+	char *protocol_self_gated;
+	/**< NULL, or per protocol index, nonzero if the protocol vets its own
+	 * sessions (lws_vhost_protocol_self_gated()) */
 	const struct lws_protocol_vhost_options *pvo;
 	const struct lws_protocol_vhost_options *headers;
 	struct lws_dll2_owner *same_vh_protocol_owner;

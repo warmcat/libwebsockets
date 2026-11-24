@@ -119,6 +119,11 @@ not take WebTransport, the `CONNECT` is refused with a 404:
    protocol list.  Setting `default_protocol_index` out of range refuses
    these, as it does for ws.
 
+In the last two, a protocol that a gated mount (with interceptors, basic auth
+or access rights) is served with is passed over if the `:path` meets no gates
+of its own, unless the protocol declared it vets its own sessions with
+`lws_vhost_protocol_self_gated()`.
+
 The `CONNECT` is subject to the same gates as a ws upgrade to that path: a
 mount interceptor chain like lws-login that would not let the request through
 refuses it with a 401, as does the mount's basic auth or a `"basic-auth"` pvo

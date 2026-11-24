@@ -4129,7 +4129,7 @@ static int
 lws_h3_wt_basic_auth(struct lws *wsi, const char *login_file,
 		     unsigned int auth_mode, lws_handling_result_t *r)
 {
-	switch (lws_check_basic_auth(wsi, login_file, auth_mode)) {
+	switch (lws_check_basic_auth(wsi, login_file, auth_mode, NULL)) {
 	case LCBA_CONTINUE:
 	case LCBA_AUTH_RETRY_KEEPALIVE:
 		return 0;
@@ -4189,7 +4189,7 @@ rops_check_upgrades_h3(struct lws *wsi)
 	if (!strcmp(p, "webtransport")) {
 		unsigned char response_buf[LWS_PRE + 4096], *rp = response_buf + LWS_PRE, *end = response_buf + sizeof(response_buf);
 		struct lws_vhost *vh = wsi->a.vhost;
-		const struct lws_http_mount *hit = NULL;
+		const struct lws_http_mount *hit = NULL, *gate = NULL;
 		const struct lws_protocols *prot = NULL;
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
 		const struct lws_protocol_vhost_options *pvos;
@@ -4220,8 +4220,10 @@ rops_check_upgrades_h3(struct lws *wsi)
 		 */
 		uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);
 		uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
-		if (uri_ptr && uri_len > 0)
+		if (uri_ptr && uri_len > 0) {
 			hit = lws_find_mount(wsi, uri_ptr, uri_len);
+			gate = lws_find_mount_gate(wsi, uri_ptr, uri_len);
+		}
 
 		if (hit && (hit->protocol ||
 			    hit->origin_protocol == LWSMPRO_CALLBACK)) {
@@ -4274,8 +4276,13 @@ rops_check_upgrades_h3(struct lws *wsi)
 				e = lws_tokenize(&ts);
 				if ((e == LWS_TOKZE_TOKEN ||
 				     e == LWS_TOKZE_QUOTED_STRING) &&
-				    !lws_tokenize_cstr(&ts, name, sizeof(name)))
+				    !lws_tokenize_cstr(&ts, name, sizeof(name))) {
 					prot = lws_h3_wt_protocol(vh, name);
+					/* a gated app's is not for this path */
+					if (prot && !lws_http_protocol_reachable(
+							wsi, prot, gate))
+						prot = NULL;
+				}
 			} while (!prot && e > 0);
 
 			if (!prot)
@@ -4293,6 +4300,9 @@ rops_check_upgrades_h3(struct lws *wsi)
 			if (vh->default_protocol_index < vh->count_protocols)
 				prot = lws_h3_wt_protocol(vh,
 					vh->protocols[vh->default_protocol_index].name);
+			if (prot && !lws_http_protocol_reachable(wsi, prot,
+								 gate))
+				prot = NULL;
 			if (!prot)
 				return (int)lws_h3_wt_refuse(wsi,
 						HTTP_STATUS_NOT_FOUND,

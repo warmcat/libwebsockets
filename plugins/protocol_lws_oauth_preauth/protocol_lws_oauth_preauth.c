@@ -243,6 +243,14 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 
 		vhd->context = lws_get_context(wsi);
 		vhd->vhost = lws_get_vhost(wsi);
+
+		/*
+		 * The waiting room is for devices with no session, and we
+		 * check the session of each listener ourselves
+		 */
+		if (lws_vhost_protocol_self_gated(vhd->vhost,
+						  lws_get_protocol(wsi)))
+			return -1;
 		vhd->cookie_name = "auth_session";
 		vhd->max_devices = 32;
 		vhd->max_devices_per_peer = 8;

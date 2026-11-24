@@ -54,17 +54,72 @@ LWS_VISIBLE LWS_EXTERN const char *
 lws_get_mimetype(const char *file, const struct lws_http_mount *m);
 
 /**
- * lws_find_mount() - Find the mount context for a URI
+ * lws_find_mount() - Find the mount that serves a request for a URI
  *
- * \param wsi:		wsi context
- * \param uri_ptr:	pointer to the URI
- * \param uri_len:	length of the URI
+ * \param wsi:		wsi context, with the request's headers
+ * \param uri_ptr:	pointer to the URI path
+ * \param uri_len:	length of the URI path
  *
- * Returns NULL or a pointer to the matching mount.
+ * Returns NULL or a pointer to the mount that serves the request: the most
+ * specific mount that covers the path, except that a no_ws_upgrades mount is
+ * passed over for a ws upgrade, and a file or proxied mount for a method
+ * without a path.  So it depends on the request, not only on the path.  A
+ * "gzip://" mount means no mount, NULL.
+ *
+ * To know which mount's gates (interceptors, basic auth, access rights) a
+ * request for the path meets, use lws_find_mount_gate() instead.
  */
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 LWS_VISIBLE LWS_EXTERN const struct lws_http_mount *
 lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len);
+
+/**
+ * lws_find_mount_gate() - Find the mount whose gates a URI path is behind
+ *
+ * \param wsi:		wsi context
+ * \param uri_ptr:	pointer to the URI path
+ * \param uri_len:	length of the URI path
+ *
+ * Returns NULL or the most specific mount that covers the path, decided by
+ * the path alone: nothing about the request can make it a less specific one.
+ * A request meets this mount's gates whichever mount serves it.  A
+ * "gzip://" mount, which carries no gates, means NULL.
+ *
+ * A mountpoint covers itself and the paths below it, eg, "/admin" and
+ * "/admin/" both cover "/admin/x"; "/admin" does not cover "/administrator".
+ */
+LWS_VISIBLE LWS_EXTERN const struct lws_http_mount *
+lws_find_mount_gate(struct lws *wsi, const char *uri_ptr, int uri_len);
+
+/**
+ * lws_find_mount_by_mountpoint() - Find the vhost's mount at a mountpoint
+ *
+ * \param vh:		the vhost
+ * \param mountpoint:	the mountpoint, eg, an interceptor_path
+ *
+ * Returns NULL or the mount whose mountpoint is exactly this one, eg, the one
+ * an interceptor_path names.  Unlike the lookups for a request, nothing but
+ * the string decides it.
+ */
+LWS_VISIBLE LWS_EXTERN const struct lws_http_mount *
+lws_find_mount_by_mountpoint(struct lws_vhost *vh, const char *mountpoint);
+
+/**
+ * lws_http_interceptor_gated_mount() - The mount an interceptor is gating
+ *
+ * \param wsi:		the request's wsi
+ *
+ * In LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK, the mount whose interceptor chain
+ * is being asked about the request: the interceptor's PMOs for the request,
+ * eg, a service name, belong to it.  A request can be asked about for two
+ * mounts, the one its path is in and the one serving it when that is
+ * another, so finding the mount from the request's path is not the same.
+ *
+ * After an interceptor took the request, for the rest of the transaction,
+ * the mount it took it from.  Otherwise NULL.
+ */
+LWS_VISIBLE LWS_EXTERN const struct lws_http_mount *
+lws_http_interceptor_gated_mount(struct lws *wsi);
 #endif
 
 /**

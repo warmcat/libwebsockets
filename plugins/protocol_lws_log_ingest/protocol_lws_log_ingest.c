@@ -614,6 +614,13 @@ li_init(struct lws *wsi, const struct lws_protocol_vhost_options *pvo)
 
 	vhd->cx = lws_get_context(wsi);
 	vhd->vh = lws_get_vhost(wsi);
+
+	/*
+	 * Shippers prove themselves with the secret, in the session: lws may
+	 * bind us on their ungated path, though our api mount is gated
+	 */
+	if (lws_vhost_protocol_self_gated(vhd->vh, lws_get_protocol(wsi)))
+		return -1;
 	vhd->service = LI_SERVICE_DEF;
 	vhd->rate_lines = LI_RATE_LINES_DEF;
 	vhd->max_session_secs = LI_MAX_SESSION_SECS_DEF;
