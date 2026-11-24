@@ -13,8 +13,8 @@ set(SRCS main.c
 #
 # The lws-log-ingest plugin is built into this test, so it needs what the
 # plugin needs (plugins/protocol_lws_log_ingest/CMakeLists.txt), plus a client
-# to drive its api, and custom headers to stamp the login state a trusted
-# front end would
+# to drive its api, and JOSE, for the session cookies the api checks and the
+# interceptor standing in for lws-login
 #
 set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
@@ -24,7 +24,7 @@ require_lws_config(LWS_WITH_SERVER 1 requirements)
 require_lws_config(LWS_WITH_LOG_SHIP 1 requirements)
 require_lws_config(LWS_WITH_STRUCT_SQLITE3 1 requirements)
 require_lws_config(LWS_WITH_LEJP 1 requirements)
-require_lws_config(LWS_WITH_CUSTOM_HEADERS 1 requirements)
+require_lws_config(LWS_WITH_JOSE 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
