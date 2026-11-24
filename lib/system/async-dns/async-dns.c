@@ -2201,6 +2201,7 @@ sul_cb_write(struct lws_sorted_usec_list *sul)
 void
 lws_async_dns_freeaddrinfo(const struct addrinfo **pai)
 {
+	struct lws_context *cx;
 	lws_adns_cache_t *c;
 
 	if (!*pai)
@@ -2219,7 +2220,8 @@ lws_async_dns_freeaddrinfo(const struct addrinfo **pai)
 	if (c->firstcache)
 		c = c->firstcache;
 
-	lws_context_lock(c->cx, __func__); /* --------------------- cx { */
+	cx = c->cx;
+	lws_context_lock(cx, __func__); /* --------------------- cx { */
 
 	lwsl_debug("%s: c %p, %s, refcount %d\n", __func__, c,
 		   (c->results && c->results->ai_canonname) ?
@@ -2229,7 +2231,7 @@ lws_async_dns_freeaddrinfo(const struct addrinfo **pai)
 	*pai = NULL;
 	lws_adns_cache_unref(c);
 
-	lws_context_unlock(c->cx); /* } cx */
+	lws_context_unlock(cx); /* } cx */
 }
 
 void
