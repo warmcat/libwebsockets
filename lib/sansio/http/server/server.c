@@ -897,11 +897,15 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 			lws_metrics_tag_wsi_add(wsi, "mnt", hm->mountpoint);
 #endif
 
-			if (hm->no_ws_upgrades &&
-			    lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
-				lwsl_notice("    skip due to no_ws_upgrades\n");
-				hm = hm->mount_next;
-				continue;
+			if (hm->no_ws_upgrades) {
+				const char *up = lws_hdr_simple_ptr(wsi,
+							WSI_TOKEN_UPGRADE);
+
+				if (up && !strcasecmp(up, "websocket")) {
+					lwsl_notice("    skip due to no_ws_upgrades\n");
+					hm = hm->mount_next;
+					continue;
+				}
 			}
 
 			if (hm->origin_protocol == LWSMPRO_NO_MOUNT) {
