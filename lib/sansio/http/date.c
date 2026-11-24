@@ -159,13 +159,19 @@ lws_http_date_parse_unix(const char *b, size_t len, time_t *t)
 int
 lws_http_check_retry_after(struct lws *wsi, lws_usec_t *us_interval_in_out)
 {
-	size_t len = (unsigned int)lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_RETRY_AFTER);
 	char *p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_RETRY_AFTER);
 	lws_usec_t u;
 	time_t t, td;
+	size_t len;
 
-	if (!p)
+	/*
+	 * p is only the first fragment, NUL-terminated: if the server sent
+	 * the header more than once, it isn't one value we can act on
+	 */
+	if (!p || lws_hdr_fragment_length(wsi, WSI_TOKEN_HTTP_RETRY_AFTER, 1))
 		return 1;
+	len = (size_t)lws_hdr_fragment_length(wsi, WSI_TOKEN_HTTP_RETRY_AFTER,
+					      0);
 
 	/*
 	 * There are two arg styles for RETRY_AFTER specified in RFC7231 7.1.3,
@@ -190,12 +196,12 @@ lws_http_check_retry_after(struct lws *wsi, lws_usec_t *us_interval_in_out)
 		 */
 
 		td = lws_wsi_now_wall(wsi);
-		len = (unsigned int)lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_DATE);
-		if (len) {
-			p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_DATE);
+		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_DATE);
+		if (p && !lws_hdr_fragment_length(wsi, WSI_TOKEN_HTTP_DATE, 1))
 			/* if this fails, it leaves td as client time */
-			(void)lws_http_date_parse_unix(p, len, &td);
-		}
+			(void)lws_http_date_parse_unix(p, (size_t)
+				lws_hdr_fragment_length(wsi,
+						WSI_TOKEN_HTTP_DATE, 0), &td);
 
 		if (td >= t)
 			/*
