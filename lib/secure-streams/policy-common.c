@@ -184,29 +184,30 @@ lws_ss_get_metadata(struct lws_ss_handle *h, const char *name,
 
 	n = lws_http_string_to_known_header(name, strlen(name));
 	if (n != LWS_HTTP_NO_KNOWN_HEADER) {
-		const char *hp;
+		int tl = lws_hdr_total_length(h->wsi,
+					      (enum lws_token_indexes)n);
 
-		*len = (size_t)lws_hdr_total_length(h->wsi,
-						    (enum lws_token_indexes)n);
-		if (!*len)
-			goto bail;
-		hp = lws_hdr_simple_ptr(h->wsi, (enum lws_token_indexes)n);
-		if (!hp)
+		if (tl <= 0)
 			goto bail;
 
 		/*
 		 * The header lives in the wsi's header table, which the
 		 * connection gives up once it has acted on the request: what
 		 * we hand user code must outlive that, so it is copied into
-		 * the handle's arena like a custom header is
+		 * the handle's arena like a custom header is.  A repeated
+		 * header is several fragments there, that lws_hdr_copy()
+		 * joins into the length lws_hdr_total_length() told us
 		 */
-		*value = lwsac_use(&h->imd_ac, *len + 1, *len + 1);
+		*value = lwsac_use(&h->imd_ac, (size_t)tl + 1, (size_t)tl + 1);
 		if (!*value) {
 			lwsl_err("%s ac OOM\n", __func__);
 			return 1;
 		}
-		memcpy((char *)*value, hp, *len);
-		((char *)*value)[*len] = '\0';
+		if (lws_hdr_copy(h->wsi, (char *)*value, tl + 1,
+				 (enum lws_token_indexes)n) != tl)
+			/* the lwsac keeps the space until the ss goes */
+			goto bail;
+		*len = (size_t)tl;
 
 		return 0;
 	}
@@ -221,10 +222,9 @@ lws_ss_get_metadata(struct lws_ss_handle *h, const char *name,
 		return 1;
 	}
 	if (lws_hdr_custom_copy(h->wsi, (char *)(*value), n+1, name,
-				(int)strlen(name))) {
-		/* waste n+1 bytes until ss is destryed */
+				(int)strlen(name)) != n)
+		/* the lwsac keeps the space until the ss goes */
 		goto bail;
-	}
 	*len = (size_t)n;
 
 	return 0;
