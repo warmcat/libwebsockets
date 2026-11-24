@@ -321,6 +321,8 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |cli wsi|`wsi`|`dnsfail`|Sync: `getaddrinfo()` is not called and a EAI_FAIL return synthesized, Async: request not started and immediate fail synthesized|
 |cli wsi|`wsi`|`sendfail`|Attempts to send data on the wsi socket fail|
 |cli wsi|`wsi`|`connfail`|Attempts to connect on the wsi socket fail|
+|cli wsi|`wsi`|`he_race_fast`|Not a failure: a happy eyeballs racer starts ~1us after the attempt before it instead of the RFC 8305 200ms, so it exists before a loopback primary is dispositioned|
+|cli wsi|`wsi`|`conn_scope_rej`|A connection attempt that connected is rejected as if it had a link-local IPv6 source for a global peer, and the next attempt is tried|
 |cli wsi|`wsi`|`createfail`|Creating the client wsi itself fails|
 |cli wsi|`wsi`|`tls_alpn_unfiltered`|A tls client offers its alpn list as it was given, h3 included on tcp, as a client that is not lws might, so a server can be seen not to negotiate on a transport what it can't carry there|
 |cli wsi|`wsi`|`tls_client_bio_create`|A tls client's session can't be made, as when there is no heap for it.  For quic that is as its transport comes up, inside the connect call for a numeric address|

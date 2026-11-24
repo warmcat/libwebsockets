@@ -1846,6 +1846,15 @@ conn_good:
 			en = LWS_ERRNO;
 			lwsl_info("getsockname: %s\n", lws_errno_describe(en, t16, sizeof(t16)));
 		} else {
+			/*
+			 * Tests can't arrange a link-local source for a global
+			 * peer on loopback, so FI takes the rejection below
+			 * for any connection that got this far
+			 */
+			if (lws_fi(&wsi->fic, "conn_scope_rej")) {
+				cce = "incompatible v6 scopes (fi)";
+				goto try_next_dns_result_fds;
+			}
 #if defined(LWS_WITH_IPV6)
 			if (wsi->io->pstack[0].sa46.sa4.sin_family == AF_INET6 &&
 			    wsi->io->sa46_local.sa4.sin_family == AF_INET6) {
