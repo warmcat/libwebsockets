@@ -375,132 +375,78 @@ lws_apply_instant_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 static int
 lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 {
-	lws_ss_metadata_t *polmd = h->policy->metadata, *omd;
-	int n;
+	lws_ss_metadata_t *polmd = h->policy->metadata, *omd = h->metadata;
+	int n, r = -1;
+	char *p;
 
-	while (polmd) {
+	/* the handle has a metadata item for each of the policy's, in order */
 
-		if (polmd->value_is_http_token != LWS_HTTP_NO_KNOWN_HEADER) {
+	for (; polmd && omd; polmd = polmd->next, omd = omd->next) {
 
+		assert(!strcmp(omd->name, polmd->name));
+
+		if (polmd->value_is_http_token != LWS_HTTP_NO_KNOWN_HEADER)
 			/* it's a well-known header token */
-
-			n = lws_hdr_total_length(wsi, polmd->value_is_http_token);
-			if (n > 0) {
-				char *p;
-				int r;
-
-				omd = lws_ss_get_handle_metadata(h, polmd->name);
-				if (!omd)
-					return 1;
-
-				assert(!strcmp(omd->name, polmd->name));
-
-				p = lws_malloc((size_t)n + 1, __func__);
-				if (!p)
-					return 1;
-
-				r = lws_hdr_copy(wsi, p, n + 1,
+			n = lws_hdr_total_length(wsi,
 						 polmd->value_is_http_token);
-				if (r < 0) {
-					lws_free(p);
-					return 1;
-				}
+		else {
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+			/* it can be a custom header, if it names one */
+			if (!polmd->value__may_own_heap ||
+			    !((uint8_t *)polmd->value__may_own_heap)[0])
+				continue;
 
-				if (omd->value_on_lws_heap) {
-					lws_free_set_NULL(omd->value__may_own_heap);
-					omd->value_on_lws_heap = 0;
-				}
-
-				if (_lws_ss_set_metadata(omd, polmd->name, p,
-							 (size_t)r)) {
-					lws_free(p);
-					return 1;
-				}
-				omd->value_on_lws_heap = 1;
-				/* the server chose it */
-				omd->value_from_outside = 1;
-
-#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
-				/*
-				 * ...and because we are doing it from parsing
-				 * onward rx, we want to mark the metadata as
-				 * needing passing to the client
-				 */
-				omd->pending_onward = 1;
+			n = lws_hdr_custom_length(wsi, (const char *)
+						  polmd->value__may_own_heap,
+						  polmd->value_length);
+#else
+			continue;
 #endif
-			}
 		}
 
+		if (n <= 0)
+			continue; /* the server didn't send it */
+
+		p = lws_malloc((size_t)n + 1, __func__);
+		if (!p)
+			return 1;
+
+		/*
+		 * Copy the value out whole: a repeated well-known header is
+		 * several fragments in the ah, that lws_hdr_copy() joins into
+		 * the length lws_hdr_total_length() told us
+		 */
+
+		if (polmd->value_is_http_token != LWS_HTTP_NO_KNOWN_HEADER)
+			r = lws_hdr_copy(wsi, p, n + 1,
+					 polmd->value_is_http_token);
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 		else
+			r = lws_hdr_custom_copy(wsi, p, n + 1, (const char *)
+						polmd->value__may_own_heap,
+						polmd->value_length);
+#endif
 
-			/* has to have a non-empty header string */
+		/* this frees any heap value the item had before */
 
-			if (polmd->value__may_own_heap &&
-			    ((uint8_t *)polmd->value__may_own_heap)[0]) {
-				char *p;
+		if (r < 0 || _lws_ss_set_metadata(omd, polmd->name, p,
+						  (size_t)r)) {
+			lws_free(p);
 
-				/*
-				 * Can it be a custom header?
-				 */
+			return 1;
+		}
 
-				n = lws_hdr_custom_length(wsi, (const char *)
-						    polmd->value__may_own_heap,
-						    polmd->value_length);
-				if (n > 0) {
-					int r;
-
-					omd = lws_ss_get_handle_metadata(h,
-								   polmd->name);
-					if (!omd) {
-						polmd = polmd->next;
-						continue;
-					}
-
-					p = lws_malloc((size_t)n + 1, __func__);
-					if (!p)
-						return 1;
-
-					/*
-					 * copy the named custom header value
-					 * into the malloc'd buffer
-					 */
-
-					r = lws_hdr_custom_copy(wsi, p, n + 1,
-						     (const char *)
-						     polmd->value__may_own_heap,
-						     polmd->value_length);
-					if (r < 0) {
-						lws_free(p);
-
-						return 1;
-					}
-
-					/* if needed, free any previous value */
-
-					if (omd->value_on_lws_heap) {
-						lws_free_set_NULL(
-						    omd->value__may_own_heap);
-						omd->value_on_lws_heap = 0;
-					}
-
-					if (_lws_ss_set_metadata(omd,
-						polmd->name, p, (size_t)r)) {
-						lws_free(p);
-						return 1;
-					}
-					omd->value_on_lws_heap = 1;
-					/* the server chose it */
-					omd->value_from_outside = 1;
+		omd->value_on_lws_heap = 1;
+		/* the server chose it */
+		omd->value_from_outside = 1;
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
-					omd->pending_onward = 1;
+		/*
+		 * ...and because we are doing it from parsing onward rx, we
+		 * want to mark the metadata as needing passing to the client
+		 */
+		omd->pending_onward = 1;
 #endif
-				}
-			}
-#endif
-
-		polmd = polmd->next;
 	}
 
 	return 0;
