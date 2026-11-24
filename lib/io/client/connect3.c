@@ -630,7 +630,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	int pidx = -1;
 	lws_sockfd_type new_fd = LWS_SOCK_INVALID;
 	int saved_pos = -1;
-	lws_sock_file_fd_type saved_fd;
+	lws_sock_file_fd_type saved_fd = { .sockfd = LWS_SOCK_INVALID };
 
 	/*
 	 * If we come here with result set, we need to convert getaddrinfo
@@ -1459,6 +1459,13 @@ ads_known:
 			LWS_CALLBACK_CONNECTING, wsi->user_space,
 			(void *)(intptr_t)wsi->io->desc.sockfd, 0)) {
 		lwsl_wsi_info(wsi, "CONNECTION CB closed");
+		if (is_parallel) {
+			/* Give the close path both the racer and the primary. */
+			wsi->io->parallel_conns[pidx].position_in_fds_table =
+						wsi->io->position_in_fds_table;
+			wsi->io->position_in_fds_table = saved_pos;
+			wsi->io->desc = saved_fd;
+		}
 		goto failed1;
 	}
 
