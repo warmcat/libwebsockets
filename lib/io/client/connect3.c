@@ -1786,6 +1786,9 @@ conn_good:
 			compatible_close(wsi->io->desc.sockfd);
 
 		promote_parallel_fd(wsi, pidx);
+		is_parallel = 0;
+		saved_fd.sockfd = LWS_SOCK_INVALID;
+		saved_pos = LWS_NO_FDS_POS;
 	}
 
 #if defined(LWS_WITH_CLIENT)
