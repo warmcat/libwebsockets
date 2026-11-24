@@ -4517,6 +4517,12 @@ lws_h3_server_goaway(struct lws *nwsi)
 	 * every one it opened: 0 if it opened none
 	 */
 	id = lws_quic_idtr_end(&qn->peer_opened[0]) << 2;
+	/*
+	 * The h3_goaway_0 fault claims none of them was processed, whatever
+	 * we answered, as a server that is broken or lying might
+	 */
+	if (lws_fi(&nwsi->a.vhost->fic, "h3_goaway_0"))
+		id = 0;
 
 	fr[LWS_PRE] = 0x07; /* GOAWAY */
 	n = lws_quic_write_varint(&fr[LWS_PRE + 2], 8, id);
