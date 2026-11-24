@@ -385,22 +385,38 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 			/* it's a well-known header token */
 
 			n = lws_hdr_total_length(wsi, polmd->value_is_http_token);
-			if (n) {
-				const char *cp = lws_hdr_simple_ptr(wsi,
-						polmd->value_is_http_token);
+			if (n > 0) {
+				char *p;
+				int r;
+
 				omd = lws_ss_get_handle_metadata(h, polmd->name);
-				if (!omd || !cp)
+				if (!omd)
 					return 1;
 
 				assert(!strcmp(omd->name, polmd->name));
 
-				/*
-				 * it's present on the wsi, we want to
-				 * set the related metadata name to it then
-				 */
+				p = lws_malloc((size_t)n + 1, __func__);
+				if (!p)
+					return 1;
 
-				_lws_ss_alloc_set_metadata(omd, polmd->name, cp,
-							   (unsigned int)n);
+				r = lws_hdr_copy(wsi, p, n + 1,
+						 polmd->value_is_http_token);
+				if (r < 0) {
+					lws_free(p);
+					return 1;
+				}
+
+				if (omd->value_on_lws_heap) {
+					lws_free_set_NULL(omd->value__may_own_heap);
+					omd->value_on_lws_heap = 0;
+				}
+
+				if (_lws_ss_set_metadata(omd, polmd->name, p,
+							 (size_t)r)) {
+					lws_free(p);
+					return 1;
+				}
+				omd->value_on_lws_heap = 1;
 				/* the server chose it */
 				omd->value_from_outside = 1;
 
@@ -434,7 +450,14 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 				if (n > 0) {
 					int r;
 
-					p = lws_malloc((unsigned int)n + 1, __func__);
+					omd = lws_ss_get_handle_metadata(h,
+								   polmd->name);
+					if (!omd) {
+						polmd = polmd->next;
+						continue;
+					}
+
+					p = lws_malloc((size_t)n + 1, __func__);
 					if (!p)
 						return 1;
 
@@ -447,35 +470,32 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 						     (const char *)
 						     polmd->value__may_own_heap,
 						     polmd->value_length);
-
-					/* if needed, free any previous value */
-
-					if (polmd->value_on_lws_heap) {
-						lws_free(
-						    polmd->value__may_own_heap);
-						polmd->value_on_lws_heap = 0;
-					}
-
 					if (r < 0) {
 						lws_free(p);
 
 						return 1;
 					}
 
-					omd = lws_ss_get_handle_metadata(h,
-								   polmd->name);
-					if (omd) {
+					/* if needed, free any previous value */
 
-						_lws_ss_set_metadata(omd,
-							polmd->name, p, (size_t)n);
-						omd->value_on_lws_heap = 1;
-						/* the server chose it */
-						omd->value_from_outside = 1;
+					if (omd->value_on_lws_heap) {
+						lws_free_set_NULL(
+						    omd->value__may_own_heap);
+						omd->value_on_lws_heap = 0;
+					}
+
+					if (_lws_ss_set_metadata(omd,
+						polmd->name, p, (size_t)r)) {
+						lws_free(p);
+						return 1;
+					}
+					omd->value_on_lws_heap = 1;
+					/* the server chose it */
+					omd->value_from_outside = 1;
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
-						omd->pending_onward = 1;
+					omd->pending_onward = 1;
 #endif
-					}
 				}
 			}
 #endif
