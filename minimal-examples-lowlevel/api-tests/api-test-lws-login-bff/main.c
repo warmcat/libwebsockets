@@ -134,17 +134,12 @@
  * the session cookies must keep its complete HttpOnly / SameSite / Secure
  * tail, never a silently truncated remainder.
  *
- * plus the C-774 unauth-protocols fence, ws upgrades against a mount the
- * app vhost gates through lws-login (interceptor_path), with no cookie:
- *
- *  - the bypass must judge the subprotocol the upgrade will BIND, which is
- *    the first offered name the vhost has a protocol for, in the client's
- *    order (RFC 6455 4.2.2), not merely find an exempt name somewhere in the
- *    offer.  "<privileged>, <exempt>" used to pass the bouncer on the
- *    strength of its second name and then bind the privileged first one
- *    with no JWT at all; it must be refused, while "<exempt>" alone and
- *    "<exempt>, <privileged>" still reach the waiting room, and an offer
- *    led by a name the vhost does not know binds the next one it does.
+ * plus, with no cookie, nothing on a mount the app vhost gates through
+ * lws-login (interceptor_path) is reached whatever subprotocol is asked
+ * for, though lws-login is still configured with the retired
+ * unauth-protocols naming one of them: it used to let an upgrade asking for
+ * that one through, and a plain http request merely naming it too.  The
+ * protocol is reached, by an upgrade, on its own mount that is not gated.
  *
  * plus stale-token scenarios: the mock auth server also serves the
  * lws-auth-feed ws protocol, and tells lws-login its records (users, grants,
@@ -266,11 +261,15 @@ struct scenario {
 	const char	*ws_bind;	/* ws_offer: the server protocol that
 					 * must end up bound, NULL = the upgrade
 					 * must be refused and nothing bound */
+	const char	*ws_hdr;	/* a plain http request carrying this
+					 * Sec-WebSocket-Protocol all the same */
 };
 
 /* the two ws protocols on the gated mount: only the second is exempt */
 #define BFF_WS_PRIV	"lws-api-test-lws-login-bff-priv"
 #define BFF_WS_WAITING	"lws-api-test-lws-login-bff-waiting"
+/* the waiting room's own mount, which lws-login does not gate */
+#define BFF_WAITING_PATH "/waiting"
 
 /*
  * An http app behind another gated mount, telling what lws-login stamped on
@@ -332,10 +331,10 @@ static const char jwk_json[] =
 static const struct scenario scenarios[] = {
 	{ "paired-jar", "/.lws-login-refresh", NULL, NULL, NULL,
 	  BFF_REFRESH_JAR, 200u, 1, 1, 0,
-	  "POST", 0, 0, 0, 0, NULL, NULL },
+	  "POST", 0, 0, 0, 0, NULL, NULL, NULL },
 	{ "self-heal", "/.lws-login-refresh", NULL, NULL, NULL,
 	  "auth_refresh_session=" BFF_REFRESH_OK, 200u, 1, 1, 0,
-	  "POST", 0, 0, 0, 0, NULL, NULL },
+	  "POST", 0, 0, 0, 0, NULL, NULL, NULL },
 	/* a WRITEABLE the parked browser leg gets while the exchange is
 	 * still in flight (over h3 the quic stream gets one) must not be
 	 * taken as the exchange's end: that killed every silent renewal
@@ -343,123 +342,118 @@ static const struct scenario scenarios[] = {
 	 * deployment */
 	{ "writeable-in-flight", "/.lws-login-refresh", NULL, NULL, NULL,
 	  BFF_REFRESH_JAR, 200u, 1, 1, 0,
-	  "POST", 0, 0, 0, 1, NULL, NULL },
+	  "POST", 0, 0, 0, 1, NULL, NULL, NULL },
 	{ "anonymous", "/.lws-login-refresh", NULL, NULL, NULL, NULL, 401u, 0, 0, 0,
-	  "POST", 0, 0, 0, 0, NULL, NULL },
+	  "POST", 0, 0, 0, 0, NULL, NULL, NULL },
 
 	/* a live session nowhere near its exp has nothing to renew: no
 	 * exchange, nothing rotated, but not a 401 the widget takes as dead */
 	{ "refresh-not-due", "/.lws-login-refresh", NULL, NULL, NULL,
-	  ck_not_due, 200u, 0, 0, 0, "POST", 0, 0, 0, 0, NULL, NULL },
+	  ck_not_due, 200u, 0, 0, 0, "POST", 0, 0, 0, 0, NULL, NULL, NULL },
 	/* ... while one close to it is renewed */
 	{ "refresh-due", "/.lws-login-refresh", NULL, NULL, NULL,
-	  ck_due, 200u, 1, 1, 0, "POST", 0, 0, 0, 0, NULL, NULL },
+	  ck_due, 200u, 1, 1, 0, "POST", 0, 0, 0, 0, NULL, NULL, NULL },
 
 	/* G-166: only an auth_refresh_session value in the shape the auth
 	 * server mints may cost an exchange with it */
 	{ "refresh-junk", "/.lws-login-refresh", NULL, NULL, NULL,
 	  "auth_refresh_session=x; "
 	  "auth_csrf=fedcba9876543210fedcba9876543210", 401u, 0, 0, 0,
-	  "POST", 0, 0, 0, 0, NULL, NULL },
+	  "POST", 0, 0, 0, 0, NULL, NULL, NULL },
 	{ "refresh-junk-coldload", "/gated", NULL, NULL, NULL,
 	  "auth_refresh_session=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
 	  "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", 303u, 0, 0, -1,
-	  "GET", 0, 0, 0, 0, NULL, NULL },
+	  "GET", 0, 0, 0, 0, NULL, NULL, NULL },
 	/* ... but a junk value ahead of a good one does not hide it */
 	{ "refresh-junk-then-good", "/.lws-login-refresh", NULL, NULL, NULL,
 	  "auth_refresh_session=x; " BFF_REFRESH_JAR, 200u, 1, 1, 0,
-	  "POST", 0, 0, 0, 0, NULL, NULL },
+	  "POST", 0, 0, 0, 0, NULL, NULL, NULL },
 
 	/* F-027: an auth_session cookie holding a compact JWT whose JOSE
 	 * header has no "alg" member must be cleanly rejected by the
 	 * per-request session gate, not kill the server process */
 	{ "alg-less-session-jwt", "/", NULL, NULL, NULL,
 	  "auth_session=eyJ0eXAiOiJKV1QifQ.e30.AQ", 303u, 0, 0, 0,
-	  "GET", 0, 0, 0, 0, NULL, NULL },
+	  "GET", 0, 0, 0, 0, NULL, NULL, NULL },
 
 	/* stale tokens: authentic and unexpired, but the records no longer
 	 * back them.  None may be repaired by a token we sign ourselves */
 	{ "stale-revoked-regranted", "/gated", NULL, NULL, NULL, ck_revoked,
-	  303u, 0, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL },
+	  303u, 0, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL, NULL },
 	{ "stale-grants-renewed", "/gated", NULL, NULL, NULL, ck_regranted,
-	  302u, 1, 1, 0, "GET", 0, 0, 0, 0, NULL, NULL },
+	  302u, 1, 1, 0, "GET", 0, 0, 0, 0, NULL, NULL, NULL },
 	{ "stale-device", "/gated", NULL, NULL, NULL, ck_dev_gone,
-	  303u, 0, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL },
+	  303u, 0, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL, NULL },
 	{ "stale-user-gone", "/gated", NULL, NULL, NULL, ck_user_gone,
-	  303u, 0, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL },
+	  303u, 0, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL, NULL },
 	/* live and current, but not for this mount: renewing can't help */
 	{ "live-lacks-grant", "/gated", NULL, NULL, NULL, ck_nogrant,
-	  303u, 1, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL },
+	  303u, 1, 0, -1, "GET", 0, 0, 0, 0, NULL, NULL, NULL },
 	/* positive control: a token the records back opens the mount */
 	{ "ws-live-session", "/gated", NULL, NULL, NULL, ck_live, 101u, 0, 0, 0,
-	  NULL, 0, 0, 0, 0, BFF_WS_PRIV, BFF_WS_PRIV },
+	  NULL, 0, 0, 0, 0, BFF_WS_PRIV, BFF_WS_PRIV, NULL },
 	{ "ws-stale-session", "/gated", NULL, NULL, NULL, ck_revoked, 401u, 0, 0,
-	  0, NULL, 0, 0, 0, 0, BFF_WS_PRIV, NULL },
+	  0, NULL, 0, 0, 0, 0, BFF_WS_PRIV, NULL, NULL },
 
 	/* what lws-login stamps for an app it lets a live token through to */
 	{ "stamps-live", BFF_STAMPS_PATH, NULL, NULL, NULL, ck_live, 200u, 0, 0,
-	  0, "GET", 0, 0, 0, 0, NULL, NULL },
+	  0, "GET", 0, 0, 0, 0, NULL, NULL, NULL },
 #if defined(LWS_WITH_HTTP_PROXY)
 	/* ... and what reaches a backend it's reverse-proxied to */
 	{ "stamps-proxied", BFF_PROXIED_REQ, NULL, NULL, NULL, ck_live, 200u, 0,
-	  0, 0, "GET", 0, 0, 0, 0, NULL, NULL },
+	  0, 0, "GET", 0, 0, 0, 0, NULL, NULL, NULL },
 #endif
 
 	/* F-020: the token below is genuinely signed by the plugin's own JWK
 	 * (the throwaway key carries its private member), so these scenarios
 	 * exercise the origin/referer gate and nothing else */
 	{ "sso-nohdrs", "/.lws-login-sso", sso_body, NULL, NULL, NULL,
-	  403u, 0, 0, -1, "POST", 0, 0, 0, 0, NULL, NULL },
+	  403u, 0, 0, -1, "POST", 0, 0, 0, 0, NULL, NULL, NULL },
 	{ "sso-origin-null", "/.lws-login-sso", sso_body, "null", NULL, NULL,
-	  403u, 0, 0, -1, "POST", 0, 0, 0, 0, NULL, NULL },
+	  403u, 0, 0, -1, "POST", 0, 0, 0, 0, NULL, NULL, NULL },
 	{ "sso-origin-good", "/.lws-login-sso", sso_body, o_origin_good, NULL,
-	  NULL, 302u, 0, 0, 1, "POST", 0, 0, 0, 0, NULL, NULL },
+	  NULL, 302u, 0, 0, 1, "POST", 0, 0, 0, 0, NULL, NULL, NULL },
 	{ "sso-origin-evil", "/.lws-login-sso", sso_body, o_origin_evil, NULL,
-	  NULL, 403u, 0, 0, -1, "POST", 0, 0, 0, 0, NULL, NULL },
+	  NULL, 403u, 0, 0, -1, "POST", 0, 0, 0, 0, NULL, NULL, NULL },
 	{ "sso-referer-good", "/.lws-login-sso", sso_body, NULL, o_referer_good,
-	  NULL, 302u, 0, 0, 1, "POST", 0, 0, 0, 0, NULL, NULL },
+	  NULL, 302u, 0, 0, 1, "POST", 0, 0, 0, 0, NULL, NULL, NULL },
 
 	/* F-021: the widget JS served to (admin) pages must HTML-escape every
 	 * dynamic string at its innerHTML render boundary */
 	{ "widget-js-fence", "/lws-login.js", NULL, NULL, NULL, NULL, 200u, 0, 0,
-	  0, "GET", 1, 0, 0, 0, NULL, NULL },
+	  0, "GET", 1, 0, 0, 0, NULL, NULL, NULL },
 
 	/* the widget CSS served to pages must assert a complete, self-contained
 	 * colour scheme (see the css fence in step_advance) */
 	{ "widget-css-fence", "/lws-login.css", NULL, NULL, NULL, NULL, 200u, 0,
-	  0, 0, "GET", 0, 1, 0, 0, NULL, NULL },
+	  0, 0, "GET", 0, 1, 0, 0, NULL, NULL, NULL },
 
 	/* refusal must be immediate and legible: no exchange started against
 	 * the empty host the relative URL parses to (second app vhost) */
 	{ "relative-authapi", "/.lws-login-refresh", NULL, NULL, NULL,
 	  BFF_REFRESH_JAR, 401u, 0, 0, 0,
-	  "POST", 0, 0, 1, 0, NULL, NULL },
+	  "POST", 0, 0, 1, 0, NULL, NULL, NULL },
 
-	/* C-774: cookieless ws upgrades against the gated mount, where the
-	 * vhost's unauth-protocols names only the waiting-room protocol.
-	 * The server binds the first offered name it has a protocol for, so
-	 * that is the name the bypass has to be judged on */
-
-	/* the bouncer itself: a privileged offer alone is refused */
+	/*
+	 * Cookieless ws upgrades, on a vhost whose lws-login is still
+	 * configured with the retired unauth-protocols naming the waiting
+	 * room protocol: it must be ignored, so nothing on the gated mount is
+	 * reached without a session, whatever subprotocol is asked for.  The
+	 * waiting room is reached on its own mount, which nothing gates.
+	 */
 	{ "ws-priv-only", "/gated", NULL, NULL, NULL, NULL, 401u, 0, 0, 0,
-	  NULL, 0, 0, 0, 0, BFF_WS_PRIV, NULL },
-	/* the bypass: the exempt offer alone reaches the waiting room */
-	{ "ws-waiting-only", "/gated", NULL, NULL, NULL, NULL, 101u, 0, 0, 0,
-	  NULL, 0, 0, 0, 0, BFF_WS_WAITING, BFF_WS_WAITING },
-	/* exempt name first: it is what gets bound, so it is let through */
-	{ "ws-waiting-then-priv", "/gated", NULL, NULL, NULL, NULL, 101u, 0, 0,
-	  0, NULL, 0, 0, 0, 0, BFF_WS_WAITING ", " BFF_WS_PRIV, BFF_WS_WAITING },
-	/* the finding: privileged name first rides along with the exempt one;
-	 * the bind would be the privileged protocol, so it must be refused */
+	  NULL, 0, 0, 0, 0, BFF_WS_PRIV, NULL, NULL },
+	{ "ws-waiting-gated", "/gated", NULL, NULL, NULL, NULL, 401u, 0, 0, 0,
+	  NULL, 0, 0, 0, 0, BFF_WS_WAITING, NULL, NULL },
+	{ "ws-waiting-then-priv", "/gated", NULL, NULL, NULL, NULL, 401u, 0, 0,
+	  0, NULL, 0, 0, 0, 0, BFF_WS_WAITING ", " BFF_WS_PRIV, NULL, NULL },
 	{ "ws-priv-then-waiting", "/gated", NULL, NULL, NULL, NULL, 401u, 0, 0,
-	  0, NULL, 0, 0, 0, 0, BFF_WS_PRIV ", " BFF_WS_WAITING, NULL },
-	/* a name the vhost does not know is skipped by the selection, so the
-	 * judgement falls on the next one, exactly as the bind does */
-	{ "ws-unknown-then-waiting", "/gated", NULL, NULL, NULL, NULL, 101u, 0,
-	  0, 0, NULL, 0, 0, 0, 0, "nonesuch, " BFF_WS_WAITING, BFF_WS_WAITING },
-	{ "ws-unknown-then-priv", "/gated", NULL, NULL, NULL, NULL, 401u, 0, 0,
-	  0, NULL, 0, 0, 0, 0, "nonesuch, " BFF_WS_PRIV ", " BFF_WS_WAITING,
-	  NULL },
+	  0, NULL, 0, 0, 0, 0, BFF_WS_PRIV ", " BFF_WS_WAITING, NULL, NULL },
+	{ "ws-waiting-ungated", BFF_WAITING_PATH, NULL, NULL, NULL, NULL, 101u,
+	  0, 0, 0, NULL, 0, 0, 0, 0, BFF_WS_WAITING, BFF_WS_WAITING, NULL },
+	/* not an upgrade at all, only naming the waiting room protocol */
+	{ "http-naming-waiting", "/gated", NULL, NULL, NULL, NULL, 303u, 0, 0,
+	  -1, "GET", 0, 0, 0, 0, NULL, NULL, BFF_WS_WAITING },
 };
 
 #define N_SCENARIOS  (int)LWS_ARRAY_SIZE(scenarios)
@@ -859,6 +853,12 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 				return -1;
 		}
 		/* GET: no body-shape headers at all */
+
+		if (scenarios[step].ws_hdr &&
+		    lws_add_http_header_by_token(wsi, WSI_TOKEN_PROTOCOL,
+				(const unsigned char *)scenarios[step].ws_hdr,
+				(int)strlen(scenarios[step].ws_hdr), p, end))
+			return -1;
 
 		/*
 		 * On SSO scenarios the Origin/Referer pair must be exactly
@@ -1345,8 +1345,16 @@ static const struct lws_http_mount
 	 * (present in the vhost protocol table because the build has builtin
 	 * plugins)
 	 */
-	mount_app = {
+	/* the waiting room: reachable with no session, so not gated */
+	mount_waiting = {
 		.mount_next		= &mount_gated,
+		.mountpoint		= BFF_WAITING_PATH,
+		.protocol		= "defprot",
+		.origin_protocol	= LWSMPRO_CALLBACK,
+		.mountpoint_len		= 8,
+	},
+	mount_app = {
+		.mount_next		= &mount_waiting,
 		.mountpoint		= "/",
 		.protocol		= "lws-login",
 		.origin_protocol	= LWSMPRO_CALLBACK,
@@ -1370,7 +1378,7 @@ static struct lws_protocol_vhost_options
 	 * this plugin can emit) are the ones under test
 	 */
 	pvo_cdom	= { NULL, NULL, "cookie-domain", "127.0.0.1" },
-	/* C-774: only the waiting room is exempt from the JWT on upgrades */
+	/* retired, and ignored: nothing is exempt from the JWT any more */
 	pvo_uap		= { NULL, NULL, "unauth-protocols", BFF_WS_WAITING },
 	pvo_asu		= { NULL, NULL, "auth-server-url", NULL },
 	pvo_jwk	= {
@@ -2094,7 +2102,7 @@ int main(int argc, const char **argv)
 
 	lwsl_user("LWS API selftest: lws-login BFF refresh / csrf self-heal"
 		  " + SSO origin gate + widget JS/CSS fence"
-		  " + unauth-protocols bind fence + renewal bounds\n");
+		  " + no session-less way past the bouncer + renewal bounds\n");
 
 	{
 		static char auth_url[128];
@@ -2107,7 +2115,7 @@ int main(int argc, const char **argv)
 
 	/* options chain for lws-login:
 	 * jwk -> auth-server-url -> cookie-domain -> auth-feed-secret ->
-	 * unauth-protocols */
+	 * unauth-protocols, retired: it must be ignored */
 	pvo_jwk.next	= &pvo_asu;
 	pvo_asu.next	= &pvo_cdom;
 	pvo_cdom.next	= &pvo_feed;
