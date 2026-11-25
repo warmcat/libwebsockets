@@ -30,6 +30,15 @@ servers answer 200 only if the cookie they decoded is that entry's.
    then it is answered 200.  Sent at once, it would arrive before the insert
    and the server would fail the connection.
 
+ - Part 5: the client ignores the server's qpack acknowledgments
+   (`h3_qpack_enc_ignore_acks`), so every request referring to the
+   insert might block until it ends, and 9 of them are sent: one is held for
+   the other 8.  The server redirects them all to the second server, on
+   another connection.  A redirect resets its stream before it closes, and a
+   reset stream has nothing outstanding when it does: the resets themselves
+   must wake the held request, since nothing on the connection ends any other
+   way that would.
+
 It needs a build with `-DLWS_WITH_SYS_FAULT_INJECTION=1`.
 
 ```

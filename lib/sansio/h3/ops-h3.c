@@ -2056,6 +2056,15 @@ lws_h3_qpack_enc_section_acked(struct lws *wsi, uint64_t sid)
 		return 0;
 	}
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	/*
+	 * As if every acknowledgment came after its stream was gone, eg, its
+	 * answer was a redirect that reset it first
+	 */
+	if (lws_fi(&nwsi->a.vhost->fic, "h3_qpack_enc_ignore_acks"))
+		return 0;
+#endif
+
 	if (!s->h3.qpack_enc_unacked) {
 		lwsl_wsi_notice(wsi, "Section Acknowledgment for stream %llu, "
 				"none outstanding", (unsigned long long)sid);
@@ -2425,12 +2434,19 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 							lws_quic_enter_closing_state(nwsi, LWS_QPACK_DECODER_STREAM_ERROR, 0, 1);
 							return 1;
 						}
-						if (wsi->h3.h3n)
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+						/* as if the peer had not sent it */
+						if (lws_fi(&wsi->a.vhost->fic,
+							   "h3_qpack_enc_ignore_acks"))
+							inc = 0;
+#endif
+						if (inc && wsi->h3.h3n) {
 							wsi->h3.h3n->qpack_tx_encoder.known_received_count += (uint32_t)inc;
 #if defined(LWS_WITH_CLIENT)
-						lws_h3_qpack_enc_wake_held(
-							lws_get_quic_network_wsi(wsi));
+							lws_h3_qpack_enc_wake_held(
+								lws_get_quic_network_wsi(wsi));
 #endif
+						}
 						lwsl_wsi_info(wsi, "QPACK Insert Count Increment inc=%llu known=%u", (unsigned long long)inc, (unsigned int)(wsi->h3.h3n ? wsi->h3.h3n->qpack_tx_encoder.known_received_count : 0));
 					}
 				} else {
@@ -3552,13 +3568,31 @@ lws_h3_qpack_dec_cancel_stream(struct lws *wsi)
 		lwsl_wsi_warn(wsi, "unable to queue Stream Cancellation");
 }
 
+/*
+ * The stream is done with qpack, closing or reset to start over (a redirect,
+ * or a retry with credentials), and what it sent is not outstanding any more.
+ * If that might have blocked at the peer, there is a stream fewer that might
+ * now: requests held for the peer's QPACK_BLOCKED_STREAMS may go.  Both ways
+ * out come here, since a reset stream has nothing outstanding by the time it
+ * closes, and no Section Acknowledgment can find it after.
+ */
 void
 lws_h3_stream_qpack_release(struct lws *wsi)
 {
+#if defined(LWS_WITH_CLIENT)
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+	int wake = nwsi && nwsi != wsi && nwsi->h3.h3n &&
+		   lws_h3_qpack_enc_may_block(wsi, nwsi->h3.h3n->
+					qpack_tx_encoder.known_received_count);
+#endif
+
 	lws_dll2_remove(&wsi->h3.qpack_blocked);
 	lws_buflist_destroy_all_segments(&wsi->h3.qpack_blocked_bl);
+	wsi->h3.qpack_enc_unacked = 0;
 #if defined(LWS_WITH_CLIENT)
 	lws_buflist_destroy_all_segments(&wsi->h3.qpack_held_hdrs);
+	if (wake)
+		lws_h3_qpack_enc_wake_held(nwsi);
 #endif
 }
 
@@ -3590,21 +3624,8 @@ rops_close_kill_connection_h3(struct lws *wsi, enum lws_close_status reason)
 	}
 
 	lws_h3_qpack_dec_cancel_stream(wsi);
-	/* nothing it held is wanted now */
+	/* nothing it held is wanted now, nor might it block at the peer */
 	lws_h3_stream_qpack_release(wsi);
-#if defined(LWS_WITH_CLIENT)
-	{
-		struct lws *nwsi = lws_get_quic_network_wsi(wsi);
-
-		/* a stream that might have blocked at the peer is one fewer */
-		if (nwsi && nwsi != wsi && nwsi->h3.h3n &&
-		    lws_h3_qpack_enc_may_block(wsi, nwsi->h3.h3n->
-					qpack_tx_encoder.known_received_count)) {
-			wsi->h3.qpack_enc_unacked = 0;
-			lws_h3_qpack_enc_wake_held(nwsi);
-		}
-	}
-#endif
 	lws_quic_stream_cleanup(wsi);
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
