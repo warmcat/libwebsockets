@@ -31,7 +31,10 @@
  *
  *  - "dead.test", from an http client connection: nobody ever answers.  The
  *    connection has to fail when the query's retransmits run out, saying it
- *    timed out, not after asking again from the top several times over.
+ *    timed out, not after asking again from the top several times over.  It
+ *    is then destroyed like any other wsi, with its WSI_DESTROY, since the
+ *    async lookup failed long after lws_client_connect_via_info() gave it to
+ *    us.
  *
  * Every other name (eg, a search list candidate) is NXDOMAIN.
  *
@@ -96,6 +99,7 @@ struct leg {
 	int			within_ms;	/* it must be over by then */
 
 	int			started;
+	int			told;		/* client: CONNECTION_ERROR came */
 	int			done;
 	int			ret;
 	lws_usec_t		t_start;
@@ -117,12 +121,12 @@ struct fake_ns {
 };
 
 static struct leg legs_answers[] = {
-	{ "dead first nameserver",	0, 1, 0, 0,  1500, 0, 0, 0, 0, 0 },
-	{ "SERVFAIL on AAAA",		1, 1, 0, 0,  1500, 0, 0, 0, 0, 0 },
-	{ "SERVFAIL on AAAA, A later",	2, 1, 0, 0,  1500, 0, 0, 0, 0, 0 },
-	{ "AAAA dropped",		3, 1, 0, 0, 15000, 0, 0, 0, 0, 0 },
-	{ "SERVFAIL on both",		4, 0, 0, 0,  3000, 0, 0, 0, 0, 0 },
-	{ "nobody answers (client)",	5, 0, 1, 0, 15000, 0, 0, 0, 0, 0 },
+	{ "dead first nameserver",	0, 1, 0, 0,  1500, 0, 0, 0, 0, 0, 0 },
+	{ "SERVFAIL on AAAA",		1, 1, 0, 0,  1500, 0, 0, 0, 0, 0, 0 },
+	{ "SERVFAIL on AAAA, A later",	2, 1, 0, 0,  1500, 0, 0, 0, 0, 0, 0 },
+	{ "AAAA dropped",		3, 1, 0, 0, 15000, 0, 0, 0, 0, 0, 0 },
+	{ "SERVFAIL on both",		4, 0, 0, 0,  3000, 0, 0, 0, 0, 0, 0 },
+	{ "nobody answers (client)",	5, 0, 1, 0, 15000, 0, 0, 0, 0, 0, 0 },
 };
 
 static struct fake_ns nss_answers[] = {
@@ -134,8 +138,8 @@ static struct fake_ns nss_answers[] = {
 
 #if defined(__linux__)
 static struct leg legs_unreach[] = {
-	{ "unreachable first nameservers", 0, 1, 0, 0, 1500, 0, 0, 0, 0, 0 },
-	{ "... and asked again",	1, 1, 0, 1, 1500, 0, 0, 0, 0, 0 },
+	{ "unreachable first nameservers", 0, 1, 0, 0, 1500, 0, 0, 0, 0, 0, 0 },
+	{ "... and asked again",	1, 1, 0, 1, 1500, 0, 0, 0, 0, 0, 0 },
 };
 
 static struct fake_ns nss_unreach[] = {
@@ -299,6 +303,10 @@ sul_late_cb(lws_sorted_usec_list_t *sul)
 	fake_send(late.wsi, &late.peer, late.pkt, late.len);
 }
 
+static int
+callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
+	     void *user, void *in, size_t len);
+
 /*
  * The fake nameservers: the dead one drops everything, the live one does
  * what fake_names says
@@ -316,6 +324,14 @@ callback_fake_ns(struct lws *wsi, enum lws_callback_reasons reason,
 	size_t o = 12, nl = 0, n;
 	uint16_t qtype;
 	int how;
+
+	/*
+	 * We are the vhost's first protocol, so every wsi's WSI_DESTROY comes
+	 * here, the client connection's too
+	 */
+	if (reason == LWS_CALLBACK_WSI_DESTROY && lws_get_protocol(wsi) &&
+	    !strcmp(lws_get_protocol(wsi)->name, "cli"))
+		return callback_cli(wsi, reason, user, in, len);
 
 	if (reason != LWS_CALLBACK_RAW_RX || !ns)
 		return 0;
@@ -458,7 +474,10 @@ lookup_cb(struct lws *wsi, const char *ads, const struct addrinfo *result,
 	return NULL;
 }
 
-/* the client connection: it must fail, saying the lookup timed out */
+/*
+ * The client connection: it must fail, saying the lookup timed out, and then
+ * be destroyed like any other wsi, so a user holding it hears it is gone
+ */
 
 static int
 callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
@@ -475,6 +494,17 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!in || !strstr((const char *)in, "timed out")) {
 			lwsl_err("%s: %s: not a dns timeout\n", __func__,
 				 leg->name);
+			fails++;
+		}
+		leg->told = 1;
+		break;
+
+	case LWS_CALLBACK_WSI_DESTROY:
+		if (!leg || leg->done)
+			break;
+		if (!leg->told) {
+			lwsl_err("%s: %s: destroyed without a connection "
+				 "error\n", __func__, leg->name);
 			fails++;
 		}
 		leg_done(leg, LADNS_RET_TIMEDOUT);
