@@ -226,7 +226,15 @@ do_inherit(lws_fi_ctx_t *fic_dest, lws_fi_t *pfi, size_t trim)
 		       (size_t)((fi.count >> 3) + 1));
 	}
 
-	lws_fi_add(fic_dest, &fi);
+	if (!lws_fi_add(fic_dest, &fi))
+		/* the list owns any pattern allocation now */
+		return;
+
+	lwsl_err("%s: %s: OOM inheriting %s\n", __func__, fic_dest->name,
+		 pfi->name);
+
+	if (fi.type == LWSFI_PATTERN_ALLOC)
+		lws_free((void *)fi.pattern);
 }
 
 void
