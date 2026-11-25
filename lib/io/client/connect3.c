@@ -1912,57 +1912,21 @@ conn_good:
 
 oom4:
 	/*
-	 * We get here if we're trying to clean up a connection attempt that
-	 * didn't make it as far as getting inserted into the wsi / fd tables
+	 * The attempt failed before it had a connection.  We are not only
+	 * called from inside lws_client_connect_via_info(): async dns calls
+	 * us back with its failures long after that returned the wsi to the
+	 * user, and a redirect or a retry restarts the connection from dns on
+	 * a wsi he has had WSI_CREATE and callbacks on, and may be holding.
+	 * So it goes the way every other failure here goes, through the close
+	 * flow, which tells him about it with WSI_DESTROY, takes it off
+	 * whatever still refers to it, and frees it.  The user is told why
+	 * first, the close flow then finds he was told.
 	 */
 
-	if (lwsi_role_client(wsi) && wsi->a.protocol
-				/* && lwsi_state_est(wsi) */)
-		lws_inform_client_conn_fail(wsi,(void *)cce, strlen(cce));
+	if (lwsi_role_client(wsi) && wsi->a.protocol)
+		lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
 
-	/* take care that we might be inserted in fds already */
-	if (wsi->io->position_in_fds_table != LWS_NO_FDS_POS)
-		/* do the full wsi close flow */
-		goto failed1;
-
-	lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
-
-	/*
-	 * We can't be an active client connection any more, if we thought
-	 * that was what we were going to be doing.  It should be if we are
-	 * failing by oom4 path, we are still called by
-	 * lws_client_connect_via_info() and will be returning NULL to that,
-	 * so nobody else should have had a chance to queue on us.
-	 */
-	{
-		struct lws_context *cx = wsi->a.context;
-		lws_sockfd_type sfd = wsi->io->desc.sockfd;
-
-		/*
-		 * The trace check reads the wsi's sockfd and parallel
-		 * connection state, so it has to run while the wsi still
-		 * exists; nothing in the free touches the fd tables
-		 */
-		sanity_assert_no_wsi_traces(cx, wsi);
-
-		/*
-		 * The free unbinds the vhost (which may destroy it), under
-		 * the context lock, and resets the wsi, which changes the
-		 * pt's sul lists and ah pool, under the pt lock: context
-		 * lock, then pt lock, as close does.  No path here holds the
-		 * pt lock already, and the context lock nests.
-		 */
-		lws_context_lock(cx, __func__); /* ------------------ cx { */
-		lws_pt_lock(pt, __func__); /* ---------------------- pt { */
-		__lws_io_close_transport(wsi, LWS_IOCLOSE_RELEASE);
-		__lws_free_wsi(wsi); /* acquires vhost lock in wsi reset */
-		lws_pt_unlock(pt); /* } pt */
-		lws_context_unlock(cx); /* } cx */
-
-		sanity_assert_no_sockfd_traces(cx, sfd);
-	}
-
-	return NULL;
+	goto failed1;
 
 connect_to:
 	/*
