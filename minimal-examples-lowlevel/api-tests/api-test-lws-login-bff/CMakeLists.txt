@@ -19,6 +19,8 @@ require_lws_config(LWS_WITH_JOSE 1 requirements)
 require_lws_config(LWS_WITH_PLUGINS_BUILTIN 1 requirements)
 # protocol_lws_login only builds with lws_struct JSON, for the auth feed
 require_lws_config(LWS_WITH_STRUCT_JSON 1 requirements)
+# and its auth feed is a ws client
+require_lws_config(LWS_ROLE_WS 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
