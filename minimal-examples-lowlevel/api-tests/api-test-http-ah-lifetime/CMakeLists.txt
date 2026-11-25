@@ -41,7 +41,7 @@ if (requirements)
 	# failure names both
 	#
 	set(AHL_TESTS pipeline-depth:h1 slow-cl:h1 slow-stream:h1 late-spa:h1
-		      body-rate:h1)
+		      body-rate:h1 cli-release:h1)
 	set(AHL_ROLES h1)
 	if (AHL_H2)
 		list(APPEND AHL_ROLES h2)
