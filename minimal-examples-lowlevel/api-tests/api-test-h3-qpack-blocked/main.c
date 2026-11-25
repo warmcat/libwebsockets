@@ -517,6 +517,11 @@ main(int argc, const char **argv)
 	signal(SIGINT, sigint_handler);
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	/*
+	 * the defaults budget fds for a lone client; we have both ends, and
+	 * part 5 has its 9 redirected requests' connections open at once
+	 */
+	info.fd_limit_per_thread = 0;
 
 	lwsl_user("LWS API selftest: h3 qpack blocked streams\n");
 
