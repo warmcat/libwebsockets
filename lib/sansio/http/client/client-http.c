@@ -2177,7 +2177,16 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		if (wsi->a.protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
 					    wsi->user_space, NULL, 0)) {
-			wsi->stream.ah = ah1;
+			/*
+			 * The user callback may have handed the headers back
+			 * with lws_http_headers_detach(); for h1 that detaches
+			 * and frees the ah synchronously and clears
+			 * wsi->stream.ah.  Only put the previous ah back if our
+			 * temporary one is still attached, otherwise we would
+			 * restore a dangling pointer to freed memory.
+			 */
+			if (wsi->stream.ah == ah)
+				wsi->stream.ah = ah1;
 			cce = "HS: disallowed by client filter";
 			goto bail2;
 		}
@@ -2191,12 +2200,14 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		if (wsi->a.protocol->callback(wsi,
 					    LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP,
 					    wsi->user_space, NULL, 0)) {
-			wsi->stream.ah = ah1;
+			if (wsi->stream.ah == ah)
+				wsi->stream.ah = ah1;
 			cce = "HS: disallowed at ESTABLISHED";
 			goto bail3_l;
 		}
 
-		wsi->stream.ah = ah1;
+		if (wsi->stream.ah == ah)
+			wsi->stream.ah = ah1;
 
 		lwsl_info("%s: %s: client conn up\n", __func__, lws_wsi_tag(wsi));
 
