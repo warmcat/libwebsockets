@@ -193,7 +193,7 @@ static void
 cli_parse(void)
 {
 	const uint8_t *f;
-	size_t flen;
+	size_t flen, n;
 	uint32_t sid;
 	char *e;
 
@@ -214,22 +214,32 @@ cli_parse(void)
 		cli.pos = lws_ptr_diff_size_t(e + 4, (char *)cli.rx);
 	}
 
-	while (cli.rx_len - cli.pos >= 9) {
+	while (cli.pos <= cli.rx_len && cli.rx_len - cli.pos >= 9) {
 		f = cli.rx + cli.pos;
 		flen = ((size_t)f[0] << 16) | ((size_t)f[1] << 8) | f[2];
+		if (flen > sizeof(cli.rx) - 1 - 9) {
+			/* could never fit in cli.rx, so could never complete */
+			lwsl_err("%s: frame length %u\n", __func__,
+				 (unsigned int)flen);
+			case_judge();
+			return;
+		}
 		if (cli.rx_len - cli.pos < 9 + flen)
 			return; /* the rest of the frame to come */
 		sid = lws_ser_ru32be(f + 5) & 0x7fffffff;
 
 		if ((sid == 1 || sid == 3) && !f[3] && flen) { /* DATA */
-			if (flen > sizeof(cli.body) - 1 - cli.body_len)
-				flen = sizeof(cli.body) - 1 - cli.body_len;
-			memcpy(cli.body + cli.body_len, f + 9, flen);
-			cli.body_len += flen;
-			cli.body[cli.body_len] = '\0';
+			/*
+			 * cli is zeroed for each case, and body's last byte is
+			 * never written, so it stays NUL-terminated
+			 */
+			n = sizeof(cli.body) - 1 - cli.body_len;
+			if (n > flen)
+				n = flen;
+			memcpy(cli.body + cli.body_len, f + 9, n);
+			cli.body_len += n;
 		}
-		cli.pos += 9 + (((size_t)f[0] << 16) | ((size_t)f[1] << 8) |
-				f[2]);
+		cli.pos += 9 + flen;
 
 		if (f[3] == 7 && flen >= 8) {
 			cli.goaway = 1 + (int)lws_ser_ru32be(f + 9 + 4);

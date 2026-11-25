@@ -417,7 +417,10 @@ test_deferred_failure_exits(void)
 				.type = LWSFI_ALWAYS };
 
 		init_info(&info, 1);
-		lws_fi_add(&info.fic, &fi);
+		if (lws_fi_add(&info.fic, &fi)) {
+			lwsl_err("%s: unable to add fault\n", __func__);
+			_exit(2);
+		}
 
 		child_service(&info);
 
