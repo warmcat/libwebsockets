@@ -36,6 +36,13 @@
  * not send a request the server might have to block, so must hold it until
  * the server acknowledges the insert: then it is answered 200.  Sent at once,
  * it arrives before the insert and the server fails the connection.
+ *
+ * Part 5: the client ignores the server's qpack acknowledgments, so every
+ * request referring to the insert might block until it ends, and 9 of them
+ * are sent: one is held for the other 8.  The server redirects them all to
+ * the second server, on another connection.  A redirect resets its stream
+ * before it closes, so the held one must be woken by the resets: nothing on
+ * the connection ends any other way that would wake it.
  */
 
 #include <libwebsockets.h>
@@ -54,6 +61,7 @@
 enum {
 	HQB_REF,	/* the request refers to the cookie entry */
 	HQB_PLAIN,	/* the request refers to nothing in the table */
+	HQB_REDIR,	/* refers to it, and is redirected to the other server */
 };
 
 struct hqb_req {
@@ -64,7 +72,7 @@ struct hqb_req {
 };
 
 static struct lws_context *context;
-static struct lws_vhost *vh_cli[4];
+static struct lws_vhost *vh_cli[5];
 static lws_sorted_usec_list_t sul_watchdog, sul_next;
 static const char *server_addr = "127.0.0.1";
 static struct hqb_req reqs[HQB_BLOCKED + 2];
@@ -81,9 +89,23 @@ callback_srv(struct lws *wsi, enum lws_callback_reasons reason,
 	uint8_t buf[LWS_PRE + 256], *start = &buf[LWS_PRE], *p = start,
 		*end = &buf[sizeof(buf) - 1];
 	int status = HTTP_STATUS_OK;
+	char loc[128];
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
+		/* part 5: to the other server, on another connection */
+		if (!strcmp((const char *)in, "/redir")) {
+			int n = lws_snprintf(loc, sizeof(loc), "https://%s:%d/plain",
+					     server_addr, port_nb);
+
+			if (lws_http_redirect(wsi, HTTP_STATUS_FOUND,
+					      (const unsigned char *)loc, n,
+					      &p, end) < 0)
+				return -1;
+
+			return lws_http_transaction_completed(wsi) ? -1 : 0;
+		}
+
 		/* a request referring to the entry has the whole cookie */
 		if (!strcmp((const char *)in, "/ref") &&
 		    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE) !=
@@ -153,7 +175,8 @@ hqb_send(uint8_t kind, const char *fault, const char *fault2)
 	i.origin		= server_addr;
 	/* part 4 is for the server that lets no stream wait */
 	i.port			= part == 3 ? port_nb : port;
-	i.path			= kind == HQB_REF ? "/ref" : "/plain";
+	i.path			= kind == HQB_REF ? "/ref" :
+				  (kind == HQB_REDIR ? "/redir" : "/plain");
 	i.method		= "GET";
 	i.alpn			= "h3";
 	i.protocol		= "cli";
@@ -260,6 +283,17 @@ hqb_part_cb(lws_sorted_usec_list_t *sul)
 		if (hqb_send(HQB_REF, "h3_qpack_enc_big_entry_late", NULL))
 			hqb_finish("request not sent", 0);
 		return;
+
+	case 4:
+		lwsl_user("%s: 5: a request held for %d that are redirected "
+			  "elsewhere, as it is\n", __func__, HQB_BLOCKED);
+		for (n = 0; n <= HQB_BLOCKED; n++)
+			if (hqb_send(HQB_REDIR, "h3_qpack_enc_big_entry",
+				     NULL)) {
+				hqb_finish("request not sent", 0);
+				return;
+			}
+		return;
 	}
 }
 
@@ -334,10 +368,19 @@ hqb_req_done(struct hqb_req *r, int status)
 				   "block, to a server letting none", 0);
 			return;
 		}
+		hqb_next_part();
+		return;
+
+	case 4:
+		if (answered != HQB_BLOCKED + 1) {
+			hqb_finish("5: requests were not all answered", 0);
+			return;
+		}
 		hqb_finish("1: the request waited for its insert, 2: one "
 			   "too many waiting failed the connection, 3: the "
 			   "ones given up on stopped counting, 4: the client "
-			   "held a request that might block", 1);
+			   "held a request that might block, 5: redirects "
+			   "woke the request held for them", 1);
 		return;
 	}
 }
@@ -351,8 +394,14 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	int lenx = (int)sizeof(buf) - LWS_PRE, m;
 
 	switch (reason) {
+	case LWS_CALLBACK_CLIENT_HTTP_REDIRECT:
+		/* where it is going, it refers to nothing */
+		if (r)
+			r->kind = HQB_PLAIN;
+		break;
+
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
-		if (!r || r->kind != HQB_REF)
+		if (!r || r->kind == HQB_PLAIN)
 			break;
 		/*
 		 * The section's prefix says it needs the one entry the fault
@@ -528,7 +577,13 @@ main(int argc, const char **argv)
 	for (n = 0; n < LWS_ARRAY_SIZE(vh_cli); n++) {
 		lws_snprintf(name, sizeof(name), "cli%u", (unsigned int)n);
 		info.vhost_name = name;
-		vh_cli[n] = lws_create_vhost(context, &info);
+		/* part 5's connection ignores the server's qpack acks */
+		if (n == 4) {
+			fi.name = "h3_qpack_enc_ignore_acks";
+			if (lws_fi_add(&info.fic, &fi))
+				goto bail;
+		}
+		vh_cli[n] = lws_create_vhost(context, &info); /* takes fic */
 		if (!vh_cli[n])
 			goto bail;
 	}
