@@ -40,7 +40,10 @@
  * valid program and a mutation reshapes rather than invalidates it.  After
  * the program, the peer finishes sending, and the time runs on until lws
  * has closed the connection; if it still hasn't, it is killed, so no
- * connection outlives its input.
+ * connection outlives its input.  On the client side, a request that left
+ * our transport, eg, for a connection of its own after a redirect, still
+ * waiting for dns, is killed too: the application tells us about it
+ * (fzp_client_wsi_hook).
  *
  * A harness defines FZP_SERVER or FZP_CLIENT before including this, for the
  * side lws is on.
@@ -118,6 +121,16 @@ static void (*fzp_tx_hook)(const uint8_t *buf, size_t len);
  */
 static size_t (*fzp_op_hook)(struct fzp_transport *t, int a,
 			     const uint8_t *in, size_t len);
+
+#if defined(FZP_CLIENT)
+/*
+ * The client application's request's wsi while it exists, ie, until its
+ * LWS_CALLBACK_WSI_DESTROY, else NULL.  A redirect or a retry can take the
+ * request off our transport on to a connection of its own, so that our
+ * transport ending doesn't end it.
+ */
+static struct lws *(*fzp_client_wsi_hook)(void);
+#endif
 
 static void
 fzp_set_now(void)
@@ -507,6 +520,33 @@ fzp_server_session(struct lws_vhost *vh, const uint8_t *prelude,
 
 #if defined(FZP_CLIENT)
 /*
+ * The request is over with its input: one that left our transport, so that
+ * it's still alive, eg, waiting for dns after a redirect, is killed, and
+ * whatever its close leaves due runs.  Otherwise it would live on into
+ * later inputs, which a finding then needs to reproduce.
+ */
+static void
+fzp_client_release(struct fzp_transport *t)
+{
+	struct lws *wsi = fzp_client_wsi_hook ? fzp_client_wsi_hook() : NULL;
+
+	if (wsi) {
+		lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND,
+				LWS_TO_KILL_SYNC);
+		fzp_advance(t, LWS_US_PER_SEC);
+
+		if (fzp_client_wsi_hook()) {
+			/* lws didn't close it, or not with its WSI_DESTROY */
+			fprintf(stderr, "LWS FUZZ ORACLE: a killed client "
+					"request lives on\n");
+			abort();
+		}
+	}
+
+	t->fd = -1;
+}
+
+/*
  * A client connection made over our transport from ci, which is completed
  * with the transport: returns the transport with its request offered the
  * chance to go, or NULL if the connection didn't start
@@ -531,12 +571,12 @@ fzp_client_start(struct lws_client_connect_info *ci)
 
 	t->wsi = lws_client_connect_via_info(ci);
 	if (!t->wsi || t->closed) {
-		t->fd = -1;
+		fzp_client_release(t);
 		return NULL;
 	}
 	fzp_pump(t);
 	if (t->closed) {
-		t->fd = -1;
+		fzp_client_release(t);
 		return NULL;
 	}
 
@@ -547,7 +587,7 @@ static void
 fzp_client_end(struct fzp_transport *t, const uint8_t *in, size_t len)
 {
 	fzp_run(t, in, len);
-	t->fd = -1;
+	fzp_client_release(t);
 }
 #endif
 

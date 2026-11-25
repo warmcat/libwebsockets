@@ -145,6 +145,9 @@ fzc_callback(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	{
 		lws_client_redirect_info_t ri;
 
+		/* the request may go on a connection of its own from here */
+		fzc.wsi = wsi;
+
 		/* in is the Location as the server sent it */
 		if (in && !lws_client_redirect_info(wsi, &ri) &&
 		    ri.credentials_ok && !fzc_creds_may_go((const char *)in))
@@ -266,6 +269,13 @@ fzc_event(struct fzp_transport *t, int ev)
 
 static struct lws_vhost *fzc_vh;
 
+/* the request's wsi, for the peer to kill if it outlives the input */
+static struct lws *
+fzc_request_wsi(void)
+{
+	return fzc.wsi;
+}
+
 static void
 fzc_cleanup(void)
 {
@@ -304,6 +314,7 @@ fzc_init(void)
 #endif
 	fzc_vh = lws_create_vhost(fzp_cx, &info);
 	fzp_event_hook = fzc_event;
+	fzp_client_wsi_hook = fzc_request_wsi;
 
 	return !fzc_vh;
 }
