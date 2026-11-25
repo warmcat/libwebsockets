@@ -3,6 +3,8 @@ set(requirements 1)
 require_lws_config(LWS_WITH_DIR 1 requirements)
 require_lws_config(LWS_WITH_TLS 1 requirements)
 require_lws_config(LWS_WITH_STUB 1 requirements)
+# it is a ws protocol
+require_lws_config(LWS_ROLE_WS 1 requirements)
 
 
 if (requirements)
