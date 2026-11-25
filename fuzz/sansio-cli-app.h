@@ -85,6 +85,11 @@ fzc_callback(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		break;
 
+	case LWS_CALLBACK_CLIENT_HTTP_REDIRECT:
+		/* the request may go on a connection of its own from here */
+		fzc.wsi = wsi;
+		break;
+
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
 		fzc.wsi = wsi;
 		if (fzc.post_pieces) {
@@ -197,6 +202,13 @@ fzc_event(struct fzp_transport *t, int ev)
 
 static struct lws_vhost *fzc_vh;
 
+/* the request's wsi, for the peer to kill if it outlives the input */
+static struct lws *
+fzc_request_wsi(void)
+{
+	return fzc.wsi;
+}
+
 static int
 fzc_init(void)
 {
@@ -216,6 +228,7 @@ fzc_init(void)
 #endif
 	fzc_vh = lws_create_vhost(fzp_cx, &info);
 	fzp_event_hook = fzc_event;
+	fzp_client_wsi_hook = fzc_request_wsi;
 
 	return !fzc_vh;
 }
