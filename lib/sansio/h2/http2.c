@@ -2350,6 +2350,24 @@ static unsigned char method_index[] = {
  * So in that case we change the wsi state and do the lws_http_action() in the
  * WRITABLE handler as a priority.
  */
+#if defined(LWS_WITH_CLIENT)
+/* the client's sid 1 gets a copy of the connection's request stash */
+static int
+lws_h2_client_migrate_stash(struct lws *swsi, struct lws *wsi)
+{
+	const char *cisin[CIS_COUNT];
+	int m;
+
+	for (m = 0; m < CIS_COUNT; m++)
+		cisin[m] = wsi->stash->cis[m];
+	if (lws_client_stash_create(swsi, cisin))
+		return 1;
+	swsi->stash->opaque_user_data = wsi->stash->opaque_user_data;
+
+	return 0;
+}
+#endif
+
 static int
 lws_h2_parse_end_of_frame(struct lws *wsi)
 {
@@ -2382,12 +2400,21 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		    !(h2n->flags & LWS_H2_FLAG_SETTINGS_ACK)) {
 			struct lws_h2_protocol_send *pps;
 
-			/* migrate original client ask on to substream 1 */
-#if defined(LWS_WITH_FILE_OPS)
-			wsi->http.fop_fd = NULL;
+			/*
+			 * Migrate the original client ask on to substream 1.
+			 *
+			 * Until the ask has moved, the connection is still the
+			 * user's wsi, and its close tells him the connection
+			 * failed.  Once it moved, sid 1 is his, and its close
+			 * tells him.  In between, his protocol and pss would
+			 * be on one and his request on the other, and neither
+			 * close would tell him anything: so everything that
+			 * can fail is done first, before anything moves.
+			 */
+#if defined(LWS_WITH_SECURE_STREAMS)
+			if (wsi->for_ss && !lws_get_opaque_user_data(wsi))
+				return 1;
 #endif
-			lwsl_info("%s: migrating\n", __func__);
-			lws_wsi_event(wsi, LWS_WSIEV_MUX_MIGRATED);
 			/*
 			 * we need to treat the headers from the upgrade as the
 			 * first job.  So these need to get shifted to sid 1.
@@ -2402,6 +2429,38 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 			if (!h2n->swsi)
 				return 1;
+
+			/*
+			 * The request's stash, that a digest auth retry takes
+			 * its credentials from, and a redirect judges where
+			 * they may go by.  A copy: alt-svc still reads the
+			 * connection's address and host from its own
+			 */
+			if (
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+			    lws_fi(&wsi->fic, "h2_client_migrate_oom") ||
+#endif
+			    (wsi->stash &&
+			     lws_h2_client_migrate_stash(h2n->swsi, wsi))) {
+				/*
+				 * Nothing of the user's is on it: it goes as
+				 * lws' own, and the connection's close tells
+				 * him
+				 */
+				h2n->swsi->internal = 1;
+				lws_close_free_wsi(h2n->swsi,
+						   LWS_CLOSE_STATUS_NOSTATUS,
+						   "h2 migration OOM");
+				h2n->swsi = NULL;
+
+				return 1;
+			}
+
+#if defined(LWS_WITH_FILE_OPS)
+			wsi->http.fop_fd = NULL;
+#endif
+			lwsl_info("%s: migrating\n", __func__);
+			lws_wsi_event(wsi, LWS_WSIEV_MUX_MIGRATED);
 			h2n->sid = 1;
 
 			assert(lws_wsi_mux_from_id(wsi, 1) == h2n->swsi);
@@ -2465,23 +2524,6 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 						wsi->http.digest_auth_hdr;
 			wsi->http.digest_auth_hdr = NULL;
 #endif
-			/*
-			 * ... and the request's stash, that a digest auth
-			 * retry takes its credentials from, and a redirect
-			 * judges where they may go by.  A copy: alt-svc still
-			 * reads the connection's address and host from its own
-			 */
-			if (wsi->stash) {
-				const char *cisin[CIS_COUNT];
-				int m;
-
-				for (m = 0; m < CIS_COUNT; m++)
-					cisin[m] = wsi->stash->cis[m];
-				if (lws_client_stash_create(h2n->swsi, cisin))
-					return 1;
-				h2n->swsi->stash->opaque_user_data =
-						wsi->stash->opaque_user_data;
-			}
 #if defined(LWS_WITH_CONMON)
 			/* sid1 needs to represent the connection experience
 			 * ... we take over responsibility for the DNS list
@@ -2495,10 +2537,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 			if (wsi->for_ss) {
+				/* its handle was checked before anything moved */
 				lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 
-				if (!h)
-					return 1;
 				h2n->swsi->for_ss = 1;
 				wsi->for_ss = 0;
 

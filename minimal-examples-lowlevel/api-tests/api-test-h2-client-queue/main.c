@@ -42,6 +42,14 @@
  *    wait for the fixture's FIN rather than reset the connection, which a
  *    peer may take as leave to drop the GOAWAY unread (Windows does).
  *
+ *  - leg 3: the client fails to move the first request on to sid 1, on the
+ *    fixture's SETTINGS, for want of memory (fault h2_client_migrate_oom).
+ *    The app must be told the first failed with CLIENT_CONNECTION_ERROR, and
+ *    the queued one closes with the connection, neither sent: the move must
+ *    not leave the request half on the connection and half on sid 1, where
+ *    neither's close told the app anything.  Only with
+ *    LWS_WITH_SYS_FAULT_INJECTION.
+ *
  * A leg that does not reach its expected end inside LEG_WATCHDOG_S fails.
  */
 
@@ -77,14 +85,19 @@ struct leg {
 	const char	*name;
 	uint8_t		raise;		/* SETTINGS raises the limit later */
 	uint8_t		premature;	/* HEADERS on sid 1 before it went */
+	uint8_t		mig_oom;	/* the move to sid 1 fails */
 };
 
 static const struct leg legs[] = {
 	{ "the peer's stream limit stays 0: the queued request fails in time "
-	  "and the connection idles out", 0, 0 },
-	{ "the peer raises its stream limit: the queued request goes", 1, 0 },
+	  "and the connection idles out", 0, 0, 0 },
+	{ "the peer raises its stream limit: the queued request goes", 1, 0, 0 },
 	{ "the peer starts a response on sid 1 before its request went: "
-	  "refused before any request is sent", 0, 1 },
+	  "refused before any request is sent", 0, 1, 0 },
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	{ "the move of the request to sid 1 fails: the app is told it failed",
+	  0, 0, 1 },
+#endif
 };
 
 /* one fixture connection */
@@ -399,7 +412,24 @@ leg_evaluate(void)
 	if (!reqs[0].error && !reqs[0].closed && !reqs[0].completed)
 		return;
 
-	if (l->premature) {
+	if (l->mig_oom) {
+		if (!reqs[1].error && !reqs[1].closed && !reqs[1].completed)
+			return;
+		/* the one queued behind it closes with the connection */
+		if (!reqs[0].error || reqs[0].completed ||
+		    reqs[1].completed) {
+			lwsl_err("%s: the app was not told the request failed "
+				 "(error %d, completed %d %d)\n", __func__,
+				 reqs[0].error, reqs[0].completed,
+				 reqs[1].completed);
+			fail = 1;
+		}
+		if (srv.headers) {
+			lwsl_err("%s: client sent %d HEADERS\n", __func__,
+				 srv.headers);
+			fail = 1;
+		}
+	} else if (l->premature) {
 		if (!reqs[1].error && !reqs[1].closed && !reqs[1].completed)
 			return;
 		/* the GOAWAY is only all in once the connection has gone */
@@ -460,7 +490,7 @@ leg_evaluate(void)
 	if (!fail && srv.closed < srv.accepted)
 		return;
 
-	if (!l->premature && !srv.refused) {
+	if (!l->premature && !l->mig_oom && !srv.refused) {
 		lwsl_err("%s: fixture refused no stream\n", __func__);
 		fail = 1;
 	}
@@ -547,6 +577,9 @@ static int
 req_start(int n)
 {
 	struct lws_client_connect_info i;
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_fi_t fi;
+#endif
 
 	memset(&i, 0, sizeof(i));
 	i.context = context;
@@ -562,7 +595,21 @@ req_start(int n)
 	i.keep_warm_secs = KEEP_WARM_S;
 	i.ssl_connection = LCCSCF_PIPELINE | LCCSCF_H2_PRIOR_KNOWLEDGE;
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	/* the first request's wsi is the connection, that migrates it */
+	if (!n && legs[cur].mig_oom) {
+		memset(&fi, 0, sizeof(fi));
+		fi.name = "h2_client_migrate_oom";
+		fi.type = LWSFI_ALWAYS;
+		if (lws_fi_add(&i.fic, &fi))
+			return 1;
+	}
+#endif
+
 	if (!lws_client_connect_via_info(&i)) {
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		lws_fi_destroy(&i.fic);
+#endif
 		lwsl_err("%s: request %d: connect failed\n", __func__, n);
 		return 1;
 	}
